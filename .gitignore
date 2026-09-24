@@ -1,0 +1,3 @@
+echo "credentials.json" >> .gitignore
+echo ".env" >> .gitignore
+echo "__pycache__/" >> .gitignore
