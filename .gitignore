@@ -3,3 +3,4 @@ echo ".env" >> .gitignore
 echo "__pycache__/" >> .gitignore.env
 credentials.json
 __pycache__/
+.env
