@@ -9,7 +9,6 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 load_dotenv()
 app = FastAPI()
 
-# ذاكرة المحادثة المؤقتة
 chat_history = [
     SystemMessage(content=(
         "أنت مستشار قانوني إماراتي خبير. مهمتك صياغة المستندات بناءً على أسلوب المستخدم المخزن في قواعد البيانات.\n"
