@@ -122,6 +122,27 @@ comment on table legal_poa is 'الوكالات والتوكيلات والتف�
 
 
 -- ==============================================================================
+-- ٥-ب. ترقية قاعدة بيانات موجودة (Top-up for an existing database)
+-- ==============================================================================
+-- ⚠️ مهم: عبارات `create table if not exists` أعلاه **لا تضيف أعمدة** إلى جدول
+--    موجود بالفعل — إن كان الجدول موجوداً فإن العبارة كلها تُتجاهل. لذا إن كانت
+--    قاعدة بياناتك أُنشئت قبل هذا الملف، فلن تُضاف الأعمدة الناقصة تلقائياً.
+--
+--    هذه الكتلة تكمّل النقص بأمان، وهي idempotent: لا تفعل شيئاً إن كان العمود
+--    موجوداً. لا تحذف بيانات ولا تُغيّر نوع أي عمود.
+--
+-- لماذا source_file؟ لأن contracts_ingester.py كان يفحص وجود الملف عبر
+-- source_file قبل الرفع دون أن يكتبه، فأُصلح ليكتبه. فإن لم يكن العمود موجوداً
+-- في legal_contracts سيفشل الإدخال بخطأ "column source_file does not exist".
+
+alter table legal_documents add column if not exists source_file text;
+alter table legal_drafts    add column if not exists source_file text;
+alter table legal_contracts add column if not exists source_file text;
+alter table legal_notices   add column if not exists source_file text;
+alter table legal_poa       add column if not exists source_file text;
+
+
+-- ==============================================================================
 -- ٦. الفهارس
 -- ==============================================================================
 -- ملاحظة: أعمدة source_file مُضافة إلى الجداول الخمسة لأن كل سكربتات الاستيعاب
