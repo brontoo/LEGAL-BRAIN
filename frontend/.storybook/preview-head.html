@@ -1,0 +1,44 @@
+<!--
+  ==============================================================================
+  يُحقن هذا الملف داخل <head> لإطار المعاينة (preview iframe) في Storybook.
+  ==============================================================================
+  الغرض: محاكاة ما يفعله تطبيقك الحقيقي في frontend/app/layout.tsx حرفياً:
+
+      <html lang="ar" dir="rtl" className="dark">
+
+  ثوابت المشروع التي نُحاكيها:
+    dir="rtl"      → اتجاه النص العربي (يؤثر في كل التخطيط)
+    lang="ar"      → مهم لقارئات الشاشة ولفحص الوصولية
+    class="dark"   → متغيّرات الثيم الداكن من app/globals.css
+
+  بدون هذا الملف تُرسم المكوّنات بالثيم الفاتح وباتجاه LTR — أي بخلاف
+  ما يراه المستخدم فعلاً، فتفقد القصص قيمتها.
+
+  ⚠️ ملاحظة من الوثائق: هذا الملف لا يخضع للـ HMR، فأعد تشغيل Storybook
+  بعد تعديله.
+-->
+<script>
+  (function () {
+    var root = document.documentElement;
+    root.setAttribute("lang", "ar");
+    root.setAttribute("dir", "rtl");
+    root.classList.add("dark");
+  })();
+</script>
+
+<!--
+  خط Tajawal — نفس خط التطبيق.
+  في التطبيق يأتي عبر next/font/google الذي لا يعمل داخل Storybook، فنجلبه
+  من Google Fonts مباشرة ونعرّف --font-sans كما يفعل next/font.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&display=swap"
+  rel="stylesheet"
+/>
+<style>
+  :root {
+    --font-sans: "Tajawal", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+</style>
