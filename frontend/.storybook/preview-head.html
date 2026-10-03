@@ -41,4 +41,18 @@
   :root {
     --font-sans: "Tajawal", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
+
+  /*
+    خلفية التطبيق الحقيقية.
+    في frontend/app/layout.tsx:
+        <body className="... bg-slate-950 text-slate-50 ...">
+    والتطبيق داكن فقط — لا يوجد مبدّل ثيم، و className="dark" مثبَّت في layout.tsx.
+    لذلك نفرض الخلفية الداكنة بلا شرط. بدونها تُرسم القصص على لوحة Storybook
+    البيضاء، وهي خلفية لا يراها مستخدمك أبداً.
+  */
+  html,
+  body {
+    background-color: #020617; /* slate-950 */
+    color: #f8fafc; /* slate-50 */
+  }
 </style>

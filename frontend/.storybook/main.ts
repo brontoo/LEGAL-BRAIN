@@ -10,12 +10,15 @@ import type { StorybookConfig } from "@storybook/nextjs-vite";
  */
 const config: StorybookConfig = {
   stories: [
-    // قصص المكوّنات
-    "../components/**/*.mdx",
+    // قصص مكوّنات الواجهة — النمط الوحيد الموجود حالياً.
+    //
+    // لو أضفت لاحقاً صفحات توثيق MDX أو قصصاً لصفحات التطبيق، أضف الأنماط
+    // التالية. تُركت مُعلَّقة لأن Storybook يطبع تحذيراً عند كل تشغيل على نمط
+    // لا يطابق شيئاً، والتحذيرات الكاذبة تُخفي الأخطاء الحقيقية.
+    //   "../components/**/*.mdx",
+    //   "../app/**/*.mdx",
+    //   "../app/**/*.stories.@(js|jsx|mjs|ts|tsx)",
     "../components/**/*.stories.@(js|jsx|mjs|ts|tsx)",
-    // قصص الصفحات (لو أُضيفت لاحقاً)
-    "../app/**/*.mdx",
-    "../app/**/*.stories.@(js|jsx|mjs|ts|tsx)",
   ],
 
   addons: [
