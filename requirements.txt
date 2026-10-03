@@ -1,0 +1,87 @@
+# ==============================================================================
+# LEGAL-BRAIN — اعتماديات الخادم (Backend dependencies)
+# ==============================================================================
+# التثبيت:            pip install -r requirements.txt
+# تثبيت نظامي مطلوب:  انظر قسم "System dependencies" في الأسفل — ليست حزم pip
+# Python:             3.11+ (طُوِّر المشروع أصلاً على 3.14)
+#
+# ملاحظة: الإصدارات مثبّتة (==) على أحدث نسخة متاحة والمُتحقَّق من وجودها.
+# بعد أول تثبيت ناجح، ثبّت الشجرة كاملة بـ:
+#     pip freeze > requirements.lock.txt
+# ==============================================================================
+
+# --- ١. الويب وواجهة الـ API -------------------------------------------------
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
+python-dotenv==1.2.4
+
+# --- ٢. قاعدة المعرفة (Supabase + pgvector) ----------------------------------
+supabase==2.32.0
+
+# --- ٣. التضمين المتجهي (Embeddings) -----------------------------------------
+# يُحمّل النموذج intfloat/multilingual-e5-large (~2.2 GB) عند أول تشغيل.
+# يجرّ معه: torch, transformers, numpy, huggingface-hub
+sentence-transformers==6.1.0
+
+# --- ٤. طبقة الوكلاء (LangGraph + LangChain) ---------------------------------
+langgraph==1.2.12
+langchain-core==1.6.6
+
+# المزوّد الأساسي للوكيل (legal_agent.py)
+langchain-google-genai==4.4.0
+google-genai==2.28.0
+
+# مزوّد بديل مُستخدَم في ask_brain.py و test_groq.py
+langchain-groq==1.1.3
+groq==1.7.0
+
+# --- ٥. واجهة Chainlit -------------------------------------------------------
+chainlit==2.12.0
+
+# --- ٦. خطوط الاستيعاب (Ingestion pipelines) --------------------------------
+# استخراج HTML (التشريعات)
+beautifulsoup4==4.15.0
+
+# قراءة PDF و Word
+pymupdf==1.28.2
+python-docx==1.2.0
+
+# مسح ضوئي ضوئي (OCR) — pdf_ingester.py
+pytesseract==0.3.13
+pdf2image==1.17.0
+
+# الاتصال بـ Google Drive
+google-api-python-client==2.201.0
+google-auth==2.59.1
+google-auth-oauthlib==1.5.0
+
+# --- ٧. تنسيق سرب الوكلاء (smart_office.py / office_test.py) -----------------
+# ⚠️ swarmmy ليست على PyPI (تحقّقنا: 404). تُثبَّت من GitHub مباشرة:
+swarmmy @ git+https://github.com/loayabdalslam/Swarmmy.git
+
+# ==============================================================================
+# System dependencies — حزم نظام لا تُثبَّت بـ pip
+# ==============================================================================
+# pdf_ingester.py يحتاج ثنائيات خارجية، وإلا فشل في وقت التشغيل:
+#
+#   1) Tesseract OCR + حزمة اللغة العربية:
+#        Ubuntu/Debian : sudo apt install tesseract-ocr tesseract-ocr-ara poppler-utils
+#        macOS         : brew install tesseract tesseract-lang poppler
+#        Windows       : ثبّت Tesseract من UB-Mannheim ثم poppler للمسار PATH
+#
+#   2) Poppler (يستخدمه pdf2image):
+#        Ubuntu/Debian : sudo apt install poppler-utils
+#        macOS         : brew install poppler
+#
+# للتحقق بعد التثبيت:
+#     tesseract --list-langs     # يجب أن تظهر "ara"
+#     pdftoppm -v                # يجب أن يظهر إصدار poppler
+#
+# ==============================================================================
+# ملفات اعتماد إضافية مطلوبة وقت التشغيل (غير مُتتبَّعة في git)
+# ==============================================================================
+#   credentials.json  — مفتاح حساب خدمة Google (Service Account)
+#                       يُستخدم في: notices / contracts / drafts / poa / pdf / html
+#   token.pickle      — جلسة OAuth (يُستخدمها ingest_documents.py فقط)
+#   .env              — انظر .env.example

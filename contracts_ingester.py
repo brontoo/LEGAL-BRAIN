@@ -125,7 +125,10 @@ def ingest_contract_chunks(chunks_data):
             "document_type": metadata["document_type"],
             "chunk_content": chunk_text,
             "metadata": metadata,
-            "embedding": vector
+            "embedding": vector,
+            # مطلوب: الفحص قبل الرفع يبحث في عمود source_file.
+            # بدون هذا السطر لا يجد الفحص شيئاً أبداً فيُكرّر العقد في كل تشغيل.
+            "source_file": metadata["source_file"]
         }
         
         try:

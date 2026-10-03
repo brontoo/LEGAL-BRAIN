@@ -2,65 +2,125 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Send, FileText, Loader2, CheckCircle, Bot, User, Scale } from "lucide-react";
+import { Send, FileText, Loader2, CheckCircle, Bot, Scale, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 
+// عنوان خادم FastAPI. قابل للضبط من .env.local — انظر .env.local.example
+// لاحظ: كان الرابط مُثبَّتاً داخل الكود على نطاق GitHub Codespaces مؤقت ينتهي
+// صلاحيته، فكانت الصفحة تفشل دائماً بعد إغلاق الجلسة.
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
+  /\/+$/,
+  ""
+);
+
+// مهلة قصوى لتوليد المستند (المستندات الطويلة تستغرق وقتاً)
+const GENERATION_TIMEOUT_MS = 180_000;
+
+type Status = "idle" | "processing" | "done" | "error";
+
+type StreamEvent =
+  | { type: "stage"; message: string }
+  | { type: "done"; document: string }
+  | { type: "error"; message: string };
+
 export default function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
-  const [status, setStatus] = useState("idle"); // idle, processing, done, error
+  const [status, setStatus] = useState<Status>("idle");
   const [liveMessage, setLiveMessage] = useState("");
   const [finalDocument, setFinalDocument] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
-    
+
     setStatus("processing");
     setLiveMessage("جاري إيقاظ فريق العقل القانوني...");
     setFinalDocument("");
+    setErrorMessage("");
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
 
     try {
-      // نستخدم fetch لعمل POST request وقراءة البث الحي (SSE)
-      const response = await fetch("https://studious-train-94vrq4qj9937r4j-8000.app.github.dev/", {
+      const response = await fetch(`${API_URL}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, doc_type: docType }),
+        signal: controller.signal,
       });
 
-      if (!response.body) throw new Error("لا يوجد استجابة من الخادم");
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`الخادم أعاد الخطأ ${response.status} — ${detail.slice(0, 300)}`);
+      }
+      if (!response.body) {
+        throw new Error("الخادم لم يُرجع بثّاً صالحاً");
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+
+      // مخزن مؤقت: حدث SSE واحد قد يصل مقسّماً على أكثر من قطعة شبكية.
+      // النسخة السابقة قسّمت كل قطعة على "\n\n" مباشرة، فكان أي حدث ينقسم
+      // بين قطعتين يُسقَط بصمت ويبقى المستخدم عالقاً في شاشة التحميل.
+      let buffer = "";
+      // هل وصل حدث ختامي (done/error)؟ إن لا، فالخادم قطع البثّ في المنتصف.
+      let sawTerminal = false;
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n\n");
+        buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = JSON.parse(line.replace("data: ", ""));
-            
-            if (data.type === "stage") {
-              setLiveMessage(data.message);
-            } else if (data.type === "done") {
-              setFinalDocument(data.document);
-              setStatus("done");
-            } else if (data.type === "error") {
-              setLiveMessage(`خطأ: ${data.message}`);
-              setStatus("error");
-            }
+        let boundary: number;
+        while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+          const rawEvent = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+
+          const dataLine = rawEvent.split("\n").find((l) => l.startsWith("data: "));
+          if (!dataLine) continue;
+
+          let event: StreamEvent;
+          try {
+            event = JSON.parse(dataLine.slice(6)) as StreamEvent;
+          } catch {
+            continue; // حدث مشوّه — نتجاهله بدل إسقاط البثّ كله
+          }
+
+          if (event.type === "stage") {
+            setLiveMessage(event.message);
+          } else if (event.type === "done") {
+            setFinalDocument(event.document);
+            setStatus("done");
+            sawTerminal = true;
+          } else if (event.type === "error") {
+            setErrorMessage(event.message);
+            setStatus("error");
+            sawTerminal = true;
           }
         }
       }
+
+      if (!sawTerminal) {
+        setErrorMessage("انقطع البثّ قبل اكتمال المستند. تحقّق من سجلّات الخادم.");
+        setStatus("error");
+      }
     } catch (error) {
-      console.error(error);
-      setLiveMessage("حدث خطأ في الاتصال بالخادم.");
+      const aborted = error instanceof DOMException && error.name === "AbortError";
+      setErrorMessage(
+        aborted
+          ? "انتهت المهلة (3 دقائق) قبل اكتمال الصياغة."
+          : error instanceof Error
+            ? error.message
+            : "حدث خطأ غير متوقع في الاتصال بالخادم."
+      );
       setStatus("error");
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 
@@ -156,6 +216,26 @@ export default function Workspace() {
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-2">المكتب الذكي يعمل الآن</h3>
                 <p className="text-amber-400 text-lg animate-pulse">{liveMessage}</p>
+              </motion.div>
+            )}
+
+            {status === "error" && (
+              <motion.div 
+                key="error"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="h-full min-h-[500px] flex flex-col items-center justify-center bg-slate-900 border border-red-900/50 rounded-xl p-8 shadow-2xl"
+              >
+                <AlertTriangle className="w-16 h-16 mb-6 text-red-500" />
+                <h3 className="text-2xl font-bold text-white mb-3">تعذّر إتمام الصياغة</h3>
+                <p className="text-red-300 text-center leading-relaxed max-w-lg mb-6" dir="auto">
+                  {errorMessage}
+                </p>
+                <p className="text-slate-500 text-sm text-center max-w-lg">
+                  تأكد من أن خادم FastAPI يعمل على {API_URL} — راجع{" "}
+                  <code className="text-slate-400">.env.local</code>
+                </p>
               </motion.div>
             )}
 
