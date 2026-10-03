@@ -11,6 +11,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from drive_folders import folder_id
+
 # 1. إعداد البيئة والاتصالات (Supabase & Embedding)
 load_dotenv()
 url: str = os.environ.get("SUPABASE_URL")
@@ -36,9 +38,19 @@ if not creds or not creds.valid:
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     else:
-        # هنا سيفتح المتصفح (أو يطبع رابطاً في Codespaces) ليطلب منك الموافقة
+        # ⚠️ كان هنا flow.run_console() — وهي دالة **أُزيلت** من
+        #    google-auth-oauthlib ابتداءً من الإصدار 1.0، فكان السكربت ينهار
+        #    بـ AttributeError عند أول تشغيل وقبل أن يقرأ أي ملف.
+        #    البديل الرسمي هو run_local_server.
+        #
+        #    open_browser=False لأننا غالباً داخل حاوية/Codespaces بلا متصفح:
+        #    سيطبع رابطاً تنسخه وتفتحه بنفسك — وهو ما كان run_console يفعله.
+        #
+        #    ملاحظة: بقية السكربتات الستة تستخدم حساب خدمة (credentials.json)
+        #    ولا تحتاج هذه الخطوة التفاعلية إطلاقاً؛ فهذا الملف هو الجيل الأقدم،
+        #    و html_ingester.py هو البديل الأحدث منه.
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-        creds = flow.run_console()
+        creds = flow.run_local_server(port=0, open_browser=False)
         
     # حفظ الجلسة للمرات القادمة
     with open('token.pickle', 'wb') as token:
@@ -171,10 +183,9 @@ def ingest_html_chunks(chunks_data):
 # منطقة التشغيل (Batch Processing)
 # ==========================================
 if __name__ == "__main__":
-    # --- ضع هنا الـ Folder ID الخاص بمجلد التشريعات في جوجل درايف ---
-    # مثال: إذا كان الرابط https://drive.google.com/drive/folders/1A2B3C4D5E
-    # فإن الـ ID هو 1A2B3C4D5E
-    DRIVE_FOLDER_ID = "1l-GasvdqL26PTt4uRiJGQJOHIfVOBwxn" 
+    # معرّف المجلد يُقرأ من drive_folders.py — عدّله هناك، أو تجاوزه بمتغيّر
+    # البيئة DRIVE_FOLDER_INGEST_DOCUMENTS بلا لمس الكود.
+    DRIVE_FOLDER_ID = folder_id("ingest_documents") 
     
     files_to_process = get_files_from_drive_folder(DRIVE_FOLDER_ID)
     
@@ -186,6 +197,21 @@ if __name__ == "__main__":
             
             # 2. استخراج المواد والهيكل
             extracted_chunks, doc_title = process_html_content(html_content, file_name)
+            
+            # 2-ب. منع التكرار — كان هذا الفحص **غائباً هنا وحده** بين السكربتات
+            #      السبعة، وكان تشغيل الملف مرتين يُضاعف كل التشريعات في القاعدة
+            #      (وقد استُوردت 24,502 مقطع أصلاً). النمط نفسه المستخدم في
+            #      html_ingester.py وبقية سكربتات الاستيعاب.
+            existing = (
+                supabase.table("legal_documents")
+                .select("id")
+                .eq("document_name", doc_title)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                print(f"  -> Skipped: '{doc_title}' is already in Supabase.")
+                continue
             
             # 3. الرفع
             if extracted_chunks:

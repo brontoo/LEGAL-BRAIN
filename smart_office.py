@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from swarmmy import run_sync, Config, Swarm
+from swarmmy import Config, run_sync
 from google import genai
 from google.genai import types
 
@@ -22,11 +22,20 @@ load_dotenv()
 load_dotenv(override=True) # override=True تجبر النظام على استخدام المفتاح الجديد في .env
 
 api_key = os.environ.get("GOOGLE_API_KEY")
-# طباعة أول 10 أحرف للتأكد من أننا نستخدم المفتاح المدفوع الجديد
-print(f"🔑 المفتاح المستخدم يبدأ بـ: {api_key[:10]}...")
 if not api_key:
-    print("❌ خطأ: لم يتم العثور على GOOGLE_API_KEY في ملف .env")
-    exit()
+    raise SystemExit(
+        "❌ لم يُعثر على GOOGLE_API_KEY في البيئة.\n"
+        "   أضفه إلى ملف .env — انظر .env.example"
+    )
+
+# ملاحظة أمنية: كان هنا سطر يطبع أول 10 أحرف من المفتاح «للتحقق منه».
+# أُزيل لسببين:
+#   1) أنه يُسرّب جزءاً حقيقياً من المفتاح إلى السجلات وإلى أي مخرجات محفوظة
+#      أو مُشارَكة (لقطة شاشة مثلاً).
+#   2) أن الطباعة كانت **قبل** فحص None، فينهار السكربت بـ TypeError بدل أن
+#      يعطي رسالة مفهومة عند غياب المفتاح.
+# والتحقق من وجود المفتاح لا يحتاج طباعته إطلاقاً.
+print("🔑 GOOGLE_API_KEY موجود — سيُستخدم للاتصال بـ Gemini")
 
 client = genai.Client(api_key=api_key)
 

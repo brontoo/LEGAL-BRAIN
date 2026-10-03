@@ -10,6 +10,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from drive_folders import folder_id
+
 load_dotenv()
 supabase: Client = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
 
@@ -130,7 +132,7 @@ def ingest_notice_chunks(chunks_data):
 
 if __name__ == "__main__":
     # استبدل هذا الـ ID بـ ID المجلد الذي يحوي الإنذارات
-    NOTICES_FOLDER_ID = "1YOcjzG-oUc_qLXI5s-JNVpm1K_yfjR3G" 
+    NOTICES_FOLDER_ID = folder_id("notices") 
     
     files_to_process = get_notice_files_recursive(NOTICES_FOLDER_ID, "Notices Folder")
     print(f"\nTotal Notices found: {len(files_to_process)}")

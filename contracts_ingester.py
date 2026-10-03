@@ -10,6 +10,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from drive_folders import folder_id
+
 load_dotenv()
 supabase: Client = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
 
@@ -138,7 +140,7 @@ def ingest_contract_chunks(chunks_data):
 
 if __name__ == "__main__":
     # استبدل هذا الـ ID بـ ID المجلد الذي يحوي العقود في درايف
-    CONTRACTS_FOLDER_ID = "1Pd_IcMHOtrLf9uqYh1IRlCm2PO80hLxO" 
+    CONTRACTS_FOLDER_ID = folder_id("contracts") 
     
     files_to_process = get_contract_files_recursive(CONTRACTS_FOLDER_ID, "Contracts Folder")
     print(f"\nTotal Contracts found: {len(files_to_process)}")

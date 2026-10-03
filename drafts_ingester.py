@@ -9,6 +9,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from drive_folders import folder_id
+
 # 1. إعداد البيئة والاتصالات
 load_dotenv()
 supabase: Client = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
@@ -116,7 +118,7 @@ def ingest_draft_chunks(chunks_data):
 
 if __name__ == "__main__":
     # استبدل هذا الـ ID بـ ID المجلد الذي يحوي مذكراتك ونماذجك في درايف
-    DRAFTS_FOLDER_ID = "15s8V22UpCEQAjX7RYJ952S-YRgDMaCCD" 
+    DRAFTS_FOLDER_ID = folder_id("drafts") 
     
     files_to_process = get_draft_files_recursive(DRAFTS_FOLDER_ID, "Drafts Folder")
     print(f"\nTotal Drafts found: {len(files_to_process)}")

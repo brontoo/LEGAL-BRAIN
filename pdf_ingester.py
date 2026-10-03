@@ -9,6 +9,8 @@ from googleapiclient.http import MediaIoBaseDownload
 import pytesseract
 from pdf2image import convert_from_bytes
 
+from drive_folders import folder_id
+
 load_dotenv()
 supabase: Client = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
 
@@ -109,7 +111,7 @@ def ingest_pdf_chunks(chunks_data):
             print(f"  -> Error inserting chunk in {doc_name}: {e}")
 
 if __name__ == "__main__":
-    DRIVE_FOLDER_ID = "1ZEQ2Zzv5KKpkZz9GB_Urg99Iodx14wMJ" 
+    DRIVE_FOLDER_ID = folder_id("pdf") 
     files_to_process = get_all_pdf_files_recursive(DRIVE_FOLDER_ID, "Root PDF Folder")
     print(f"\nTotal PDF files found: {len(files_to_process)}")
     

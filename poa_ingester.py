@@ -10,6 +10,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from drive_folders import folder_id
+
 load_dotenv()
 supabase: Client = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
 
@@ -130,7 +132,7 @@ def ingest_poa_chunks(chunks_data):
 
 if __name__ == "__main__":
     # استبدل هذا الـ ID بـ ID المجلد الذي يحوي الوكالات
-    POA_FOLDER_ID = "1iE1_ozi5sD-aT8ezCC7vcqjB-EBQKRBf" 
+    POA_FOLDER_ID = folder_id("poa") 
     
     files_to_process = get_poa_files_recursive(POA_FOLDER_ID, "POA Folder")
     print(f"\nTotal POAs found: {len(files_to_process)}")

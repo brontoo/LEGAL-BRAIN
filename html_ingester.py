@@ -9,6 +9,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from drive_folders import folder_id
+
 # 1. إعداد البيئة والاتصالات (Supabase & Embedding)
 load_dotenv()
 url: str = os.environ.get("SUPABASE_URL")
@@ -136,7 +138,7 @@ def ingest_html_chunks(chunks_data):
             print(f"  -> Error inserting {metadata.get('article', 'chunk')} in {doc_name}: {e}")
 
 if __name__ == "__main__":
-    DRIVE_FOLDER_ID = "1I4FMiPcmwibCitmxPi7zd040p1RJV8pM" 
+    DRIVE_FOLDER_ID = folder_id("html") 
     
     files_to_process = get_files_from_drive_folder(DRIVE_FOLDER_ID)
     
