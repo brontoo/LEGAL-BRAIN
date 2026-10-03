@@ -17,9 +17,6 @@
 /.next/
 /out/
 
-# storybook — ناتج البناء لا يُرفع (يُنشر أو يُبنى عند الحاجة)
-/storybook-static/
-
 # production
 /build
 

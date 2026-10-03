@@ -59,7 +59,7 @@ export default function Library() {
             <InputGroupInput
               type="text"
               // التسمية للقارئات الشاشة: العنصر بلا <label> مرئي، والـ placeholder
-              // وحده لا يكفي — وهذا ما يفحصه فحص الوصولية في Storybook.
+              // وحده لا يكفي — وهي مخالفة WCAG معروفة لأن النص يختفي عند الكتابة.
               aria-label="ابحث في المستندات"
               placeholder="ابحث عن مستند أو تصنيف..."
               value={searchTerm}
