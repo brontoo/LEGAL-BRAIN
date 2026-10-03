@@ -70,8 +70,12 @@ brew install tesseract tesseract-lang poppler
 ## التثبيت
 
 ```bash
-# ١. اعتماديات بايثون
+# ١. اعتماديات بايثون — تكفي لتشغيل الخادم وخطوط الاستيعاب
 pip install -r requirements.txt
+
+# ١-ب. اختياري: واجهة Chainlit + مزوّد Groq البديل
+#      (لا يحتاجها main.py — تُثبَّت عند الحاجة إليها فقط)
+pip install -r requirements-optional.txt
 
 # ٢. متغيّرات البيئة
 cp .env.example .env          # ثم املأ المفاتيح الفعلية

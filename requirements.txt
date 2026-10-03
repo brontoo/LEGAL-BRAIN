@@ -1,15 +1,31 @@
 # ==============================================================================
-# LEGAL-BRAIN — اعتماديات الخادم (Backend dependencies)
+# LEGAL-BRAIN — الاعتماديات الأساسية (Core dependencies)
 # ==============================================================================
 # التثبيت:            pip install -r requirements.txt
-# تثبيت نظامي مطلوب:  انظر قسم "System dependencies" في الأسفل — ليست حزم pip
-# Python:             3.11 – 3.14
-#   ⚠️ إصدارات الحزم مثبّتة لتتوافق مع Python 3.14 (الإصدار الذي طُوِّر عليه
-#      المشروع). بعض الحزم تعلن سقفاً أعلى، وأشهرها chainlit — انظر القسم ٥.
 #
-# ملاحظة: الإصدارات مثبّتة (==) على أحدث نسخة متاحة والمُتحقَّق من وجودها.
-# بعد أول تثبيت ناجح، ثبّت الشجرة كاملة بـ:
-#     pip freeze > requirements.lock.txt
+# هذا الملف يكفي لتشغيل الخادم وخطوط الاستيعاب كاملة:
+#     uvicorn main:app --reload --port 8000
+#
+# الأدوات الاختيارية (واجهة Chainlit، ومزوّد Groq البديل) في ملف منفصل:
+#     pip install -r requirements-optional.txt
+#
+# الاستيعاب:            6 سكربتات *_ingester.py  +  ingest_documents.py
+# الوكلاء:              legal_agent.py (Gemini) · smart_office.py (سرب Swarmmy)
+#
+# Python: 3.11 – 3.14
+#
+# ⚠️ ملاحظة على التثبيت (pin) — درس مستفاد من فشلين حقيقيين:
+#    ثبّتُّ سابقاً كل حزمة على «أحدث نسخة»، ففشل التثبيت مرتين:
+#      1) chainlit 2.12.0 يعلن Requires-Python "<3.14.0" → مرفوض على Python 3.14.
+#         والحل: نُقل إلى الملف الاختياري حيث 2.11.0 يعمل.
+#      2) groq 1.7.0 يتعارض مع langchain-groq 1.1.3 الذي يقيّده بـ "groq<1.0.0".
+#         والحل: نُقل إلى الملف الاختياري حيث 0.37.1 يحقّق الشرطين.
+#    الإصدارات أدناه مُتحقَّق من توافقها المتبادل بقراءة requires_dist الفعلي
+#    من PyPI (لا بالتخمين): langchain-core<2 مع langgraph و langchain-google-genai،
+#    و pydantic<3 للجميع، ولا وجود لحزمة تفرض سقفاً على أخرى.
+#
+#    بعد أول تثبيت ناجح، ثبّت الشجرة كاملة كما نُصِّبت فعلاً:
+#        pip freeze > requirements.lock.txt
 # ==============================================================================
 
 # --- ١. الويب وواجهة الـ API -------------------------------------------------
@@ -23,29 +39,20 @@ supabase==2.32.0
 
 # --- ٣. التضمين المتجهي (Embeddings) -----------------------------------------
 # يُحمّل النموذج intfloat/multilingual-e5-large (~2.2 GB) عند أول تشغيل.
-# يجرّ معه: torch, transformers, numpy, huggingface-hub
+# يجرّ معه: torch (~900MB), transformers, numpy, huggingface-hub
 sentence-transformers==6.1.0
 
-# --- ٤. طبقة الوكلاء (LangGraph + LangChain) ---------------------------------
+# --- ٤. طبقة الوكلاء (LangGraph + LangChain + Gemini) ------------------------
+# قيود مترابطة مُتحقَّق منها:
+#   langgraph               -> langchain-core>=1.4.7,<2
+#   langchain-google-genai  -> langchain-core>=1.6.1,<2
+#   التقاطع: langchain-core ضمن [1.6.1, 2)  ← و 1.6.6 يُحقّقه
 langgraph==1.2.12
 langchain-core==1.6.6
-
-# المزوّد الأساسي للوكيل (legal_agent.py)
 langchain-google-genai==4.4.0
 google-genai==2.28.0
 
-# مزوّد بديل مُستخدَم في ask_brain.py و test_groq.py
-langchain-groq==1.1.3
-groq==1.7.0
-
-# --- ٥. واجهة Chainlit -------------------------------------------------------
-# ⚠️ قيد مهم: chainlit 2.12.0 يعلن Requires-Python "<3.14.0" فلا يُثبَّت على
-#    Python 3.14 إطلاقاً (يفشل التثبيت كله). الإصدار 2.11.0 هو أحدث إصدار
-#    يدعم 3.14. إن كنت على Python 3.13 أو أقل فيمكنك استخدام 2.12.0.
-#    تحقّق من إصدارك أولاً:  python --version
-chainlit==2.11.0
-
-# --- ٦. خطوط الاستيعاب (Ingestion pipelines) --------------------------------
+# --- ٥. خطوط الاستيعاب (Ingestion pipelines) --------------------------------
 # استخراج HTML (التشريعات)
 beautifulsoup4==4.15.0
 
@@ -53,7 +60,7 @@ beautifulsoup4==4.15.0
 pymupdf==1.28.2
 python-docx==1.2.0
 
-# مسح ضوئي ضوئي (OCR) — pdf_ingester.py
+# مسح ضوئي (OCR) — pdf_ingester.py
 pytesseract==0.3.13
 pdf2image==1.17.0
 
@@ -62,9 +69,11 @@ google-api-python-client==2.201.0
 google-auth==2.59.1
 google-auth-oauthlib==1.5.0
 
-# --- ٧. تنسيق سرب الوكلاء (smart_office.py / office_test.py) -----------------
-# ⚠️ swarmmy ليست على PyPI (تحقّقنا: 404). تُثبَّت من GitHub مباشرة:
+# --- ٦. سرب الوكلاء (smart_office.py / office_test.py) ----------------------
+# ⚠️ swarmmy ليست على PyPI (تحقّقنا: 404). تُثبَّت من GitHub مباشرة.
+#    وصفها "zero-dependency framework" فهي لا تجرّ شجرة اعتماديات متعارضة.
 swarmmy @ git+https://github.com/loayabdalslam/Swarmmy.git
+
 
 # ==============================================================================
 # System dependencies — حزم نظام لا تُثبَّت بـ pip
