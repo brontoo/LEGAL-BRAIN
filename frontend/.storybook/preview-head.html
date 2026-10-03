@@ -47,12 +47,25 @@
     في frontend/app/layout.tsx:
         <body className="... bg-slate-950 text-slate-50 ...">
     والتطبيق داكن فقط — لا يوجد مبدّل ثيم، و className="dark" مثبَّت في layout.tsx.
-    لذلك نفرض الخلفية الداكنة بلا شرط. بدونها تُرسم القصص على لوحة Storybook
-    البيضاء، وهي خلفية لا يراها مستخدمك أبداً.
+    لذلك نفرض الخلفية الداكنة بلا شرط.
+
+    ⚠️ لماذا !important؟
+    ميزة backgrounds المدمجة في Storybook (من نواة الإصدار 9) تضع خلفيتها على
+    body المعاينة. إن فُرضت كنمط سطري (inline style) فإن قاعدة عادية في <style>
+    تخسر أمامها، لأن النمط السطري أعلى أولوية. أما !important في ورقة الأنماط
+    فيتغلّب على النمط السطري غير المُهم. وهذه حالة مبرَّرة له: إجبار لوحة معاينة
+    على مطابقة تطبيق داكن فقط لا يملك وضعاً فاتحاً أصلاً.
   */
   html,
   body {
-    background-color: #020617; /* slate-950 */
+    background-color: #020617 !important; /* slate-950 */
     color: #f8fafc; /* slate-50 */
+  }
+
+  /* حاويات القصة داخل المعاينة ترث نفس الخلفية */
+  #storybook-root,
+  #storybook-docs,
+  .sb-show-main {
+    background-color: #020617;
   }
 </style>
