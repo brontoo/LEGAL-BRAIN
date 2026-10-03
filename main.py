@@ -29,12 +29,13 @@ LEGAL-BRAIN — خادم الـ API (FastAPI)
 import asyncio
 import json
 import os
+import secrets
 import threading
 from collections import OrderedDict
 from typing import Any, AsyncIterator, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -53,6 +54,50 @@ MAX_SESSIONS = 100  # حد أعلى لعدد الجلسات المحفوظة ف�
 
 # حد أقصى لعدد خطوات الوكيل (chatbot → tools → chatbot ...) لمنع الحلقات اللانهائية
 AGENT_RECURSION_LIMIT = 12
+
+# ------------------------------------------------------------------------------
+# مصادقة الـ API
+# ------------------------------------------------------------------------------
+# إن ضُبط API_TOKEN، تُلزَم نقاط النهاية الحسّاسة بترويسة:
+#     Authorization: Bearer <API_TOKEN>
+# وإن لم يُضبط، يعمل الخادم بلا مصادقة (وضع التطوير) مع تحذير عند الإقلاع.
+#
+# ⚠️ يجب ضبطه قبل أي نشر عام: بدونه أي زائر يصل إلى أرشيفك القانوني ويستهلك
+#    رصيد Gemini على حسابك.
+#
+# ⚠️ ولا تضعه في متغيّر يبدأ بـ NEXT_PUBLIC_ إطلاقاً — فذلك يُحزّمه داخل
+#    جافاسكربت المتصفح فيصبح الرمز علنياً وتصبح المصادقة بلا معنى. الواجهة
+#    ترسله من خادم Next.js عبر الوسيط frontend/app/api/[...path]/route.ts.
+API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+
+
+async def require_token(authorization: Optional[str] = Header(default=None)) -> None:
+    """يفرض API_TOKEN إن كان مُعرَّفاً، ويسمح بالمرور إن لم يكن (وضع التطوير)."""
+    if not API_TOKEN:
+        return
+
+    expected = f"Bearer {API_TOKEN}"
+    provided = authorization or ""
+
+    # مقارنة بزمن ثابت (constant-time) بدل == العادية: تمنع تسريب طول الرمز
+    # أو بادئته عبر فروق زمن التنفيذ. نقارن bytes لأن compare_digest مع str
+    # يشترط محارف ASCII فقط، وترويسة الطلب قد تحمل غير ذلك.
+    if not secrets.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(
+            status_code=401,
+            detail="مصادقة مطلوبة: أضف الترويسة Authorization: Bearer <API_TOKEN>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+if not API_TOKEN:
+    print(
+        "\n"
+        "⚠️  تحذير أمني: API_TOKEN غير مُعرَّف — الخادم يعمل بلا مصادقة.\n"
+        "    أي شخص يصل إلى هذا العنوان يستطيع استخدام أرشيفك القانوني\n"
+        "    واستهلاك رصيد Gemini على حسابك.\n"
+        "    اضبطه في .env قبل أي نشر عام. انظر .env.example\n"
+    )
 
 # ------------------------------------------------------------------------------
 # موجّه التوجيه: يُستورَد من legal_agent.py — مصدر واحد لكل الواجهات.
@@ -263,6 +308,8 @@ async def health():
         "tools": list(TOOL_STAGE_LABELS.keys()),
         "active_sessions": len(_sessions),
         "allowed_origins": _allowed_origins,
+        # مفيد للتشخيص: هل المصادقة مُفعَّلة على هذا الخادم؟
+        "auth_required": bool(API_TOKEN),
     }
 
 
@@ -313,7 +360,7 @@ async def _sse_generator(messages: list) -> AsyncIterator[str]:
         yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
 
-@app.post("/generate")
+@app.post("/generate", dependencies=[Depends(require_token)])
 async def generate(req: GenerateRequest):
     """
     توليد مستند قانوني ببثّ حيّ.
@@ -334,7 +381,7 @@ async def generate(req: GenerateRequest):
     )
 
 
-@app.post("/chat")
+@app.post("/chat", dependencies=[Depends(require_token)])
 async def chat_endpoint(req: ChatRequest):
     """محادثة بردّ JSON كامل — متوافق مع الاستخدام السابق، مع عزل الجلسات."""
     session_id = req.session_id or "default"
@@ -397,6 +444,8 @@ async def index():
 </select>
 
 <textarea id="prompt" placeholder="اكتب الوقائع والمعطيات هنا...">صغ لائحة دعوى تجارية (مطالبة مالية) أمام محاكم دبي. المبلغ 20,000 درهم عن فواتير غير مسددة.</textarea>
+<label>رمز المصادقة — اتركه فارغاً إن لم تضبط API_TOKEN في .env</label><br>
+<input id="token" type="password" placeholder="API_TOKEN" style="width:100%;max-width:420px;margin-top:6px">
 <br>
 <button id="go" onclick="run()">ابدأ الصياغة</button>
 
@@ -417,10 +466,14 @@ async function run() {
   doc.textContent = '';
   stage.textContent = 'جاري الإرسال...';
 
+  const token = document.getElementById('token').value.trim();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+
   try {
     const res = await fetch('/generate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify({
         prompt: document.getElementById('prompt').value,
         doc_type: document.getElementById('docType').value,

@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 
-// عنوان خادم FastAPI. قابل للضبط من .env.local — انظر .env.local.example
-// لاحظ: كان الرابط مُثبَّتاً داخل الكود على نطاق GitHub Codespaces مؤقت ينتهي
-// صلاحيته، فكانت الصفحة تفشل دائماً بعد إغلاق الجلسة.
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
-  /\/+$/,
-  ""
-);
+// كل النداءات تمر عبر وسيط Next.js على /api — انظر app/api/[...path]/route.ts
+//
+// لماذا وسيط وليس عنوان الخادم مباشرة؟
+//   ١) رمز المصادقة (API_TOKEN) يبقى على الخادم ولا يصل إلى المتصفح إطلاقاً.
+//      لو وضعناه في متغيّر NEXT_PUBLIC_ لرآه أي زائر في مصدر الصفحة.
+//   ٢) المتصفح يخاطب نفس الأصل، فتختفي مشكلة CORS كلياً.
+//   ٣) عنوان الخادم الحقيقي لم يعد جزءاً من حزمة الواجهة.
+const API_URL = "/api";
 
 // مهلة قصوى لتوليد المستند (المستندات الطويلة تستغرق وقتاً)
 const GENERATION_TIMEOUT_MS = 180_000;
