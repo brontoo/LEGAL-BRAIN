@@ -4,6 +4,12 @@ import { useState } from "react";
 import { Search, Filter, Download, Eye, MoreHorizontal, FileText, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from "@/components/ui/input-group";
 
 // بيانات تجريبية تعكس طبيعة المستندات القانونية
 const initialDocs = [
@@ -36,16 +42,30 @@ export default function Library() {
         </div>
         
         <div className="flex w-full md:w-auto items-center gap-3">
-          <div className="relative w-full md:w-80">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
-            <input 
-              type="text" 
-              placeholder="ابحث عن مستند أو تصنيف..." 
-              className="w-full pl-4 pr-10 py-2.5 bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition-shadow"
+          {/*
+            كان هنا حقل بحث مكتوب يدوياً: div + أيقونة بموضع مطلق + input خام،
+            بأصناف Tailwind خاصة به. استُبدل بـ InputGroup من components/ui —
+            وهو مكوّن كان مبنياً وجاهزاً ولم يكن مستخدَماً في أي صفحة.
+
+            الفائدة: حدود وزوايا وتباعد موحّدة مع بقية النظام، وحالات
+            focus/disabled/aria-invalid معالجة في مكان واحد بدل تكرارها.
+          */}
+          <InputGroup className="w-full md:w-80">
+            <InputGroupAddon align="inline-start">
+              <InputGroupText>
+                <Search className="size-5" />
+              </InputGroupText>
+            </InputGroupAddon>
+            <InputGroupInput
+              type="text"
+              // التسمية للقارئات الشاشة: العنصر بلا <label> مرئي، والـ placeholder
+              // وحده لا يكفي — وهذا ما يفحصه فحص الوصولية في Storybook.
+              aria-label="ابحث في المستندات"
+              placeholder="ابحث عن مستند أو تصنيف..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-          </div>
+          </InputGroup>
           <Button variant="outline" className="bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white shrink-0">
             <Filter className="w-5 h-5 ml-2" />
             تصفية

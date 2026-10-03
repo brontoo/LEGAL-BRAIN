@@ -122,3 +122,70 @@ export const LongArabicValue: Story = {
     </InputGroup>
   ),
 };
+
+/**
+ * الاستخدام الحقيقي الأول لهذا المكوّن: صندوق بحث صفحة الأرشيف والمكتبة.
+ *
+ * قبل: كان الحقل مكتوباً يدوياً (div + أيقونة بموضع مطلق + input خام).
+ * بعد: أُعيد استخدام InputGroup — وهذه القصة تُظهر النتيجة نفسها التي
+ * ستظهر في app/library/page.tsx، فتتحقّق منها هنا بلا تشغيل التطبيق.
+ *
+ * لاحظ aria-label: العنصر بلا <label> مرئي، والـ placeholder وحده لا يكفي
+ * لقارئات الشاشة — وهذا ما يلتقطه فحص الوصولية في لوحة Accessibility.
+ */
+export const LibrarySearchBox: Story = {
+  name: "صندوق بحث المكتبة (الاستخدام الحقيقي)",
+  render: () => (
+    <div className="w-[36rem] rounded-xl border border-slate-800 bg-slate-950 p-6">
+      <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white">
+            الأرشيف والمكتبة
+          </h1>
+          <p className="mt-1 text-slate-400">
+            تصفح، ابحث، وقم بإدارة كافة مستنداتك القانونية المصاغة.
+          </p>
+        </div>
+        <InputGroup className="w-full md:w-80">
+          <InputGroupAddon align="inline-start">
+            <InputGroupText>
+              <Search className="size-5" />
+            </InputGroupText>
+          </InputGroupAddon>
+          <InputGroupInput
+            type="text"
+            aria-label="ابحث في المستندات"
+            placeholder="ابحث عن مستند أو تصنيف..."
+          />
+        </InputGroup>
+      </div>
+    </div>
+  ),
+};
+
+/**
+ * نفس الصندوق بحالة فراغ نتائج — الحالة التي لا يفكّر فيها أحد عادةً،
+ * وهي التي تظهر فيها مشاكل الاتجاه والتباعد في الواجهات العربية.
+ */
+export const LibrarySearchBoxWithValue: Story = {
+  name: "صندوق بحث المكتبة — بقيمة مُدخلة",
+  render: () => (
+    <div className="w-[36rem] rounded-xl border border-slate-800 bg-slate-950 p-6">
+      <InputGroup className="w-full">
+        <InputGroupAddon align="inline-start">
+          <InputGroupText>
+            <Search className="size-5" />
+          </InputGroupText>
+        </InputGroupAddon>
+        <InputGroupInput
+          type="text"
+          aria-label="ابحث في المستندات"
+          defaultValue="إنذار قانوني"
+        />
+      </InputGroup>
+      <p className="mt-3 text-sm text-slate-500">
+        النتائج المطابقة: 3 مستندات
+      </p>
+    </div>
+  ),
+};
