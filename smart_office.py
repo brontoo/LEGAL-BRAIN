@@ -6,6 +6,7 @@ from google.genai import types
 
 # الاستيراد الصحيح بناءً على ملفك الفعلي
 from legal_agent import (
+    FORMATTING_RULES,
     search_uae_legislation,
     search_drafting_style,
     search_contract_clauses,
@@ -108,6 +109,8 @@ def run_legal_swarm(user_prompt: str):
 
 يجب أن تكون الصياغة فخمة، مفصلة جداً، مبنية على سرد الوقائع بدقة، وتحتوي على الأسانيد القانونية الواضحة.
 يجب ألا تكتب أي مقدمات أو تعليقات خارجية، فقط اكتب المستند القانوني المطلوب كاملاً.
+
+{FORMATTING_RULES}
 
 استند حصراً على هذا السياق المستخرج من أرشيف العميل وقاعدة بياناته:
 {context}

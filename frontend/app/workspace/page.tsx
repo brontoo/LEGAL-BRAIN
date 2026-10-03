@@ -25,6 +25,38 @@ type StreamEvent =
   | { type: "done"; document: string }
   | { type: "error"; message: string };
 
+/**
+ * ينظّف مخلفات Markdown من نص المستند المولَّد.
+ *
+ * الغرض دفاعي لا أساسي: الموجّه في legal_agent.py يمنع Markdown صراحةً، لكن
+ * النماذج تخالفه أحياناً. وقد ظهر فعلاً في مستند مولَّد علامات حرفية:
+ *     ** لائحة دعوى تجارية **      ### ** موضوع الدعوى: **
+ * والسبب أن هذه الصفحة تعرض النص كما هو (نص عادي لا HTML)، والمستند يُنسخ إلى Word.
+ *
+ * الحذر في ما نزيله: النص العربي القانوني لا يستخدم # ولا > ولا ** استخداماً
+ * شرعياً، فإزالتها آمنة. ولم نمسّ الشرطة المفردة (-) لأنها تظهر في التواريخ
+ * والنطاقات الرقمية.
+ */
+function stripMarkdownArtifacts(text: string): string {
+  return (
+    text
+      .split("\n")
+      // وسم عنوان في بداية السطر: # ## ### ...
+      .map((line) => line.replace(/^\s{0,3}#{1,6}\s*/, ""))
+      // علامة اقتباس في بداية السطر: >
+      .map((line) => line.replace(/^\s{0,3}>\s?/, ""))
+      .join("\n")
+      // خط أفقي (--- أو *** أو ___) — يصبح سطراً فارغاً فيصلح فاصلاً
+      .replace(/^[ \t]*[-*_]{3,}[ \t]*$/gm, "")
+      // التسميك والتعريف: ** و __
+      .replace(/\*\*/g, "")
+      .replace(/__/g, "")
+      // إزالة الخط الأفقي تُبقي أسطراً فارغة متتالية — نطويها إلى فاصل واحد
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
+}
+
 export default function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
@@ -32,6 +64,9 @@ export default function Workspace() {
   const [liveMessage, setLiveMessage] = useState("");
   const [finalDocument, setFinalDocument] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  // المستند بعد التنظيف — يُستخدم للعرض والنسخ معاً حتى لا يختلف ما تراه عمّا تنسخه
+  const cleanDocument = stripMarkdownArtifacts(finalDocument);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -251,12 +286,12 @@ export default function Workspace() {
                     <CheckCircle className="w-5 h-5" />
                     تمت الصياغة والاعتماد
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(finalDocument)}>
+                  <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(cleanDocument)}>
                     نسخ المستند
                   </Button>
                 </div>
-                <div className="p-8 prose prose-slate max-w-none whitespace-pre-wrap font-serif text-lg leading-relaxed">
-                  {finalDocument}
+                <div className="p-8 max-w-none whitespace-pre-wrap text-lg leading-loose text-slate-900">
+                  {cleanDocument}
                 </div>
               </motion.div>
             )}
