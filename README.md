@@ -70,6 +70,11 @@ brew install tesseract tesseract-lang poppler
 ## التثبيت
 
 ```bash
+# ٠. ⚠️ على Linux / Codespaces: ثبّت torch نسخة CPU أولاً
+#    بدونه يسحب torch حزمة CUDA بحجم 2.74 GB لا فائدة منها بلا GPU،
+#    فيفشل التثبيت بـ "No space left on device".
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+
 # ١. اعتماديات بايثون — تكفي لتشغيل الخادم وخطوط الاستيعاب
 pip install -r requirements.txt
 

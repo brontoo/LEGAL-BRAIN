@@ -28,6 +28,38 @@
 #        pip freeze > requirements.lock.txt
 # ==============================================================================
 
+# ==============================================================================
+# ⚠️⚠️ اقرأ هذا أولاً على Linux / الحاويات (GitHub Codespaces مثلاً)
+# ==============================================================================
+# `sentence-transformers` يجرّ `torch`، و torch على Linux يجرّ معه **حزمة CUDA
+# كاملة بحجم 2.74 GB** لا يمكن استخدامها إطلاقاً بلا GPU:
+#
+#     nvidia-cudnn-cu13   553 MB      nvidia-nccl-cu13      216 MB
+#     nvidia-cublas       423 MB      nvidia-cufft          214 MB
+#     triton              248 MB      nvidia-cusolver       201 MB
+#     ... وحزم nvidia-* أخرى          (المجموع 2.74 GB = 98% من حجم التنزيل)
+#
+# النتيجة العملية: يفشل التثبيت بـ
+#     OSError: [Errno 28] No space left on device
+# وهو ما حدث فعلاً على Codespaces (مع تحذير "Low disk space available <1%").
+#
+# ✅ الحل: ثبّت نسخة CPU فقط **قبل** هذا الملف (~200 MB بدل ~3.3 GB):
+#
+#     pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# ثم:  pip install -r requirements.txt
+# سيرى pip أن torch مُثبَّت فيتخطاه، ولن يسحب أي حزمة nvidia-* ولا triton.
+#
+# تحقّق أن النسخة CPU فعلاً:  python -c "import torch; print(torch.__version__)"
+# يجب أن تظهر لاحقة "+cpu".
+#
+# حزمة CPU متوفّرة لـ Python 3.14 / x86_64 (تحقّقنا من فهرس PyTorch):
+#     torch-2.14.1+cpu-cp314-cp314-manylinux_2_28_x86_64.whl
+#
+# وإن ضاق القرص بعد التثبيت، حرّر مساحة التنزيلات المؤقتة:
+#     pip cache purge
+# ==============================================================================
+
 # --- ١. الويب وواجهة الـ API -------------------------------------------------
 fastapi==0.142.2
 uvicorn[standard]==0.54.0
