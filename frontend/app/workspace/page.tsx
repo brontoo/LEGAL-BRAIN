@@ -2,7 +2,18 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Send, FileText, Loader2, CheckCircle, Bot, Scale, AlertTriangle } from "lucide-react";
+import {
+  Send,
+  FileText,
+  Loader2,
+  CheckCircle,
+  Bot,
+  Scale,
+  AlertTriangle,
+  ShieldCheck,
+  ShieldAlert,
+  Unlink,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,8 +32,45 @@ const GENERATION_TIMEOUT_MS = 180_000;
 
 type Status = "idle" | "processing" | "done" | "error";
 
+/** سند أثبت الخادم أنه منقول حرفياً من الأرشيف. */
+type VerifiedCitation = {
+  ref: string;
+  document_name: string;
+  chunk_id: string;
+  quoted_span: string;
+  similarity: number | null;
+};
+
+/** سند رُفض، مع سبب مقروء بالعربية. */
+type RejectedCitation = {
+  ref: string;
+  quoted_span: string;
+  reason: string;
+};
+
+/** مادة ذُكرت في المتن ولم ترد في أي مقطع مسترجَع من الأرشيف. */
+type UnbackedArticle = { surface: string; number: string };
+
+/**
+ * تقرير التحقّق الذي يبثّه الخادم مع كل مسودّة — انظر `_verify_round` في main.py.
+ *
+ * الخادم يتحقّق حتمياً أن كل سند منقول حرفياً من مقطع استُرجع فعلاً (انظر
+ * citations.py)، ويُرسل النتيجة كي يراها المحامي قبل أن يعتمد المستند.
+ */
+type CitationsReport = {
+  summary: string;
+  has_evidence: boolean;
+  evidence_count: number;
+  has_citation_block: boolean;
+  verified: VerifiedCitation[];
+  rejected: RejectedCitation[];
+  unbacked_articles: UnbackedArticle[];
+  malformed_lines: string[];
+};
+
 type StreamEvent =
   | { type: "stage"; message: string }
+  | { type: "citations"; report: CitationsReport }
   | { type: "done"; document: string }
   | { type: "error"; message: string };
 
@@ -58,6 +106,120 @@ function stripMarkdownArtifacts(text: string): string {
   );
 }
 
+/**
+ * لوحة الأسانيد — تُعرض بعد كل مسودة.
+ *
+ * الغرض أن يرى المحامي **قبل أن يعتمد** المستند: ما ثبت أنه منقول حرفياً من
+ * أرشيفه، وما رُفض ولماذا، وما ذُكر من مواد بلا سند إطلاقاً.
+ *
+ * ⚠️ وكل نصّ من النموذج يمرّ كمحتوى React عادي، ولا `dangerouslySetInnerHTML`
+ * في هذا الملف. السبب أن الاقتباسات تأتي من مخرج النموذج، وإدراجها كـ HTML
+ * يجعلها قابلة للحقن.
+ */
+function CitationsPanel({ report }: { report: CitationsReport | null }) {
+  if (!report) return null;
+
+  const nothingVerified = !report.has_evidence;
+
+  return (
+    <div className="border-t border-slate-200 bg-slate-50 p-6 space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {nothingVerified ? (
+          <ShieldAlert className="w-5 h-5 text-red-600" />
+        ) : (
+          <ShieldCheck className="w-5 h-5 text-green-600" />
+        )}
+        <h3 className="font-bold text-slate-900">
+          {nothingVerified ? "لا سند موثَّق" : "الأسانيد الموثَّقة"}
+        </h3>
+        <span className="text-sm text-slate-500">({report.summary})</span>
+      </div>
+
+      {nothingVerified && (
+        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 leading-relaxed">
+          لم يثبت أن أي مادة في هذه المسودّة منقولة من أرشيفك. راجع كل استناد
+          قانوني فيها قبل الاعتماد عليها.
+        </p>
+      )}
+
+      {report.verified.map((c, i) => (
+        <div
+          key={`v-${i}`}
+          className="rounded-lg border border-green-200 bg-white p-3 text-sm"
+        >
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mb-1">
+            <span className="font-mono font-bold text-green-700">[{c.ref}]</span>
+            <span>{c.document_name}</span>
+            {c.similarity != null && (
+              <span className="text-slate-400">
+                تشابه {c.similarity.toFixed(2)}
+              </span>
+            )}
+          </div>
+          <p className="text-slate-800 leading-relaxed" dir="auto">
+            «{c.quoted_span}»
+          </p>
+        </div>
+      ))}
+
+      {report.rejected.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="flex items-center gap-1 text-sm font-semibold text-red-700">
+            <Unlink className="w-4 h-4" />
+            أسانيد مرفوضة
+          </h4>
+          {report.rejected.map((c, i) => (
+            <div
+              key={`r-${i}`}
+              className="rounded-lg border border-red-200 bg-white p-3 text-sm"
+            >
+              <div className="text-xs text-red-600 mb-1">
+                <span className="font-mono font-bold">[{c.ref}]</span> {c.reason}
+              </div>
+              <p
+                className="text-slate-700 leading-relaxed line-through decoration-red-300"
+                dir="auto"
+              >
+                «{c.quoted_span}»
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {report.unbacked_articles.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm space-y-1">
+          <div className="font-semibold text-amber-900">
+            مواد مذكورة في المستند ولم ترد في أرشيفك
+          </div>
+          {report.unbacked_articles.map((a, i) => (
+            <div key={`a-${i}`} className="text-amber-900" dir="auto">
+              {a.surface}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {report.malformed_lines.length > 0 && (
+        <div className="rounded-lg border border-slate-300 bg-white p-3 text-xs text-slate-600 space-y-1">
+          <div className="font-semibold">أسطر أسانيد لم تُقرأ</div>
+          {report.malformed_lines.map((line, i) => (
+            <div key={`m-${i}`} dir="auto" className="font-mono">
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {report.evidence_count > 0 && (
+        <p className="text-xs text-slate-400">
+          استُرجع {report.evidence_count} مقطعاً من أرشيفك في هذه الجولة.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
@@ -65,6 +227,7 @@ export default function Workspace() {
   const [liveMessage, setLiveMessage] = useState("");
   const [finalDocument, setFinalDocument] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [citationReport, setCitationReport] = useState<CitationsReport | null>(null);
 
   // المستند بعد التنظيف — يُستخدم للعرض والنسخ معاً حتى لا يختلف ما تراه عمّا تنسخه
   const cleanDocument = stripMarkdownArtifacts(finalDocument);
@@ -76,6 +239,7 @@ export default function Workspace() {
     setLiveMessage("جاري إيقاظ فريق العقل القانوني...");
     setFinalDocument("");
     setErrorMessage("");
+    setCitationReport(null);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
@@ -129,6 +293,9 @@ export default function Workspace() {
 
           if (event.type === "stage") {
             setLiveMessage(event.message);
+          } else if (event.type === "citations") {
+            // يصل قبل "done" — فالتقرير جاهز حين يُعرض المستند
+            setCitationReport(event.report);
           } else if (event.type === "done") {
             setFinalDocument(event.document);
             setStatus("done");
@@ -294,6 +461,7 @@ export default function Workspace() {
                 <div className="p-8 max-w-none whitespace-pre-wrap text-lg leading-loose text-slate-900">
                   {cleanDocument}
                 </div>
+                <CitationsPanel report={citationReport} />
               </motion.div>
             )}
           </AnimatePresence>

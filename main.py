@@ -41,7 +41,13 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from legal_agent import SYSTEM_PROMPT, agent
+from citations import (
+    parse_citations,
+    strip_citations_block,
+    unbacked_article_refs,
+    verify_citations,
+)
+from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence
 
 load_dotenv()
 
@@ -189,7 +195,7 @@ def _get_history(session_id: str) -> list:
     """يجلب (أو ينشئ) سجل الجلسة، مع تطبيق سياسة الإخلاء LRU."""
     history = _sessions.get(session_id)
     if history is None:
-        history = [SystemMessage(content=SYSTEM_PROMPT)]
+        history = [SystemMessage(content=SYSTEM_PROMPT_CITED)]
         _sessions[session_id] = history
     _sessions.move_to_end(session_id)
     while len(_sessions) > MAX_SESSIONS:
@@ -233,7 +239,52 @@ def _build_messages(prompt: str, doc_type: Optional[str] = None) -> list:
             f"نوع المستند المطلوب: {doc_type}{hint_line}\n\n"
             f"الوقائع والمعطيات:\n{prompt}"
         )
-    return [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user_content)]
+    return [SystemMessage(content=SYSTEM_PROMPT_CITED), HumanMessage(content=user_content)]
+
+
+def _verify_round(final_text: str, evidence: list) -> tuple[str, dict]:
+    """
+    يحكم على استشهادات الجولة، ويُرجع (المستند النظيف, تقرير الأسانيد).
+
+    المستند النظيف = المتن بلا كتلة الأسانيد، فهو ما يُعرض ويُنسخ إلى Word.
+    والتقرير يُبثّ للواجهة ليرى المحامي ما ثبت وما رُفض — بالتفصيل لا بالعدد.
+    """
+    parsed = parse_citations(final_text)
+    outcome = verify_citations(parsed.citations, evidence)
+    clean = strip_citations_block(final_text)
+    unbacked = unbacked_article_refs(clean, evidence)
+
+    report = {
+        "summary": outcome.summary(),
+        "has_evidence": outcome.has_evidence,
+        "evidence_count": len(evidence),
+        "has_citation_block": parsed.has_block,
+        "verified": [
+            {
+                "ref": item.ref,
+                "document_name": item.document_name,
+                "chunk_id": item.chunk_id,
+                "quoted_span": item.quoted_span,
+                "similarity": item.similarity,
+            }
+            for item in outcome.verified
+        ],
+        "rejected": [
+            {
+                "ref": item.ref,
+                "quoted_span": item.quoted_span,
+                "reason": item.reason,
+            }
+            for item in outcome.rejected
+        ],
+        # مواد ذُكرت في المتن ولم ترد في أي مقطع مسترجَع — بلا سند.
+        "unbacked_articles": [
+            {"surface": ref.surface, "number": ref.number} for ref in unbacked
+        ],
+        # أسطر أسانيد لم تُقرأ: سند ضائع، ويُعرَض للتشخيص لا يُسقَط.
+        "malformed_lines": parsed.malformed,
+    }
+    return clean, report
 
 
 def _stream_agent(messages: list):
@@ -242,55 +293,75 @@ def _stream_agent(messages: list):
 
     يُنتج أزواجاً (kind, payload):
         ("stage", "نص المرحلة")   عند بدء استدعاء أداة أو انتهائه
-        ("final", "نص المستند")   عند اكتمال الصياغة
+        ("citations", {...})      تقرير التحقّق من الأسانيد
+        ("final", "نص المستند")   عند اكتمال الصياغة — بلا كتلة الأسانيد
+
+    ⚠️ جامع الأدلة يُفتح **هنا** لا في المستدعي. السبب: هذه الدالة تُنفَّذ داخل
+    الخيط العامل حيث تجري الأدوات، و`ContextVar` معزول لكل خيط. ولو فُتح الجامع
+    في حلقة الأحداث لما رآه الخيط العامل أصلاً، فتُسجَّل الأدلّة في سياق فارغ
+    ويصير التحقّق بلا معنى.
     """
     yield ("stage", STAGE_ANALYSING)
 
     config = {"recursion_limit": AGENT_RECURSION_LIMIT}
     final_text = ""
     invoked_any_tool = False
+    evidence: list = []
 
-    for event in agent.stream(
-        {"messages": messages}, config=config, stream_mode="updates"
-    ):
-        for node, update in event.items():
-            if not isinstance(update, dict):
-                continue
-            new_messages = update.get("messages") or []
-            if not new_messages:
-                continue
-            last = new_messages[-1]
-
-            if node == "chatbot":
-                tool_calls = getattr(last, "tool_calls", None) or []
-                if tool_calls:
-                    for call in tool_calls:
-                        name = (call or {}).get("name", "")
-                        label = TOOL_STAGE_LABELS.get(
-                            name, f"جاري البحث باستخدام {name}..."
-                        )
-                        yield ("stage", label)
+    with collect_evidence() as collected:
+        for event in agent.stream(
+            {"messages": messages}, config=config, stream_mode="updates"
+        ):
+            for node, update in event.items():
+                if not isinstance(update, dict):
                     continue
-                text = _extract_text(last)
-                if text:
-                    final_text = text
+                new_messages = update.get("messages") or []
+                if not new_messages:
+                    continue
+                last = new_messages[-1]
 
-            elif node == "tools":
-                invoked_any_tool = True
-                yield ("stage", STAGE_EVIDENCE_FOUND)
+                if node == "chatbot":
+                    tool_calls = getattr(last, "tool_calls", None) or []
+                    if tool_calls:
+                        for call in tool_calls:
+                            name = (call or {}).get("name", "")
+                            label = TOOL_STAGE_LABELS.get(
+                                name, f"جاري البحث باستخدام {name}..."
+                            )
+                            yield ("stage", label)
+                        continue
+                    text = _extract_text(last)
+                    if text:
+                        final_text = text
+
+                elif node == "tools":
+                    invoked_any_tool = True
+                    yield ("stage", STAGE_EVIDENCE_FOUND)
+
+        # نقرأ الأدلّة **داخل** السياق: خارجه يكون الجامع قد أُغلق.
+        evidence = collected.evidence
 
     if invoked_any_tool and final_text:
         yield ("stage", STAGE_DRAFTING)
-    yield ("final", final_text)
+
+    if final_text:
+        clean, report = _verify_round(final_text, evidence)
+        yield ("citations", report)
+        yield ("final", clean)
+    else:
+        yield ("final", "")
 
 
-def _run_agent_collect(messages: list) -> str:
-    """ينفّذ الوكيل ويُرجع النص النهائي فقط — يُستخدم في /chat."""
+def _run_agent_collect(messages: list) -> tuple[str, dict]:
+    """ينفّذ الوكيل ويُرجع (النصّ النهائي, تقرير الأسانيد) — يُستخدم في /chat."""
     final_text = ""
+    report: dict = {}
     for kind, payload in _stream_agent(messages):
-        if kind == "final":
+        if kind == "citations":
+            report = payload
+        elif kind == "final":
             final_text = payload
-    return final_text
+    return final_text, report
 
 
 # ==============================================================================
@@ -310,6 +381,8 @@ async def health():
         "allowed_origins": _allowed_origins,
         # مفيد للتشخيص: هل المصادقة مُفعَّلة على هذا الخادم؟
         "auth_required": bool(API_TOKEN),
+        # هل يتحقّق الخادم من الأسانيد؟ (دائماً نعم منذ ربط citations.py)
+        "citation_verification": True,
     }
 
 
@@ -332,6 +405,8 @@ async def _sse_generator(messages: list) -> AsyncIterator[str]:
             for kind, payload in _stream_agent(messages):
                 if kind == "stage":
                     emit({"type": "stage", "message": payload})
+                elif kind == "citations":
+                    emit({"type": "citations", "report": payload})
                 elif kind == "final":
                     if payload:
                         emit({"type": "done", "document": payload})
@@ -389,7 +464,9 @@ async def chat_endpoint(req: ChatRequest):
     history.append(HumanMessage(content=req.prompt))
 
     try:
-        answer = await asyncio.to_thread(_run_agent_collect, _trim_history(history))
+        answer, citations = await asyncio.to_thread(
+            _run_agent_collect, _trim_history(history)
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
 
@@ -400,7 +477,7 @@ async def chat_endpoint(req: ChatRequest):
         )
 
     history.append(AIMessage(content=answer))
-    return {"response": answer, "session_id": session_id}
+    return {"response": answer, "session_id": session_id, "citations": citations}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -429,6 +506,14 @@ async def index():
   #doc { white-space:pre-wrap; background:#fff; color:#0f172a; padding:22px;
          border-radius:10px; margin-top:12px; line-height:1.9; display:none; }
   #err { color:#f87171; margin-top:12px; white-space:pre-wrap; }
+  #cites { margin-top:16px; display:none; }
+  #cites h3 { color:#f59e0b; font-size:15px; margin:0 0 8px; }
+  .cite { background:#1e293b; border-inline-start:4px solid #22c55e; padding:10px 12px;
+          border-radius:8px; margin:6px 0; font-size:14px; line-height:1.7; }
+  .cite.bad { border-inline-start-color:#ef4444; }
+  .cite .meta { color:#94a3b8; font-size:12px; margin-bottom:4px; }
+  .warn { background:#422006; border-inline-start:4px solid #f59e0b; padding:10px 12px;
+          border-radius:8px; margin:6px 0; font-size:14px; color:#fde68a; line-height:1.7; }
 </style>
 </head>
 <body>
@@ -452,8 +537,58 @@ async def index():
 <div id="stage"></div>
 <div id="err"></div>
 <div id="doc"></div>
+<div id="cites"></div>
 
 <script>
+// يبني عنصراً بأمان: النصّ يمرّ عبر textContent لا innerHTML.
+// ضروري لأن نصّ الاقتباس يأتي من النموذج — و innerHTML يجعله قابلًا للحقن.
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function renderCitations(report) {
+  const box = document.getElementById('cites');
+  box.textContent = '';
+  if (!report) return;
+
+  box.appendChild(el('h3', null, 'الأسانيد — ' + (report.summary || '')));
+
+  (report.verified || []).forEach(function (c) {
+    const card = el('div', 'cite');
+    card.appendChild(el('div', 'meta',
+      '[' + c.ref + '] ' + c.document_name +
+      (c.similarity != null ? ' — تشابه ' + c.similarity.toFixed(2) : '')));
+    card.appendChild(el('div', null, '«' + c.quoted_span + '»'));
+    box.appendChild(card);
+  });
+
+  (report.rejected || []).forEach(function (c) {
+    const card = el('div', 'cite bad');
+    card.appendChild(el('div', 'meta', '[' + c.ref + '] مرفوض — ' + c.reason));
+    card.appendChild(el('div', null, '«' + c.quoted_span + '»'));
+    box.appendChild(card);
+  });
+
+  (report.unbacked_articles || []).forEach(function (a) {
+    box.appendChild(el('div', 'warn',
+      '⚠️ ' + a.surface + ' — لم ترد في أي مقطع مسترجَع من أرشيفك'));
+  });
+
+  (report.malformed_lines || []).forEach(function (line) {
+    box.appendChild(el('div', 'warn', '⚠️ سند لم يُقرأ: ' + line));
+  });
+
+  if (!report.has_evidence) {
+    box.appendChild(el('div', 'warn',
+      '⚠️ لا سند موثَّق في هذه المسودّة — راجع كل مادة قانونية فيها قبل الاعتماد عليها.'));
+  }
+
+  box.style.display = 'block';
+}
+
 async function run() {
   const go = document.getElementById('go');
   const stage = document.getElementById('stage');
@@ -464,6 +599,9 @@ async function run() {
   err.textContent = '';
   doc.style.display = 'none';
   doc.textContent = '';
+  const cites = document.getElementById('cites');
+  cites.style.display = 'none';
+  cites.textContent = '';
   stage.textContent = 'جاري الإرسال...';
 
   const token = document.getElementById('token').value.trim();
@@ -501,6 +639,8 @@ async function run() {
         const evt = JSON.parse(line.slice(6));
         if (evt.type === 'stage') {
           stage.textContent = evt.message;
+        } else if (evt.type === 'citations') {
+          renderCitations(evt.report);
         } else if (evt.type === 'done') {
           stage.textContent = '✅ تمت الصياغة';
           doc.textContent = evt.document;

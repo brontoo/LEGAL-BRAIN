@@ -245,14 +245,81 @@ class _FakeStateGraph:
         return _FakeCompiledGraph(self)
 
 
+#: النصّ البرمجي الذي سيُنفّذه `agent.stream` — يُعدّه الاختبار.
+#:
+#: كل خطوة إمّا:
+#:   ``{"tool": "search_contract_clauses", "args": {...}}``  → نداء أداة حقيقي
+#:   ``{"content": "نصّ المسودّة"}``                          → مخرج النموذج
+#:
+#: مثال:
+#:     AGENT_SCRIPT = [
+#:         {"tool": "search_contract_clauses", "args": {"query": "إيجار"}},
+#:         {"content": "عقد إيجار\n...\n[[الأسانيد]]\nC1 :: نصّ\n[[/الأسانيد]]"},
+#:     ]
+AGENT_SCRIPT: list[dict] = []
+
+#: إن حُدِّد، يرفع `agent.stream` هذا الاستثناء — لاختبار مسار الفشل.
+AGENT_RAISE: BaseException | None = None
+
+
+def _resolve_real_tool(name: str) -> Any:
+    """
+    يجلب الأداة **الحقيقية** من `legal_agent` بتحميل كسول.
+
+    الكسل ضروري: `fake_deps` يُستورد قبل `legal_agent`، فلا يمكن الإشارة إلى
+    أدواته في زمن الاستيراد.
+    """
+    module = sys.modules.get("legal_agent")
+    return getattr(module, name, None) if module else None
+
+
+def _run_scripted_stream(steps: list[dict]) -> Any:
+    """
+    يحوّل النصّ البرمجي إلى أحداث `updates` كما يفعل LangGraph الحقيقي.
+
+    والأهم: عند خطوة أداة **يستدعي الأداة الحقيقية** لا نصّاً مُعدّاً مسبقاً.
+    فيمرّ الاختبار بالمسار الفعلي: النداء، والتنسيق، والتسجيل في جامع الأدلّة.
+    ولو اكتفينا بإرجاع نصّ جاهز لما اختُبر شيء من ذلك — ولما كان في الاختبار
+    قيمة.
+    """
+    for step in steps:
+        if "content" in step:
+            yield {"chatbot": {"messages": [_FakeMessage(content=step["content"])]}}
+            continue
+
+        if "tool" in step:
+            name = step["tool"]
+            args = dict(step.get("args") or {})
+            # ١) النموذج "يقرّر" نداء الأداة
+            yield {
+                "chatbot": {
+                    "messages": [
+                        _FakeMessage(content="", tool_calls=[{"name": name, "args": args}])
+                    ]
+                }
+            }
+            # ٢) عقدة الأدوات تنفّذها فعلاً — وهنا تُسجَّل الأدلّة
+            tool = _resolve_real_tool(name)
+            result = tool(**args) if callable(tool) else ""
+            yield {"tools": {"messages": [_FakeMessage(content=result)]}}
+
+
 class _FakeCompiledGraph:
-    """يقلّد الرسم المُصرَّف — `stream` يُعيد مكرّراً فارغاً."""
+    """
+    يقلّد الرسم المُصرَّف، وينفّذ النصّ البرمجي في `AGENT_SCRIPT`.
+
+    الخصائص التي تستطيع الاختبارات ضبطها:
+        ``fake_deps.AGENT_SCRIPT``  قائمة الخطوات
+        ``fake_deps.AGENT_RAISE``   استثناء يُرفع فور النداء
+    """
 
     def __init__(self, builder: _FakeStateGraph) -> None:
         self.builder = builder
 
     def stream(self, *args: Any, **kwargs: Any) -> Any:
-        return iter(())
+        if AGENT_RAISE is not None:
+            raise AGENT_RAISE
+        return _run_scripted_stream(AGENT_SCRIPT)
 
     def invoke(self, *args: Any, **kwargs: Any) -> dict:
         return {"messages": []}
@@ -282,6 +349,105 @@ class _FakeToolNode:
 # ٥. التركيب
 # ==============================================================================
 
+# ==============================================================================
+# ٤-ب. وحدات fastapi / pydantic الوهمية
+# ==============================================================================
+# تُلزم `main.py` بأن يُستورد حقيقياً: مساراته، ومنطق بثّه، ومنطق التحقّق.
+# والوهمي هنا هو الإطار وحده.
+
+
+class HTTPException(Exception):
+    """يقلّد `fastapi.HTTPException` بالحقول التي يقرؤها المشروع."""
+
+    def __init__(self, status_code: int = 500, detail: Any = "", headers: Any = None):
+        self.status_code = status_code
+        self.detail = detail
+        self.headers = headers or {}
+        super().__init__(detail)
+
+
+def Depends(dependency: Any = None, **kwargs: Any) -> Any:
+    """يُعيد التبعية نفسها — فالاختبار يستطيع نداءها مباشرة."""
+    return dependency
+
+
+def Header(default: Any = None, **kwargs: Any) -> Any:
+    return default
+
+
+class CORSMiddleware:
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+
+
+class StreamingResponse:
+    """يقلّد `StreamingResponse` ويحفظ المحتوى ليُستهلك في الاختبار."""
+
+    def __init__(self, content: Any, media_type: Any = None, headers: Any = None):
+        self.content = content
+        self.media_type = media_type
+        self.headers = headers or {}
+        self.status_code = 200
+
+
+class HTMLResponse(str):
+    """يقلّد `HTMLResponse` — نصّ صالح للفحص."""
+
+
+class BaseModel:
+    """يقلّد `pydantic.BaseModel` بالحدّ الأدنى: تخزين الحقول."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+class _FieldMarker:
+    def __init__(self, default: Any = None, **kwargs: Any) -> None:
+        self.default = default
+        self.info = kwargs
+
+
+def Field(default: Any = None, **kwargs: Any) -> _FieldMarker:  # noqa: N802
+    """يقلّد `pydantic.Field` — القيمة الافتراضية هي ما يهمّ الاختبار."""
+    return _FieldMarker(default, **kwargs)
+
+
+class _FakeFastAPI:
+    """
+    يقلّد `FastAPI` ويسجّل المسارات.
+
+    التسجيل يسمح بفحص أن المسارات ما زالت قائمة وأن المصادقة ما زالت مربوطة —
+    وهو أول ما ينكسر عند إضافة ميزة إلى `main.py`.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.routes: list[tuple[str, str, Any, dict]] = []
+        self.version = kwargs.get("version", "0")
+        self.title = kwargs.get("title", "")
+        self.middleware: tuple | None = None
+
+    def _reg(self, method: str, path: str, **kwargs: Any) -> Any:
+        def decorator(fn: Any) -> Any:
+            self.routes.append((method, path, fn, kwargs))
+            return fn
+
+        return decorator
+
+    def get(self, path: str, **kwargs: Any) -> Any:
+        return self._reg("GET", path, **kwargs)
+
+    def post(self, path: str, **kwargs: Any) -> Any:
+        return self._reg("POST", path, **kwargs)
+
+    def add_middleware(self, *args: Any, **kwargs: Any) -> None:
+        self.middleware = (args, kwargs)
+
+
+# ==============================================================================
+# ٥. التركيب
+# ==============================================================================
+
 #: الوحدات التي نحجبها. تُحفظ نسخها الأصلية إن وُجدت (!) ليمكن التراجع.
 _HIDDEN = (
     "dotenv",
@@ -295,6 +461,11 @@ _HIDDEN = (
     "langgraph.graph",
     "langgraph.graph.message",
     "langgraph.prebuilt",
+    "fastapi",
+    "fastapi.middleware",
+    "fastapi.middleware.cors",
+    "fastapi.responses",
+    "pydantic",
 )
 
 _saved: dict[str, Any] = {}
@@ -360,6 +531,27 @@ def install() -> None:
     core.tools = sys.modules["langchain_core.tools"]
     core.messages = sys.modules["langchain_core.messages"]
 
+    _register(
+        "fastapi",
+        FastAPI=_FakeFastAPI,
+        Depends=Depends,
+        Header=Header,
+        HTTPException=HTTPException,
+    )
+    _register("fastapi.middleware")
+    _register(
+        "fastapi.middleware.cors",
+        parent="fastapi.middleware",
+        CORSMiddleware=CORSMiddleware,
+    )
+    _register(
+        "fastapi.responses",
+        parent="fastapi",
+        StreamingResponse=StreamingResponse,
+        HTMLResponse=HTMLResponse,
+    )
+    _register("pydantic", BaseModel=BaseModel, Field=Field)
+
     _installed = True
 
 
@@ -379,8 +571,11 @@ def uninstall() -> None:
 
 def reset() -> None:
     """يُفرّغ التسجيلات بين الاختبارات — بلا إزالة الوحدات."""
+    global AGENT_RAISE
     FAKE_SUPABASE.reset()
     FakeEmbedder.reset()
+    AGENT_SCRIPT.clear()
+    AGENT_RAISE = None
 
 
 def make_row(
