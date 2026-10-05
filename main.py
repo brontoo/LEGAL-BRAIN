@@ -32,6 +32,7 @@ import os
 import secrets
 import threading
 from collections import OrderedDict
+from functools import partial
 from typing import Any, AsyncIterator, Optional
 
 from dotenv import load_dotenv
@@ -47,7 +48,8 @@ from citations import (
     unbacked_article_refs,
     verify_citations,
 )
-from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence
+from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence, get_supabase
+from revisions import RevisionRejected, build_revision, summarize
 
 load_dotenv()
 
@@ -179,6 +181,47 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="الوقائع والمعطيات")
     doc_type: str = Field("مستند قانوني", description="نوع المستند المطلوب")
     session_id: Optional[str] = None
+
+
+class RevisionRequest(BaseModel):
+    """
+    زوج (مسودّة ← نسخة المحامي المعتمدة).
+
+    ⚠️ `corrected_text` هو **ما اعتمده المحامي** بعد تعديله، لا ما أنتجه النموذج.
+    وهذا الفرق هو ما يجعل السجلّ ذا قيمة: الحقيقة ما قاله المحامي.
+    """
+
+    generated_text: str = Field(..., min_length=1, description="ما أنتجه النموذج")
+    corrected_text: str = Field(..., min_length=1, description="نسختك المعتمدة")
+    prompt: Optional[str] = Field(None, description="الوقائع التي أدخلتها")
+    doc_type: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+#: جدول التصحيحات — **ليس جزءاً من قاعدة المعرفة** ولا يدخل الاسترجاع.
+#: انظر القسم ١٠ في `schema.sql` لسبب غياب عمود embedding عنه عمداً.
+REVISIONS_TABLE = "draft_revisions"
+
+
+def _revision_storage_error(exc: Exception) -> str:
+    """
+    رسالة مفهومة عند فشل حفظ التصحيح.
+
+    وأشيع سببه أن الجدول غير موجود بعد. و«relation does not exist» وحدها لا
+    تدلّ على المطلوب، فنسمّي القسم الدقيق في `schema.sql`.
+    """
+    message = str(exc)
+    if (
+        REVISIONS_TABLE in message
+        or "42P01" in message
+        or "does not exist" in message
+        or "Could not find the table" in message
+    ):
+        return (
+            f"جدول {REVISIONS_TABLE} غير موجود في قاعدة البيانات. "
+            "نفّذ القسم ١٠ من schema.sql في Supabase SQL Editor مرة واحدة."
+        )
+    return f"تعذّر حفظ التصحيح: {message}"
 
 
 # ==============================================================================
@@ -383,6 +426,8 @@ async def health():
         "auth_required": bool(API_TOKEN),
         # هل يتحقّق الخادم من الأسانيد؟ (دائماً نعم منذ ربط citations.py)
         "citation_verification": True,
+        # هل يستقبل الخادم تصحيحات المحامي؟ (يحتاج جدول draft_revisions)
+        "revision_capture": True,
     }
 
 
@@ -478,6 +523,69 @@ async def chat_endpoint(req: ChatRequest):
 
     history.append(AIMessage(content=answer))
     return {"response": answer, "session_id": session_id, "citations": citations}
+
+
+@app.post("/revisions", dependencies=[Depends(require_token)])
+async def save_revision(req: RevisionRequest):
+    """
+    يحفظ زوجاً (مسودّة ← نسخة المحامي المعتمدة).
+
+    الغرض بناء مادة خام لتقليد أسلوب صاحب المكتب: كل تصحيح لا يُسجَّل يضيع،
+    فيبقى الأسلوب في الموجّه تخميناً لا تعلّماً. و`revisions.py` يحسب نسبة
+    التعديل، وهي مؤشّر جودة يُرى بعد كل مسودّة بلا استبيان.
+
+    ⚠️ ولا يدخل هذا الجدول الاسترجاع أبداً — انظر القسم ١٠ في `schema.sql`.
+    """
+    try:
+        record = await asyncio.to_thread(
+            partial(
+                build_revision,
+                req.generated_text,
+                req.corrected_text,
+                doc_type=req.doc_type,
+                prompt=req.prompt,
+                session_id=req.session_id,
+            )
+        )
+    except RevisionRejected as exc:
+        # ٤٠٠ لا ٥٠٠: الطلب نفسه غير صالح (فارغ، أو بلا أي تغيير) لا الخادم
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    try:
+        await asyncio.to_thread(
+            lambda: get_supabase().table(REVISIONS_TABLE).insert(record.to_row()).execute()
+        )
+    except Exception as exc:  # noqa: BLE001 — نُبلّغ بسبب مفهوم لا بأثر مكدّس
+        raise HTTPException(status_code=503, detail=_revision_storage_error(exc))
+
+    return {
+        "saved": True,
+        "edit_ratio": record.edit_ratio,
+        "quality_band": record.quality_band,
+        "word_count": record.word_count,
+    }
+
+
+@app.get("/revisions/stats", dependencies=[Depends(require_token)])
+async def revision_stats():
+    """
+    تقدّم تقليد الأسلوب: كم زوجاً حُفظ، وما متوسّط ووسيط نسبة التعديل.
+
+    الوسيط يُعرض مع المتوسّط لأن الأخير وحده مضلِّل: مسودّة واحدة أُعيدت
+    كتابتها بالكامل ترفعه فتُخفي أن البقية شبه مطابقة.
+
+    ملاحظة أداء: يجلب عمود `edit_ratio` وحده لا النصوص. فعشرات الآلاف من
+    الأرقام تبقى حمولة صغيرة، بخلاف جلب المسودّات كاملة.
+    """
+    try:
+        response = await asyncio.to_thread(
+            lambda: get_supabase().table(REVISIONS_TABLE).select("edit_ratio").execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=_revision_storage_error(exc))
+
+    rows = response.data or []
+    return summarize([row.get("edit_ratio") for row in rows])
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -25,6 +25,7 @@ fake_deps.install()
 
 import main  # noqa: E402
 from citations import CITATIONS_BEGIN, CITATIONS_END  # noqa: E402
+from revisions import STYLE_TARGET  # noqa: E402
 
 CLAUSE = "على المستأجر سداد الأجرة في أول خمسة أيام من كل شهر ميلادي."
 GENUINE_QUOTE = "سداد الأجرة في أول خمسة أيام من كل شهر"
@@ -94,16 +95,26 @@ class TestRoutes(MainTestBase):
     """المسارات الأربعة والمصادقة عليها — أول ما ينكسر عند إضافة ميزة."""
 
     def test_all_routes_still_registered(self):
+        """
+        قائمة المسارات كاملة — لا عددها.
+
+        العدد الثابت كان هشّاً: كل مسار جديد يكسره بلا أن يقول شيئاً. أما
+        تأكيد **المجموعة** فيجعل أي إضافة قراراً واعياً يُحدَّث هنا عن قصد،
+        ويمنع حذف مسار أو تغيير طريقة بالخطأ.
+        """
         routes = {(method, path) for method, path, _fn, _kw in main.app.routes}
-        for expected in (
-            ("GET", "/"),
-            ("GET", "/health"),
-            ("POST", "/generate"),
-            ("POST", "/chat"),
-        ):
-            with self.subTest(route=expected):
-                self.assertIn(expected, routes)
-        self.assertEqual(len(main.app.routes), 4)
+        self.assertEqual(
+            routes,
+            {
+                ("GET", "/"),
+                ("GET", "/health"),
+                ("POST", "/generate"),
+                ("POST", "/chat"),
+                ("POST", "/revisions"),
+                ("GET", "/revisions/stats"),
+            },
+            "تغيّرت قائمة المسارات — أضِف الجديد هنا عن قصد",
+        )
 
     def test_sensitive_routes_stay_protected(self):
         """`/generate` و`/chat` يبقيان محميين — لا تُضاف ميزة تفتحهما."""
@@ -435,7 +446,175 @@ class TestEndpoints(MainTestBase):
 
 
 # ==============================================================================
-# ٧. نقل تغطية كانت في فحص خارجي
+# ٧. جمع تصحيحات المحامي
+# ==============================================================================
+
+GENERATED = "البند الأول: يلتزم الطرف الثاني بسداد مبلغ عشرين ألف درهم."
+CORRECTED = (
+    "البند الأول: يلتزم الطرف الثاني بسداد مبلغ خمسة وعشرين ألف درهم "
+    "خلال ثلاثين يوماً من تاريخ التوقيع."
+)
+
+
+class TestRevisionRoutes(MainTestBase):
+    """مسارَان جديدان — وكلاهما محمي."""
+
+    def test_routes_are_registered(self):
+        routes = {(method, path) for method, path, _fn, _kw in main.app.routes}
+        self.assertIn(("POST", "/revisions"), routes)
+        self.assertIn(("GET", "/revisions/stats"), routes)
+
+    def test_both_require_auth(self):
+        """الإحصاءات تكشف حجم المكتب — تُحمى كغيرها."""
+        by_key = {
+            (method, path): kw.get("dependencies")
+            for method, path, _fn, kw in main.app.routes
+        }
+        self.assertTrue(by_key[("POST", "/revisions")])
+        self.assertTrue(by_key[("GET", "/revisions/stats")])
+
+    def test_health_announces_revision_capture(self):
+        self.assertTrue(asyncio.run(main.health())["revision_capture"])
+
+
+class TestSaveRevision(MainTestBase):
+    """`POST /revisions` — حفظ الزوج وقياسه."""
+
+    def test_saves_a_row_with_the_expected_fields(self):
+        payload = asyncio.run(
+            main.save_revision(
+                main.RevisionRequest(
+                    generated_text=GENERATED,
+                    corrected_text=CORRECTED,
+                    doc_type="عقد",
+                    prompt="وقائع",
+                    session_id="ج1",
+                )
+            )
+        )
+
+        rows = fake_deps.FAKE_SUPABASE.inserted_into(main.REVISIONS_TABLE)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["generated_text"], GENERATED)
+        self.assertEqual(rows[0]["corrected_text"], CORRECTED)
+        self.assertEqual(rows[0]["doc_type"], "عقد")
+        self.assertEqual(rows[0]["session_id"], "ج1")
+
+        self.assertTrue(payload["saved"])
+        self.assertGreater(payload["edit_ratio"], 0.0)
+        self.assertLessEqual(payload["edit_ratio"], 1.0)
+        self.assertIn("quality_band", payload)
+        self.assertGreater(payload["word_count"], 0)
+
+    def test_stored_row_has_no_embedding(self):
+        """
+        🔑 الجدول ليس جزءاً من قاعدة المعرفة.
+
+        لو ظهر `embedding` في الصفّ المُدرَج لكان معناه أن التصحيحات تُضمَّن
+        وتدخل الاسترجاع — فتعود المسودّة المولَّدة في جولة لاحقة كـ«سياق
+        موثوق» وتصير الهلوسة حقيقة مؤرشفة. وهذا الفحص يحمي ذلك القرار.
+        """
+        asyncio.run(
+            main.save_revision(
+                main.RevisionRequest(generated_text=GENERATED, corrected_text=CORRECTED)
+            )
+        )
+        row = fake_deps.FAKE_SUPABASE.inserted_into(main.REVISIONS_TABLE)[0]
+        self.assertNotIn("embedding", row)
+        self.assertEqual(main.REVISIONS_TABLE, "draft_revisions")
+
+    def test_rejects_unchanged_revision(self):
+        """تصحيح بلا تغيير: ٤٠٠، ولا يُحفظ شيء."""
+        with self.assertRaises(main.HTTPException) as ctx:
+            asyncio.run(
+                main.save_revision(
+                    main.RevisionRequest(generated_text=GENERATED, corrected_text=GENERATED)
+                )
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(fake_deps.FAKE_SUPABASE.inserted_into(main.REVISIONS_TABLE), [])
+
+    def test_rejects_empty_corrected(self):
+        with self.assertRaises(main.HTTPException) as ctx:
+            asyncio.run(
+                main.save_revision(
+                    main.RevisionRequest(generated_text=GENERATED, corrected_text="   ")
+                )
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_missing_table_gives_an_actionable_message(self):
+        """
+        الجدول غير موجود أشيع سبب للفشل.
+
+        و«relation does not exist» لا تدلّ المحامي على المطلوب، فتسمّي
+        الرسالة القسم الدقيق في `schema.sql`.
+        """
+        fake_deps.FAKE_SUPABASE.raise_on_table.add(main.REVISIONS_TABLE)
+
+        with self.assertRaises(main.HTTPException) as ctx:
+            asyncio.run(
+                main.save_revision(
+                    main.RevisionRequest(generated_text=GENERATED, corrected_text=CORRECTED)
+                )
+            )
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("schema.sql", ctx.exception.detail)
+        self.assertIn("١٠", ctx.exception.detail)
+
+    def test_other_storage_errors_are_reported_plainly(self):
+        """خطأ آخر يُعاد نصّه — لا يُخفى وراء رسالة الجدول الناقص."""
+        message = main._revision_storage_error(RuntimeError("انتهت المهلة"))
+        self.assertIn("انتهت المهلة", message)
+        self.assertNotIn("schema.sql", message)
+
+
+class TestRevisionStats(MainTestBase):
+    """`GET /revisions/stats` — التقدّم نحو تقليد الأسلوب."""
+
+    def test_empty_database(self):
+        result = asyncio.run(main.revision_stats())
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["average_edit_ratio"], 0.0)
+        self.assertEqual(result["target"], STYLE_TARGET)
+        self.assertEqual(result["progress_percent"], 0.0)
+
+    def test_summarizes_stored_ratios(self):
+        fake_deps.FAKE_SUPABASE.set_table_rows(
+            main.REVISIONS_TABLE,
+            [{"edit_ratio": 0.05}, {"edit_ratio": 0.15}, {"edit_ratio": None}],
+        )
+        result = asyncio.run(main.revision_stats())
+
+        self.assertEqual(result["count"], 2, "الصفّ بلا نسبة يجب ألّا يُحسب")
+        self.assertAlmostEqual(result["average_edit_ratio"], 0.1, places=3)
+        self.assertEqual(sum(result["distribution"].values()), 2)
+
+    def test_stats_only_selects_the_ratio_column(self):
+        """
+        الإحصاء يجلب عمود النسبة وحده لا المسودّات.
+
+        ولو جلب النصوص لصارت الحمولة ضخمة مع كل فتح للوحة — وهي بيانات لا
+        يحتاجها الحساب أصلاً.
+        """
+        asyncio.run(main.revision_stats())
+        table_calls = fake_deps.FAKE_SUPABASE.table_calls
+        self.assertTrue(table_calls)
+        _name, op, columns = table_calls[-1]
+        self.assertEqual(op, "select")
+        self.assertEqual(columns, "edit_ratio")
+
+    def test_missing_table_gives_an_actionable_message(self):
+        fake_deps.FAKE_SUPABASE.raise_on_table.add(main.REVISIONS_TABLE)
+        with self.assertRaises(main.HTTPException) as ctx:
+            asyncio.run(main.revision_stats())
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("schema.sql", ctx.exception.detail)
+
+
+# ==============================================================================
+# ٨. نقل تغطية كانت في فحص خارجي
 # ==============================================================================
 # كانت هذه الحالات في فحص انحدار خارجي (`stub_check.py`) يستبدل `legal_agent`
 # **بأكمله** بوهمي. وقد انتهى دوره: ما يغطّيه صار هنا، مع فارق أن الاختبار هنا

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Send,
@@ -73,6 +73,14 @@ type StreamEvent =
   | { type: "citations"; report: CitationsReport }
   | { type: "done"; document: string }
   | { type: "error"; message: string };
+
+/** ما يُرجعه `POST /revisions` بعد حفظ التصحيح. */
+type RevisionSaveResult = {
+  saved: boolean;
+  edit_ratio: number;
+  quality_band: string;
+  word_count: number;
+};
 
 /**
  * ينظّف مخلفات Markdown من نص المستند المولَّد.
@@ -220,6 +228,138 @@ function CitationsPanel({ report }: { report: CitationsReport | null }) {
   );
 }
 
+/**
+ * شريط حفظ التصحيح — المادة الخام لتقليد أسلوب المحامي.
+ *
+ * الفكرة: بعد أن يعدّل المحامي المسودّة (هنا أو في Word ثم يلصقها)، يحفظها
+ * فيُخزَّن زوج (ما كتبه النموذج ← ما اعتمده المحامي) ويُقاس بفرق بسيط. وكل
+ * تصحيح لا يُسجَّل يضيع، فيبقى الأسلوب في الموجّه تخميناً لا تعلّماً.
+ *
+ * ⚠️ والتصحيحات تُخزَّن **منفصلة تماماً** عن أرشيف الاسترجاع — انظر القسم ١٠
+ * في schema.sql. السبب أن المسودّة المولَّدة قد تحوي مادة مؤلَّفة، ولو دخلت
+ * الاسترجاع لعادت في جولة لاحقة كـ«سياق موثوق» فتصير الهلوسة حقيقة مؤرشفة.
+ */
+function RevisionBar({
+  generatedText,
+  docType,
+  sessionId,
+}: {
+  generatedText: string;
+  docType: string;
+  sessionId: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editedText, setEditedText] = useState("");
+  const [state, setState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [result, setResult] = useState<RevisionSaveResult | null>(null);
+  const [error, setError] = useState("");
+
+  const startEditing = () => {
+    setEditedText(generatedText);
+    setEditing(true);
+    setState("idle");
+    setError("");
+  };
+
+  const cancel = () => {
+    setEditing(false);
+    setState("idle");
+    setError("");
+  };
+
+  const save = async () => {
+    setState("saving");
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/revisions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          generated_text: generatedText,
+          corrected_text: editedText,
+          doc_type: docType,
+          session_id: sessionId,
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail.slice(0, 300) || `HTTP ${response.status}`);
+      }
+      setResult((await response.json()) as RevisionSaveResult);
+      setState("saved");
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تعذّر حفظ التصحيح.");
+      setState("error");
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-200 bg-white p-6 space-y-3">
+      {state === "saved" && result ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+          <CheckCircle className="w-4 h-4 shrink-0" />
+          <span className="font-semibold">حُفظ تصحيحك.</span>
+          <span>
+            عدّلتَ {(result.edit_ratio * 100).toFixed(1)}٪ من المسودّة
+            ({result.quality_band}) — {result.word_count} كلمة.
+          </span>
+        </div>
+      ) : !editing ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" size="sm" onClick={startEditing}>
+            <FileText className="ms-2 w-4 h-4" />
+            عدّل واحفظ نسختك
+          </Button>
+          <span className="text-xs text-slate-500">
+            كل تصحيح تحفظه يقرّب المنصّة من الكتابة بأسلوبك لا بأسلوب عام.
+          </span>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-slate-700">
+            عدّل المسودّة هنا، أو الصق نسختك النهائية من Word. وإن كانت سليمة
+            فاتركها — لا فائدة من حفظ تصحيح بلا تغيير.
+          </p>
+          <Textarea
+            value={editedText}
+            onChange={(e) => setEditedText(e.target.value)}
+            className="min-h-[320px] text-base leading-loose"
+            dir="auto"
+            aria-label="نسختك المعتمدة من المستند"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button size="sm" onClick={save} disabled={state === "saving"}>
+              {state === "saving" ? (
+                <>
+                  <Loader2 className="ms-2 w-4 h-4 animate-spin" />
+                  جاري الحفظ...
+                </>
+              ) : (
+                "احفظ التصحيح"
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={cancel}
+              disabled={state === "saving"}
+            >
+              إلغاء
+            </Button>
+          </div>
+        </>
+      )}
+
+      {state === "error" && error && (
+        <div className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
@@ -228,6 +368,11 @@ export default function Workspace() {
   const [finalDocument, setFinalDocument] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [citationReport, setCitationReport] = useState<CitationsReport | null>(null);
+
+  // معرّف الجلسة يُولَّد **عند الإرسال** لا عند العرض.
+  // السبب: `crypto.randomUUID()` لا يعمل على الخادم، وتوليده أثناء العرض يُنتج
+  // قيمة مختلفة على الخادم والعميل فيكسر الترطيب (hydration mismatch).
+  const sessionIdRef = useRef("");
 
   // المستند بعد التنظيف — يُستخدم للعرض والنسخ معاً حتى لا يختلف ما تراه عمّا تنسخه
   const cleanDocument = stripMarkdownArtifacts(finalDocument);
@@ -240,6 +385,14 @@ export default function Workspace() {
     setFinalDocument("");
     setErrorMessage("");
     setCitationReport(null);
+
+    // معرّف الجلسة: يُثبَّت مرة واحدة ليُربط التصحيح بمسودّته
+    if (!sessionIdRef.current) {
+      sessionIdRef.current =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `s-${Date.now()}`;
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
@@ -462,6 +615,11 @@ export default function Workspace() {
                   {cleanDocument}
                 </div>
                 <CitationsPanel report={citationReport} />
+                <RevisionBar
+                  generatedText={cleanDocument}
+                  docType={docType}
+                  sessionId={sessionIdRef.current}
+                />
               </motion.div>
             )}
           </AnimatePresence>

@@ -123,6 +123,14 @@ class FakeSupabase:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
         self.rows: dict[str, list[dict]] = {}
+        # -- الجداول (للتصحيحات ونحوها) -------------------------------------
+        self.table_calls: list[tuple[str, str, Any]] = []
+        self.inserted: dict[str, list[dict]] = {}
+        self.table_rows: dict[str, list[dict]] = {}
+        #: أسماء جداول ترفع عندها العمليات استثناءً — لاختبار مسار الجدول الناقص.
+        self.raise_on_table: set[str] = set()
+
+    # -- RPC ----------------------------------------------------------------
 
     def set_rows(self, rpc_name: str, rows: list[dict]) -> None:
         """يُحدّد الصفوف التي تُعيدها دالة RPC معيّنة."""
@@ -142,9 +150,26 @@ class FakeSupabase:
     def rpc(self, name: str, params: dict) -> "_FakeRPCBuilder":
         return _FakeRPCBuilder(self, name, params)
 
+    # -- الجداول ------------------------------------------------------------
+
+    def table(self, name: str) -> "_FakeTableBuilder":
+        return _FakeTableBuilder(self, name)
+
+    def set_table_rows(self, table_name: str, rows: list[dict]) -> None:
+        """يُحدّد الصفوف التي يُعيدها `select` على جدول معيّن."""
+        self.table_rows[table_name] = rows
+
+    def inserted_into(self, table_name: str) -> list[dict]:
+        """الصفوف المُدرَجة في جدول — لفحص ما حُفظ فعلاً."""
+        return self.inserted.get(table_name, [])
+
     def reset(self) -> None:
         self.calls.clear()
         self.rows.clear()
+        self.table_calls.clear()
+        self.inserted.clear()
+        self.table_rows.clear()
+        self.raise_on_table.clear()
 
     # -- مساعدات للاختبار ----------------------------------------------------
 
@@ -168,6 +193,46 @@ class _FakeRPCBuilder:
     def execute(self) -> types.SimpleNamespace:
         self._owner.calls.append((self._name, self._params))
         return types.SimpleNamespace(data=self._owner.rows.get(self._name, []))
+
+
+class _FakeTableBuilder:
+    """
+    يقلّد `client.table(name).insert(...).execute()` و`select(...).execute()`.
+
+    يبني العملية ثم ينفّذها عند `execute()`، كما يفعل العميل الحقيقي — فلو
+    نسي أحدهم `execute()` في الكود لم يُسجَّل شيء، وهو خطأ صامت في Supabase
+    الحقيقي أيضاً. فالوهمي يحاكيه في هذه النقطة لا يتساهل فيها.
+    """
+
+    def __init__(self, owner: FakeSupabase, name: str) -> None:
+        self._owner = owner
+        self._name = name
+        self._op: str | None = None
+        self._payload: Any = None
+
+    def insert(self, row: Any) -> "_FakeTableBuilder":
+        self._op = "insert"
+        self._payload = row
+        return self
+
+    def select(self, columns: str = "*") -> "_FakeTableBuilder":
+        self._op = "select"
+        self._payload = columns
+        return self
+
+    def execute(self) -> types.SimpleNamespace:
+        self._owner.table_calls.append((self._name, self._op or "", self._payload))
+
+        if self._name in self._owner.raise_on_table:
+            raise RuntimeError(
+                f'relation "public.{self._name}" does not exist (42P01)'
+            )
+
+        if self._op == "insert":
+            self._owner.inserted.setdefault(self._name, []).append(self._payload)
+            return types.SimpleNamespace(data=[self._payload])
+
+        return types.SimpleNamespace(data=self._owner.table_rows.get(self._name, []))
 
 
 #: العميل الوحيد الذي يُعيده `create_client` — يُعدّه الاختبار ويقرأ منه.

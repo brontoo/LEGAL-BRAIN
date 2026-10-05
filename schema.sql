@@ -352,12 +352,12 @@ $$;
 -- ==============================================================================
 -- ٩. التحقق بعد التنفيذ
 -- ==============================================================================
--- يجب أن تظهر 5 جداول و5 دوال:
+-- يجب أن تظهر 6 جداول (5 لقاعدة المعرفة + 1 للتصحيحات) و5 دوال:
 
 -- select table_name from information_schema.tables
 --  where table_schema = 'public'
 --    and table_name in ('legal_documents','legal_drafts','legal_contracts',
---                       'legal_notices','legal_poa')
+--                       'legal_notices','legal_poa','draft_revisions')
 --  order by table_name;
 
 -- select routine_name from information_schema.routines
@@ -370,3 +370,48 @@ $$;
 -- union all select 'legal_contracts', count(*) from legal_contracts
 -- union all select 'legal_notices',   count(*) from legal_notices
 -- union all select 'legal_poa',       count(*) from legal_poa;
+
+-- عدد التصحيحات المحفوظة (يبدأ من صفر ويزيد مع كل مسودّة تعتمدها):
+-- select count(*) as revisions,
+--        round(avg(edit_ratio)::numeric, 3) as avg_edit_ratio
+--   from draft_revisions;
+
+
+-- ==============================================================================
+-- ١٠. تصحيحات المحامي  (draft_revisions)
+-- ==============================================================================
+-- ⚠️ هذا الجدول **ليس جزءاً من قاعدة المعرفة**، ولا يدخل الاسترجاع إطلاقاً.
+--
+-- الغرض: جمع أزواج (ما كتبه النموذج ← ما اعتمده المحامي)، لأنها المادة الخام
+--        لتقليد أسلوب صاحب المكتب. وكل تصحيح لا يُسجَّل يضيع، فيبقى الأسلوب
+--        في الموجّه تخميناً لا تعلّماً.
+--
+-- ⚠️ ولا يوجد عمود embedding هنا **عن قصد**، وهو أهمّ قرار في هذا القسم:
+--    المسودّة المولَّدة قد تحوي مادة قانونية مؤلَّفة. ولو أُضمّنت ودخلت
+--    الاسترجاع، لعادت في جولة لاحقة كـ«سياق موثوق» فتصير الهلوسة حقيقة
+--    مؤرشفة. وهي أسوأ من الهلوسة العابرة، لأنها تترسّخ وتتكرّر.
+--    الحقيقة ما قاله المحامي، لا ما قاله النموذج.
+--
+-- المصدر: POST /revisions في main.py
+-- القياس: revisions.py (نسبة التعديل على مستوى الكلمات)
+-- ------------------------------------------------------------------------------
+
+create table if not exists draft_revisions (
+    id              bigint generated always as identity primary key,
+    created_at      timestamptz not null default now(),
+    session_id      text,            -- جلسة الواجهة، لتتبّع مسار المسودّة
+    doc_type        text,            -- نوع المستند المطلوب
+    prompt          text,            -- الوقائع التي أدخلها المحامي
+    generated_text  text not null,   -- ما أنتجه النموذج
+    corrected_text  text not null,   -- ما اعتمده المحامي فعلاً
+    edit_ratio      real,            -- نسبة الكلمات المتغيّرة (0.0 – 1.0)
+    word_count      int              -- طول النسخة المعتمدة (للفلترة والتقارير)
+);
+
+-- ترتيب زمني معكوس: أحدث التصحيحات أولاً
+create index if not exists draft_revisions_created_idx
+    on draft_revisions (created_at desc);
+
+-- فلترة «الأزواج الأكثر تعديلاً» — وهي الأغنى بالدروس عن الأسلوب
+create index if not exists draft_revisions_ratio_idx
+    on draft_revisions (edit_ratio);
