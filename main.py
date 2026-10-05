@@ -271,6 +271,48 @@ def _revision_storage_error(exc: Exception) -> str:
     return f"تعذّر حفظ التصحيح: {message}"
 
 
+# ------------------------------------------------------------------------------
+# الأرشيف — دوالّ القسم ١١ في schema.sql
+# ------------------------------------------------------------------------------
+# ⚠️ مفتاح آلي **و** وسم عربي، كما في مفاتيح المراحل: الواجهة تقرّر بالمفتاح
+#    وتعرض الوسم. فلو رُبطت بالوسم لانكسرت التصفية بصمت عند أول تعديل صياغة.
+ARCHIVE_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("legislation", "التشريعات والأحكام"),
+    ("drafts", "المذكرات واللوائح"),
+    ("contracts", "العقود والاتفاقيات"),
+    ("notices", "الإنذارات"),
+    ("poa", "الوكالات"),
+)
+
+ARCHIVE_OVERVIEW_RPC = "archive_overview"
+ARCHIVE_DOCUMENTS_RPC = "archive_documents"
+
+#: سقف صفوف قائمة المستندات — مطابق لسقف دالة SQL نفسها (دفاعٌ مزدوج).
+ARCHIVE_MAX_ROWS = 500
+
+
+def _archive_storage_error(exc: Exception) -> str:
+    """
+    رسالة مفهومة عند غياب دوالّ الأرشيف.
+
+    و«function does not exist» وحدها لا تدلّ على المطلوب، فنسمّي القسم الدقيق.
+    """
+    message = str(exc)
+    if (
+        "archive_overview" in message
+        or "archive_documents" in message
+        or "PGRST202" in message  # PostgREST: الدالة غير موجودة في المخطّط
+        or "42P01" in message     # Postgres: العلاقة غير موجودة
+        or "does not exist" in message
+        or "Could not find the function" in message
+    ):
+        return (
+            "دوالّ الأرشيف غير موجودة في قاعدة البيانات. "
+            "نفّذ القسم ١١ من schema.sql في Supabase SQL Editor مرة واحدة."
+        )
+    return f"تعذّر قراءة الأرشيف: {message}"
+
+
 # ==============================================================================
 # ٤. ذاكرة المحادثة — معزولة لكل جلسة
 # ==============================================================================
@@ -669,6 +711,104 @@ async def revision_stats():
 
     rows = response.data or []
     return summarize([row.get("edit_ratio") for row in rows])
+
+
+@app.get("/archive/overview", dependencies=[Depends(require_token)])
+async def archive_overview():
+    """
+    أرقام الأرشيف الحقيقية — لكل عائلة من العائلات الخمس.
+
+    ⚠️ ولماذا دالّة SQL؟ لأن `count(distinct document_name)` و`group by` لا
+    يدعمهما PostgREST. وكان يمكن جلب الأسماء كلها وجمعها في بايثون، لكنه يعني
+    تنزيل آلاف الصفوف في كل فتح للصفحة. فالعمل يجري حيث البيانات.
+
+    والعائلات الخمس تُعاد **كلها** حتى لو كانت فارغة: فلوحة القيادة يجب أن
+    تُظهر «٠» لا أن تُخفي العائلة. وإخفاؤها يُوهم أن الأرشيف لا يغطّيها.
+    """
+    try:
+        response = await asyncio.to_thread(
+            lambda: get_supabase().rpc(ARCHIVE_OVERVIEW_RPC, {}).execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=_archive_storage_error(exc))
+
+    found = {row.get("family_key"): row for row in (response.data or [])}
+    families = [
+        {
+            "key": key,
+            "label": label,
+            "documents": int((found.get(key) or {}).get("documents") or 0),
+            "chunks": int((found.get(key) or {}).get("chunks") or 0),
+            "latest_added": (found.get(key) or {}).get("latest_added"),
+        }
+        for key, label in ARCHIVE_FAMILIES
+    ]
+
+    return {
+        "documents": sum(item["documents"] for item in families),
+        "chunks": sum(item["chunks"] for item in families),
+        "families": families,
+    }
+
+
+@app.get("/archive/documents", dependencies=[Depends(require_token)])
+async def archive_documents(
+    search: str = "",
+    family: str = "",
+    limit: int = 200,
+):
+    """
+    مستندات الأرشيف مجموعةً بالاسم — لصفحة الأرشيف والمكتبة.
+
+    و`family` تُرفض إن كانت مجهولة (400) ولا تُتجاهَل: فتصفية خاطئة تُعاد
+    بنتيجة كاملة تبدو **صحيحة**، وهي أسوأ من خطأ صريح.
+    """
+    known = {key for key, _ in ARCHIVE_FAMILIES}
+    if family and family not in known:
+        raise HTTPException(
+            status_code=400,
+            detail=f"عائلة غير معروفة: {family!r} — المتاح: {sorted(known)}",
+        )
+
+    bounded = max(1, min(limit, ARCHIVE_MAX_ROWS))
+
+    try:
+        response = await asyncio.to_thread(
+            lambda: get_supabase()
+            .rpc(
+                ARCHIVE_DOCUMENTS_RPC,
+                {
+                    "search_term": search.strip() or None,
+                    "family_filter": family or None,
+                    "max_rows": bounded,
+                },
+            )
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=_archive_storage_error(exc))
+
+    labels = dict(ARCHIVE_FAMILIES)
+    documents = [
+        {
+            "document_name": row.get("document_name") or "",
+            "document_type": row.get("document_type") or "",
+            "family": row.get("family_key") or "",
+            "family_label": labels.get(row.get("family_key") or "", ""),
+            "chunks": int(row.get("chunks") or 0),
+            "added_at": row.get("added_at"),
+        }
+        for row in (response.data or [])
+    ]
+
+    return {
+        "count": len(documents),
+        "limit": bounded,
+        # صريح: هل قُصَّت النتيجة عند السقف؟ فالواجهة تقول «يوجد غيرها» بدل
+        # أن تُوهم أن هذا الأرشيف كله.
+        "truncated": len(documents) >= bounded,
+        "documents": documents,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

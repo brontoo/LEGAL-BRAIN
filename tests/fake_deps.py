@@ -129,6 +129,9 @@ class FakeSupabase:
         self.table_rows: dict[str, list[dict]] = {}
         #: أسماء جداول ترفع عندها العمليات استثناءً — لاختبار مسار الجدول الناقص.
         self.raise_on_table: set[str] = set()
+        #: أسماء دوال RPC ترفع عندها — لاختبار مسار **الدالّة** الناقصة،
+        #: وهو مسار مختلف: PostgREST يعيد خطأً لا صفوفاً فارغة.
+        self.raise_on_rpc: set[str] = set()
 
     # -- RPC ----------------------------------------------------------------
 
@@ -170,6 +173,7 @@ class FakeSupabase:
         self.inserted.clear()
         self.table_rows.clear()
         self.raise_on_table.clear()
+        self.raise_on_rpc.clear()
 
     # -- مساعدات للاختبار ----------------------------------------------------
 
@@ -192,6 +196,11 @@ class _FakeRPCBuilder:
 
     def execute(self) -> types.SimpleNamespace:
         self._owner.calls.append((self._name, self._params))
+        if self._name in self._owner.raise_on_rpc:
+            # صيغة PostgREST الفعلية عند غياب الدالّة من المخطّط
+            raise RuntimeError(
+                f"Could not find the function public.{self._name} in the schema cache"
+            )
         return types.SimpleNamespace(data=self._owner.rows.get(self._name, []))
 
 

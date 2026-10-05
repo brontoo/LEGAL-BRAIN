@@ -415,3 +415,127 @@ create index if not exists draft_revisions_created_idx
 -- فلترة «الأزواج الأكثر تعديلاً» — وهي الأغنى بالدروس عن الأسلوب
 create index if not exists draft_revisions_ratio_idx
     on draft_revisions (edit_ratio);
+
+
+-- ==============================================================================
+-- ١١. دوالّ الأرشيف — يقرأها `GET /archive/overview` و`GET /archive/documents`
+-- ==============================================================================
+-- ⚠️ لماذا دوالّ SQL لا استعلامات من الخادم؟
+--
+-- لأن الواجهة كانت تعرض أرقاماً **مكتوبة بخط اليد** (١٢٤٨ مستنداً و٨٥٣٠ سنداً)
+-- لا أصل لها. والبديل الحقيقي يحتاج شيئين لا يوفّرهما PostgREST:
+--
+--   ١) `count(distinct document_name)` — وPostgREST لا يدعم DISTINCT.
+--   ٢) `group by` لتجميع المقاطع في مستند واحد — ولا يدعمه أيضاً.
+--
+-- وكان يمكن جلب كل الأسماء إلى بايثون وجمعها فيه، لكنه يعني تنزيل آلاف الصفوف
+-- في كل فتح للصفحة. فالعمل يُنفَّذ حيث البيانات ✅
+--
+-- ⚠️ وهي `security invoker` لا `security definer` عن قصد: الخادم يستخدم مفتاح
+--    `service_role` وهو يتجاوز RLS أصلاً، فلا حاجة إلى رفع الصلاحية. و
+--    `security definer` بلا داعٍ **ثغرة تصعيد امتيازات** لا مكسب.
+-- ------------------------------------------------------------------------------
+
+create or replace function archive_overview()
+returns table (
+    family_key   text,
+    documents    bigint,
+    chunks       bigint,
+    latest_added timestamptz
+)
+language sql
+stable
+as $$
+    select 'legislation'::text, count(distinct document_name), count(*), max(created_at)
+      from legal_documents
+    union all
+    select 'drafts'::text,      count(distinct document_name), count(*), max(created_at)
+      from legal_drafts
+    union all
+    select 'contracts'::text,   count(distinct document_name), count(*), max(created_at)
+      from legal_contracts
+    union all
+    select 'notices'::text,     count(distinct document_name), count(*), max(created_at)
+      from legal_notices
+    union all
+    select 'poa'::text,         count(distinct document_name), count(*), max(created_at)
+      from legal_poa;
+$$;
+
+comment on function archive_overview() is
+    'عدد المستندات والمقاطع لكل عائلة من العائلات الخمس — للوحة القيادة';
+
+
+create or replace function archive_documents(
+    search_term   text default null,
+    family_filter text default null,
+    max_rows      int  default 200
+)
+returns table (
+    document_name text,
+    document_type text,
+    family_key    text,
+    chunks        bigint,
+    added_at      timestamptz
+)
+language sql
+stable
+as $$
+    with combined as (
+        select document_name, document_type, 'legislation'::text as family_key, created_at
+          from legal_documents
+        union all
+        select document_name, document_type, 'drafts'::text, created_at
+          from legal_drafts
+        union all
+        select document_name, document_type, 'contracts'::text, created_at
+          from legal_contracts
+        union all
+        select document_name, document_type, 'notices'::text, created_at
+          from legal_notices
+        union all
+        select document_name, document_type, 'poa'::text, created_at
+          from legal_poa
+    )
+    select
+        combined.document_name,
+        max(combined.document_type)  as document_type,
+        combined.family_key,
+        count(*)                     as chunks,
+        min(combined.created_at)     as added_at
+    from combined
+    where (
+            coalesce(search_term, '') = ''
+            or combined.document_name ilike '%' || search_term || '%'
+            or combined.document_type ilike '%' || search_term || '%'
+          )
+      and (
+            coalesce(family_filter, '') = ''
+            or combined.family_key = family_filter
+          )
+    group by combined.document_name, combined.family_key
+    order by min(combined.created_at) desc
+    -- ⚠️ سقف صريح: بلا `least` يستطيع أي نداء طلب الأرشيف كله في صفّ واحد
+    limit least(greatest(coalesce(max_rows, 200), 1), 500);
+$$;
+
+comment on function archive_documents(text, text, int) is
+    'قائمة مستندات الأرشيف مجموعةً بالاسم — لصفحة الأرشيف والمكتبة';
+
+
+-- ------------------------------------------------------------------------------
+-- التحقّق بعد التنفيذ
+-- ------------------------------------------------------------------------------
+-- يجب أن تعيد خمسة صفوف (واحد لكل عائلة)، والأعداد أصفار إن كان الأرشيف فارغاً:
+--
+--   select * from archive_overview();
+--
+-- ويجب أن تعيد مستنداتك مجموعةً، وكل صفّ بعدد مقاطعه:
+--
+--   select * from archive_documents(max_rows => 10);
+--
+-- والبحث والتصفية:
+--
+--   select * from archive_documents(search_term => 'إيجار');
+--   select * from archive_documents(family_filter => 'legislation');
+-- ------------------------------------------------------------------------------

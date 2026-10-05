@@ -114,6 +114,8 @@ class TestRoutes(MainTestBase):
                 ("POST", "/chat"),
                 ("POST", "/revisions"),
                 ("GET", "/revisions/stats"),
+                ("GET", "/archive/overview"),
+                ("GET", "/archive/documents"),
             },
             "تغيّرت قائمة المسارات — أضِف الجديد هنا عن قصد",
         )
@@ -748,6 +750,208 @@ class TestConfiguration(MainTestBase):
         """حدّ خطوات الوكيل موجود ومعقول — بدونه تدور الحلقة بلا نهاية."""
         self.assertGreaterEqual(main.AGENT_RECURSION_LIMIT, 4)
         self.assertLessEqual(main.AGENT_RECURSION_LIMIT, 50)
+
+
+class TestArchiveEndpoints(MainTestBase):
+    """
+    نقطتا الأرشيف — وهما ما يُغني لوحة القيادة والمكتبة عن الأرقام المكتوبة.
+    ========================================================================
+    كانت الصفحتان تعرضان «١٢٤٨ مستنداً» و«٨٥٣٠ سنداً» **مكتوبة بخط اليد**،
+    و«من أرشيف Qdrant» وهو **خطأ واقعي**: الأرشيف في Supabase/pgvector.
+
+    وهذا الفحص يثبّت أن ما يُعرض يأتي من قاعدة البيانات فعلاً.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.supabase = fake_deps.FAKE_SUPABASE
+
+    # -- GET /archive/overview ------------------------------------------------
+
+    def test_overview_returns_all_five_families_even_when_empty(self):
+        """العائلات الخمس تُعاد كلها — و«٠» أصدق من الإخفاء."""
+        payload = asyncio.run(main.archive_overview())
+        self.assertEqual(
+            [item["key"] for item in payload["families"]],
+            [key for key, _ in main.ARCHIVE_FAMILIES],
+        )
+        self.assertTrue(all(item["documents"] == 0 for item in payload["families"]))
+        self.assertEqual(payload["documents"], 0)
+        self.assertEqual(payload["chunks"], 0)
+
+    def test_overview_sums_the_families(self):
+        self.supabase.set_rows(
+            "archive_overview",
+            [
+                {"family_key": "legislation", "documents": 12, "chunks": 900},
+                {"family_key": "contracts", "documents": 3, "chunks": 40},
+            ],
+        )
+        payload = asyncio.run(main.archive_overview())
+        self.assertEqual(payload["documents"], 15)
+        self.assertEqual(payload["chunks"], 940)
+
+    def test_overview_fills_absent_families_with_zero(self):
+        """عائلة غابت من ردّ الخادم تُعرض بصفر — لا تُحذف من اللوحة."""
+        self.supabase.set_rows(
+            "archive_overview",
+            [{"family_key": "poa", "documents": 2, "chunks": 7}],
+        )
+        by_key = {
+            item["key"]: item
+            for item in asyncio.run(main.archive_overview())["families"]
+        }
+        self.assertEqual(len(by_key), 5)
+        self.assertEqual(by_key["poa"]["documents"], 2)
+        self.assertEqual(by_key["notices"]["documents"], 0)
+
+    def test_overview_pairs_a_machine_key_with_an_arabic_label(self):
+        """
+        مفتاح آلي **و** وسم عربي — كما في مفاتيح المراحل.
+
+        ولو رُبطت الواجهة بالوسم العربي لانكسرت التصفية بصمت عند أول تعديل.
+        """
+        for item in asyncio.run(main.archive_overview())["families"]:
+            with self.subTest(key=item["key"]):
+                self.assertRegex(item["key"], r"^[a-z_]+$")
+                self.assertTrue(item["label"])
+                self.assertNotRegex(item["label"], r"^[a-z_]+$")
+
+    def test_overview_missing_function_names_the_section_to_run(self):
+        """رسالة تسمّي القسم المطلوب — كما فعلت رسالة جدول التصحيحات."""
+        self.supabase.raise_on_rpc.add("archive_overview")
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(main.archive_overview())
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("القسم ١١", caught.exception.detail)
+
+    def test_overview_calls_exactly_one_rpc(self):
+        asyncio.run(main.archive_overview())
+        self.assertEqual(self.supabase.rpc_names(), ["archive_overview"])
+
+    # -- GET /archive/documents -----------------------------------------------
+
+    def seed_documents(self) -> None:
+        self.supabase.set_rows(
+            "archive_documents",
+            [
+                {
+                    "document_name": "قانون المعاملات المدنية",
+                    "document_type": "تشريع",
+                    "family_key": "legislation",
+                    "chunks": 420,
+                    "added_at": "2026-09-01T10:00:00Z",
+                },
+                {
+                    "document_name": "عقد إيجار سكني",
+                    "document_type": "عقود عقارية",
+                    "family_key": "contracts",
+                    "chunks": 18,
+                    "added_at": "2026-09-02T10:00:00Z",
+                },
+            ],
+        )
+
+    def test_documents_group_by_name_with_their_chunk_count(self):
+        self.seed_documents()
+        payload = asyncio.run(main.archive_documents())
+        self.assertEqual(payload["count"], 2)
+        names = [item["document_name"] for item in payload["documents"]]
+        self.assertIn("قانون المعاملات المدنية", names)
+        self.assertEqual(payload["documents"][0]["chunks"], 420)
+
+    def test_documents_resolve_the_arabic_family_label(self):
+        """الواجهة لا تُترجم المفاتيح — الخادم يُرسل الوسم معها."""
+        self.seed_documents()
+        payload = asyncio.run(main.archive_documents())
+        labels = {item["family"]: item["family_label"] for item in payload["documents"]}
+        self.assertEqual(labels["legislation"], "التشريعات والأحكام")
+        self.assertEqual(labels["contracts"], "العقود والاتفاقيات")
+
+    def test_documents_pass_empty_filters_as_null(self):
+        """
+        الفراغ يُحوَّل إلى `null` لا إلى `''`.
+
+        ودالّة SQL تعامل الاثنين سواءً (`coalesce`)، لكن `null` هو ما تعنيه
+        «لا تصفية» — ويمنع `ilike '%%'` من مطابقة كل شيء بالخطأ.
+        """
+        asyncio.run(main.archive_documents())
+        _name, params = self.supabase.last_call()
+        self.assertIsNone(params["search_term"])
+        self.assertIsNone(params["family_filter"])
+
+    def test_documents_trim_the_search_term(self):
+        asyncio.run(main.archive_documents(search="  إيجار  "))
+        _name, params = self.supabase.last_call()
+        self.assertEqual(params["search_term"], "إيجار")
+
+    def test_documents_pass_a_known_family_through(self):
+        asyncio.run(main.archive_documents(family="notices"))
+        _name, params = self.supabase.last_call()
+        self.assertEqual(params["family_filter"], "notices")
+
+    def test_documents_reject_an_unknown_family_loudly(self):
+        """
+        عائلة مجهولة تُرفض ولا تُتجاهَل.
+
+        ولو تُوجّهت التصفية الخاطئة إلى «لا تصفية» لعاد الأرشيف كاملاً **وبدا
+        صحيحاً** — وهي أسوأ من خطأ صريح.
+        """
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(main.archive_documents(family="legislationn"))
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("legislationn", caught.exception.detail)
+        self.assertEqual(self.supabase.calls, [], "لم يكن ينبغي نداء قاعدة البيانات")
+
+    def test_documents_clamp_the_row_limit(self):
+        for requested, expected in ((0, 1), (-5, 1), (50, 50), (9999, main.ARCHIVE_MAX_ROWS)):
+            with self.subTest(requested=requested):
+                self.supabase.reset()
+                asyncio.run(main.archive_documents(limit=requested))
+                _name, params = self.supabase.last_call()
+                self.assertEqual(params["max_rows"], expected)
+
+    def test_documents_report_truncation(self):
+        """
+        والقَصّ يُعلَن ولا يُسكت عنه.
+
+        ولو سكت، لأوهمت الصفحة أن ما تراه هو الأرشيف كله — وهو عين ما كانت
+        تفعله الأرقام المكتوبة بخط اليد.
+        """
+        self.supabase.set_rows(
+            "archive_documents",
+            [
+                {"document_name": f"مستند {i}", "family_key": "drafts", "chunks": 1}
+                for i in range(5)
+            ],
+        )
+        payload = asyncio.run(main.archive_documents(limit=5))
+        self.assertTrue(payload["truncated"])
+        self.assertEqual(payload["limit"], 5)
+
+    def test_documents_not_truncated_when_fewer_than_the_limit(self):
+        self.seed_documents()
+        payload = asyncio.run(main.archive_documents(limit=50))
+        self.assertFalse(payload["truncated"])
+
+    def test_documents_tolerate_null_columns_from_the_database(self):
+        """قيم `null` في القاعدة لا تُسقط الصفحة — تُعرض فراغاً."""
+        self.supabase.set_rows(
+            "archive_documents",
+            [{"document_name": None, "document_type": None, "family_key": None, "chunks": None}],
+        )
+        item = asyncio.run(main.archive_documents())["documents"][0]
+        self.assertEqual(item["document_name"], "")
+        self.assertEqual(item["document_type"], "")
+        self.assertEqual(item["family_label"], "")
+        self.assertEqual(item["chunks"], 0)
+
+    def test_documents_missing_function_names_the_section_to_run(self):
+        self.supabase.raise_on_rpc.add("archive_documents")
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(main.archive_documents())
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("القسم ١١", caught.exception.detail)
 
 
 class TestOfficeSceneContract(MainTestBase):

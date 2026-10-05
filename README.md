@@ -143,9 +143,15 @@ python contracts_ingester.py
 | `POST` | `/chat` | محادثة بردّ JSON كامل |
 | `POST` | `/revisions` | حفظ زوج (مسودّة ← نسخة المحامي) مع نسبة التعديل |
 | `GET` | `/revisions/stats` | تقدّم تقليد الأسلوب: عدد الأزواج وتوزيع نسب التعديل |
+| `GET` | `/archive/overview` | أرقام الأرشيف الحقيقية: مستندات ومقاطع لكل عائلة من الخمس |
+| `GET` | `/archive/documents` | مستندات الأرشيف مجموعةً بالاسم — بحث وتصفية وسقف صفوف |
 
 كلها — عدا `/health` و`/` — تتطلّب `Authorization: Bearer <API_TOKEN>` عند
 ضبط الرمز.
+
+> **ونقطتا الأرشيف تحتاجان القسم ١١ من `schema.sql`.** والسبب أنهما تحتاجان
+> `count(distinct document_name)` و`group by`، **ولا يدعمهما PostgREST** —
+> فالعمل يجري في دالّتَي SQL بدل تنزيل آلاف الصفوف وجمعها في بايثون.
 
 **عقد البثّ (SSE) من `/generate`:**
 
