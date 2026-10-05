@@ -258,10 +258,25 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
             aria-hidden="true"
             onError={() => setAttempt((value) => value + 1)}
             className="absolute inset-x-0 bottom-2.5 mx-auto h-[72px] w-auto object-contain sm:h-[84px]"
+            /*
+             * ⚠️ التعتيم بـ `opacity` لا بـ `brightness` — وهذا حساب لا تفضيل.
+             *
+             * كان هنا `saturate(0.55) brightness(0.75)`. و`brightness` تضرب
+             * **الصورة كلها** في 0.75 — ومنها خلفيتها. فخلفية الصورة
+             * `(15,21,37)` تصير `(11,16,28)`، أي **أغمق من خلفية المشهد**،
+             * فيظهر حول كل منتظر **مستطيل داكن باهت**. والعيب لا يُنتج خطأً بل
+             * إطاراً — فيمرّ صامتاً.
+             *
+             * أما `opacity` فمضبوطة رياضياً: خلفية الصورة **بلون خلفية المشهد
+             * نفسه**، فـ ‎0.7×(15,21,37) + 0.3×(15,21,37) = (15,21,37)‎ —
+             * فالخلفية **لا تتغيّر إطلاقاً**، ولا يتعتّم إلا الشخص.
+             *
+             * ولهذا لا تُصلحها `saturate` ولا `grayscale`: كلتاهما تغيّر لون
+             * الخلفية نفسها ولو قليلاً.
+             */
             style={{
-              filter: working
-                ? `drop-shadow(0 0 10px ${worker.glow})`
-                : "saturate(0.55) brightness(0.75)",
+              opacity: working ? 1 : 0.7,
+              filter: working ? `drop-shadow(0 0 10px ${worker.glow})` : "none",
             }}
             animate={working ? { y: [0, -2, 0] } : { y: 0 }}
             transition={working ? { repeat: Infinity, duration: 1.4, ease: "easeInOut" } : {}}
