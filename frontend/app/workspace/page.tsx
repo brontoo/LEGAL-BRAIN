@@ -7,7 +7,6 @@ import {
   FileText,
   Loader2,
   CheckCircle,
-  Bot,
   Scale,
   AlertTriangle,
   ShieldCheck,
@@ -17,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { OfficeScene, TeamStrip } from "@/components/office-scene";
 
 // كل النداءات تمر عبر وسيط Next.js على /api — انظر app/api/[...path]/route.ts
 //
@@ -369,6 +369,18 @@ export default function Workspace() {
   const [errorMessage, setErrorMessage] = useState("");
   const [citationReport, setCitationReport] = useState<CitationsReport | null>(null);
 
+  // مراحل العمل — تُشغّل مشهد «فريق المكتب».
+  // ⚠️ المفاتيح تأتي من الخادم (`stage` في إطار SSE) ولا تُخمَّن هنا. فالمشهد
+  // يعكس ما جرى فعلاً: أي أداة استُدعيت، ومن لم يُستدعَ يبقى على قهوته.
+  const [activeStage, setActiveStage] = useState("");
+  const [completedStages, setCompletedStages] = useState<string[]>([]);
+  const [startedAt, setStartedAt] = useState(0);
+
+  // آخر مرحلة عملت — للمقارنة عند وصول مرحلة جديدة.
+  // المرجع (ref) لا حالة: القيمة تُقرأ وتُكتب داخل معالج البثّ بلا حاجة لإعادة
+  // رسم، واستخدام حالة هنا كان سيقرأ قيمة قديمة داخل الحلقة.
+  const lastStageRef = useRef("");
+
   // معرّف الجلسة يُولَّد **عند الإرسال** لا عند العرض.
   // السبب: `crypto.randomUUID()` لا يعمل على الخادم، وتوليده أثناء العرض يُنتج
   // قيمة مختلفة على الخادم والعميل فيكسر الترطيب (hydration mismatch).
@@ -385,6 +397,14 @@ export default function Workspace() {
     setFinalDocument("");
     setErrorMessage("");
     setCitationReport(null);
+
+    // تصفير مشهد المكتب — وإلا ظهر الفريق وقد «أنجز» عمل الطلب السابق
+    setActiveStage("");
+    setCompletedStages([]);
+    lastStageRef.current = "";
+    // وقت البدء يُضبط هنا (معالج حدث على العميل) لا أثناء العرض، تفادياً
+    // لاختلاف قيمة الوقت بين الخادم والعميل.
+    setStartedAt(Date.now());
 
     // معرّف الجلسة: يُثبَّت مرة واحدة ليُربط التصحيح بمسودّته
     if (!sessionIdRef.current) {
@@ -446,6 +466,20 @@ export default function Workspace() {
 
           if (event.type === "stage") {
             setLiveMessage(event.message);
+
+            // مشهد المكتب يتحرّك بالمفاتيح الحقيقية القادمة من الخادم.
+            // ومن كان يعمل ثم جاءت مرحلة جديدة فقد أنجز مهمته.
+            const stageKey = event.stage;
+            if (stageKey) {
+              const previous = lastStageRef.current;
+              if (previous && previous !== stageKey) {
+                setCompletedStages((list) =>
+                  list.includes(previous) ? list : [...list, previous]
+                );
+              }
+              lastStageRef.current = stageKey;
+              setActiveStage(stageKey);
+            }
           } else if (event.type === "citations") {
             // يصل قبل "done" — فالتقرير جاهز حين يُعرض المستند
             setCitationReport(event.report);
@@ -555,23 +589,18 @@ export default function Workspace() {
             )}
 
             {status === "processing" && (
-              <motion.div 
+              <motion.div
                 key="processing"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="h-full min-h-[500px] flex flex-col items-center justify-center bg-slate-900 border border-slate-800 rounded-xl p-8 shadow-2xl"
               >
-                <div className="relative w-32 h-32 mb-8 flex items-center justify-center">
-                  <motion.div 
-                    animate={{ rotate: 360 }}
-                    transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
-                    className="absolute inset-0 rounded-full border-t-2 border-amber-500 border-opacity-50"
-                  />
-                  <Bot className="w-12 h-12 text-amber-500" />
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-2">المكتب الذكي يعمل الآن</h3>
-                <p className="text-amber-400 text-lg animate-pulse">{liveMessage}</p>
+                <OfficeScene
+                  activeKey={activeStage}
+                  completedKeys={completedStages}
+                  message={liveMessage}
+                  startedAt={startedAt}
+                />
               </motion.div>
             )}
 
@@ -614,6 +643,10 @@ export default function Workspace() {
                 <div className="p-8 max-w-none whitespace-pre-wrap text-lg leading-loose text-slate-900">
                   {cleanDocument}
                 </div>
+                {/* من عمل فعلاً على هذا المستند — ومن لم يُستدعَ يغيب عن الشريط */}
+                <TeamStrip
+                  workedKeys={[...completedStages, activeStage].filter(Boolean)}
+                />
                 <CitationsPanel report={citationReport} />
                 <RevisionBar
                   generatedText={cleanDocument}

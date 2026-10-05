@@ -32,6 +32,7 @@ import os
 import secrets
 import threading
 from collections import OrderedDict
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, AsyncIterator, Optional
 
@@ -138,6 +139,46 @@ TOOL_STAGE_LABELS = {
 STAGE_ANALYSING = "جاري تحليل الطلب وتحديد المسار القانوني..."
 STAGE_EVIDENCE_FOUND = "تم استرجاع السند من أرشيفك — جاري الصياغة..."
 STAGE_DRAFTING = "الفريق القانوني يصوغ المستند الآن..."
+STAGE_VERIFYING = "مدقّق الأسانيد يراجع كل سند قبل التسليم..."
+
+
+# ------------------------------------------------------------------------------
+# مفاتيح المراحل — معرّفات آلية ثابتة تُرسل مع كل حدث `stage`
+# ------------------------------------------------------------------------------
+# ⚠️ لماذا مفتاح آلي **مع** النصّ العربي، لا النصّ وحده؟
+#
+# لأن الواجهة تبني عليها مشهد «فريق المكتب»: أي شخصية تعمل الآن وأيّها انتهى.
+# ولو ربطت الواجهة على **النصّ العربي** لانكسر المشهد بصمت عند أول تعديل
+# صياغة — وهو النوع نفسه من العطب الذي أصلحناه في الأدوات الخمس (انحراف نسخة
+# عن أخرى بلا خطأ ظاهر).
+#
+# فالمفتاح ثابت لا يتغيّر أبداً، والنصّ المعروض يتغيّر متى شئنا.
+
+KEY_INTAKE = "intake"
+KEY_EVIDENCE = "evidence"
+KEY_DRAFTING = "drafting"
+KEY_VERIFYING = "verifying"
+
+#: من اسم الأداة إلى مفتاح الشخصية التي تشتغل.
+TOOL_STAGE_KEYS = {
+    "search_uae_legislation": "legislation",
+    "search_drafting_style": "drafts",
+    "search_contract_clauses": "contracts",
+    "search_legal_notices": "notices",
+    "search_poa_clauses": "poa",
+}
+
+
+@dataclass(frozen=True)
+class StageEvent:
+    """
+    مرحلة واحدة: مفتاح آلي ثابت + نصّ عربي يُعرض للمستخدم.
+
+    الفصل بينهما مقصود: الواجهة تقرّر **بالمفتاح**، وتعرض **النصّ**.
+    """
+
+    key: str
+    message: str
 
 # ==============================================================================
 # ٢. التطبيق و CORS
@@ -344,7 +385,7 @@ def _stream_agent(messages: list):
     في حلقة الأحداث لما رآه الخيط العامل أصلاً، فتُسجَّل الأدلّة في سياق فارغ
     ويصير التحقّق بلا معنى.
     """
-    yield ("stage", STAGE_ANALYSING)
+    yield ("stage", StageEvent(KEY_INTAKE, STAGE_ANALYSING))
 
     config = {"recursion_limit": AGENT_RECURSION_LIMIT}
     final_text = ""
@@ -371,7 +412,12 @@ def _stream_agent(messages: list):
                             label = TOOL_STAGE_LABELS.get(
                                 name, f"جاري البحث باستخدام {name}..."
                             )
-                            yield ("stage", label)
+                            # المفتاح من اسم الأداة؛ وأداة غير مسجّلة تحصل على
+                            # مفتاحها الخاص بدل أن تُسقَط المرحلة.
+                            yield (
+                                "stage",
+                                StageEvent(TOOL_STAGE_KEYS.get(name, name), label),
+                            )
                         continue
                     text = _extract_text(last)
                     if text:
@@ -379,15 +425,18 @@ def _stream_agent(messages: list):
 
                 elif node == "tools":
                     invoked_any_tool = True
-                    yield ("stage", STAGE_EVIDENCE_FOUND)
+                    yield ("stage", StageEvent(KEY_EVIDENCE, STAGE_EVIDENCE_FOUND))
 
         # نقرأ الأدلّة **داخل** السياق: خارجه يكون الجامع قد أُغلق.
         evidence = collected.evidence
 
     if invoked_any_tool and final_text:
-        yield ("stage", STAGE_DRAFTING)
+        yield ("stage", StageEvent(KEY_DRAFTING, STAGE_DRAFTING))
 
     if final_text:
+        # مرحلة التحقّق: تُبثّ **قبل** التقرير، فترى الواجهة المدقّق يعمل ثم
+        # يستلم نتيجته. وهي حقيقية لا تجميلية: التحقّق يجري فعلاً هنا.
+        yield ("stage", StageEvent(KEY_VERIFYING, STAGE_VERIFYING))
         clean, report = _verify_round(final_text, evidence)
         yield ("citations", report)
         yield ("final", clean)
@@ -449,7 +498,14 @@ async def _sse_generator(messages: list) -> AsyncIterator[str]:
         try:
             for kind, payload in _stream_agent(messages):
                 if kind == "stage":
-                    emit({"type": "stage", "message": payload})
+                    # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
+                    emit(
+                        {
+                            "type": "stage",
+                            "stage": payload.key,
+                            "message": payload.message,
+                        }
+                    )
                 elif kind == "citations":
                     emit({"type": "citations", "report": payload})
                 elif kind == "final":

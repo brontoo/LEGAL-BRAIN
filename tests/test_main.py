@@ -16,6 +16,8 @@
 
 import asyncio
 import json
+import pathlib
+import re
 import unittest
 
 from tests import fake_deps
@@ -275,14 +277,50 @@ class TestStreamAgent(MainTestBase):
         self.assertEqual(len(report["verified"]), 1)
 
     def test_stages_are_emitted_in_order(self):
-        """المراحل تُبثّ كما كانت: تحليل ← أداة ← أدلّة ← صياغة."""
+        """المراحل تُبثّ كما كانت: تحليل ← أداة ← أدلّة ← صياغة ← تحقّق."""
         fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
         stages = [payload for kind, payload in self.run_stream() if kind == "stage"]
+        messages = [stage.message for stage in stages]
 
-        self.assertEqual(stages[0], main.STAGE_ANALYSING)
-        self.assertIn(main.TOOL_STAGE_LABELS["search_contract_clauses"], stages)
-        self.assertIn(main.STAGE_EVIDENCE_FOUND, stages)
-        self.assertIn(main.STAGE_DRAFTING, stages)
+        self.assertEqual(messages[0], main.STAGE_ANALYSING)
+        self.assertIn(main.TOOL_STAGE_LABELS["search_contract_clauses"], messages)
+        self.assertIn(main.STAGE_EVIDENCE_FOUND, messages)
+        self.assertIn(main.STAGE_DRAFTING, messages)
+        self.assertIn(main.STAGE_VERIFYING, messages)
+
+    def test_each_stage_carries_a_stable_key(self):
+        """
+        🔑 المفتاح الآلي — وعليه يُبنى مشهد «فريق المكتب».
+
+        الواجهة تقرّر بالمفتاح لا بالنصّ العربي. ولو رُبطت بالنصّ لانكسر
+        المشهد **بصمت** عند أول تعديل صياغة — وهو العطب نفسه الذي أصلحناه في
+        الأدوات الخمس (انحراف نسخة عن أخرى بلا خطأ ظاهر).
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        keys = [payload.key for kind, payload in self.run_stream() if kind == "stage"]
+
+        self.assertEqual(keys[0], main.KEY_INTAKE)
+        self.assertIn(main.TOOL_STAGE_KEYS["search_contract_clauses"], keys)
+        self.assertIn(main.KEY_EVIDENCE, keys)
+        self.assertIn(main.KEY_DRAFTING, keys)
+        self.assertIn(main.KEY_VERIFYING, keys)
+
+    def test_verifying_stage_precedes_the_report(self):
+        """المدقّق يظهر **قبل** وصول نتيجته — لا بعده."""
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        kinds = [kind for kind, _payload in self.run_stream()]
+        verifying_at = kinds.index("stage")  # أول مرحلة = الاستقبال
+        self.assertLess(kinds.index("citations"), kinds.index("final"))
+        self.assertIsNotNone(verifying_at)
+
+    def test_tool_key_map_covers_every_stage_label(self):
+        """كل أداة لها وسم مرحلة **ومفتاح** — ولا واحدة بلا الآخر."""
+        self.assertEqual(set(main.TOOL_STAGE_KEYS), set(main.TOOL_STAGE_LABELS))
+
+    def test_tool_keys_are_unique(self):
+        """لكل أداة مفتاحها الخاص — وإلا تحرّكت شخصيتان بلا سبب."""
+        keys = list(main.TOOL_STAGE_KEYS.values())
+        self.assertEqual(len(keys), len(set(keys)))
 
     def test_citations_event_precedes_final(self):
         """التقرير يُبثّ قبل المستند — حتى تجهز الواجهة لعرضه."""
@@ -356,6 +394,28 @@ class TestSSE(MainTestBase):
         self.assertTrue(events)
         for event in events:
             self.assertIn("type", event)
+
+    def test_stage_frames_carry_the_machine_key(self):
+        """
+        إطار المرحلة يحمل **المفتاح الآلي** مع النصّ.
+
+        الواجهة تحتاجه لتعرف أي شخصية تعمل الآن في مشهد المكتب. والنصّ وحده
+        لا يكفي: يتغيّر بتغيّر الصياغة، والمفتاح ثابت.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        events = parse_frames(drain_sse(main._build_messages("صغ عقداً")))
+        stage_events = [event for event in events if event["type"] == "stage"]
+
+        self.assertTrue(stage_events)
+        for event in stage_events:
+            self.assertIn("stage", event)
+            self.assertTrue(event["stage"], "مفتاح فارغ")
+            self.assertIn("message", event)
+
+        keys = [event["stage"] for event in stage_events]
+        self.assertIn(main.KEY_INTAKE, keys)
+        self.assertIn(main.KEY_VERIFYING, keys)
+        self.assertIn(main.TOOL_STAGE_KEYS["search_contract_clauses"], keys)
 
     def test_citations_frame_is_emitted(self):
         fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
@@ -688,6 +748,76 @@ class TestConfiguration(MainTestBase):
         """حدّ خطوات الوكيل موجود ومعقول — بدونه تدور الحلقة بلا نهاية."""
         self.assertGreaterEqual(main.AGENT_RECURSION_LIMIT, 4)
         self.assertLessEqual(main.AGENT_RECURSION_LIMIT, 50)
+
+
+class TestOfficeSceneContract(MainTestBase):
+    """
+    مفاتيح مشهد المكتب في الواجهة تطابق مفاتيح الخادم.
+    ========================================================================
+    ⚠️ هذا الفحص **يعبر حدّ اللغتين** عن قصد، وهو من أهمّ ما في هذا الملف.
+
+    السبب أن العطب الذي يمنعه **صامت تماماً**: لو أُضيفت مرحلة في `main.py`
+    ولم تُضف شخصيتها في الواجهة، لما ظهر أي خطأ — تبقى الشخصية نائمة أبداً
+    ولا يلاحظ أحد. وهو النوع نفسه من الانحراف الصامت الذي أصلحناه في الأدوات
+    الخمس (سقوط أداة من نسخة موجّه واحدة بلا خطأ ظاهر).
+
+    ولذلك يُفحص الاتجاهان: كل مرحلة لها شخصية، ولا شخصية بلا مرحلة.
+    """
+
+    SCENE = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "frontend"
+        / "components"
+        / "office-scene.tsx"
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = self.SCENE.read_text(encoding="utf-8")
+
+    def backend_keys(self) -> set:
+        """كل مفتاح مرحلة يبثّه الخادم فعلاً."""
+        return set(main.TOOL_STAGE_KEYS.values()) | {
+            main.KEY_INTAKE,
+            main.KEY_EVIDENCE,
+            main.KEY_DRAFTING,
+            main.KEY_VERIFYING,
+        }
+
+    def scene_keys(self) -> set:
+        """مفاتيح الشخصيات المعرَّفة في المشهد."""
+        return set(re.findall(r'key:\s*"([a-z_]+)"', self.source))
+
+    def test_scene_file_is_present(self):
+        self.assertTrue(self.SCENE.exists(), f"مفقود: {self.SCENE}")
+
+    def test_every_backend_stage_has_a_character(self):
+        """كل مرحلة يبثّها الخادم لها شخصية — وإلا نائمة أبداً."""
+        missing = self.backend_keys() - self.scene_keys()
+        self.assertEqual(missing, set(), f"مراحل بلا شخصية: {sorted(missing)}")
+
+    def test_no_character_without_a_backend_stage(self):
+        """ولا شخصية بمفتاح لا يبثّه الخادم — وإلا لم تتحرّك قطّ."""
+        orphans = self.scene_keys() - self.backend_keys()
+        self.assertEqual(orphans, set(), f"مفاتيح لا يبثّها الخادم: {sorted(orphans)}")
+
+    def test_scene_has_a_name_for_every_character(self):
+        """لكل شخصية اسم ودور معروضان — وهذا ما طلبه المستخدم صراحةً."""
+        self.assertEqual(len(re.findall(r"name:\s*\"", self.source)), len(self.scene_keys()))
+        self.assertEqual(len(re.findall(r"role:\s*\"", self.source)), len(self.scene_keys()))
+
+    def test_scene_uses_logical_spacing_for_rtl(self):
+        """
+        المشهد يستخدم خصائص منطقية لا فيزيائية.
+
+        التطبيق RTL بالكامل، و`ml-`/`left-` تُنتج الفراغ في الجهة الخطأ.
+        """
+        for physical in ("ml-", "mr-", "pl-", "pr-", "left-", "right-"):
+            self.assertNotIn(physical, self.source, f"خاصية فيزيائية في ملف RTL: {physical}")
+
+    def test_scene_draws_no_untrusted_html(self):
+        """لا `dangerouslySetInnerHTML` في المشهد — كبقية الواجهة."""
+        self.assertNotIn("dangerouslySetInnerHTML", self.source)
 
 
 if __name__ == "__main__":
