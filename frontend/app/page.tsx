@@ -32,6 +32,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  LabelList,
   ResponsiveContainer,
 } from "recharts";
 import { DataNotice, MetricValue } from "@/components/data-notice";
@@ -186,8 +187,26 @@ export default function Dashboard() {
   }, []);
 
   const families = overview?.families ?? [];
+  const total = overview?.chunks ?? 0;
   const chartData = families.map((item) => ({ name: item.label, المقاطع: item.chunks }));
-  const archiveIsEmpty = !loading && !archiveError && (overview?.chunks ?? 0) === 0;
+  const archiveIsEmpty = !loading && !archiveError && total === 0;
+
+  /*
+   * ⚠️ وأصغر عائلتين تُحسبان هنا لا في الرسم.
+   *
+   * السبب أن الرسم **لا يستطيع إظهارهما**: التشريعات ٩٤٪ من الأرشيف، فعمود
+   * المذكرات يصير خطّاً لا يُرى. والرسم حينها يقول «التشريعات أكبر» — وهي
+   * معلومة يعطيها رقم واحد — **ويُخفي السؤال النافع: أين نقص أرشيفي؟**
+   *
+   * فالنقص يُقال بكلام صريح، لا بعمود لا يُرى.
+   */
+  const smallest = [...families]
+    .filter((item) => item.chunks > 0)
+    .sort((a, b) => a.chunks - b.chunks)
+    .slice(0, 2);
+  const smallShare = smallest.map((item) =>
+    ((item.chunks / Math.max(total, 1)) * 100).toFixed(1)
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
@@ -288,7 +307,7 @@ export default function Dashboard() {
                 <BarChart
                   data={chartData}
                   layout="vertical"
-                  margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+                  margin={{ top: 10, right: 70, left: 10, bottom: 10 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
                   <XAxis type="number" stroke="#64748b" tick={{ fill: "#64748b" }} />
@@ -308,9 +327,38 @@ export default function Dashboard() {
                       color: "#fff",
                     }}
                   />
-                  <Bar dataKey="المقاطع" fill="#f59e0b" radius={[0, 4, 4, 0]} barSize={26} />
+                  {/*
+                    الرقم عند نهاية كل عمود — وبلا هذا لا تُقرأ أربع عائلات.
+                    التشريعات ٩٤٪ من الأرشيف، فعمود «المذكرات» يصير خطّاً لا
+                    يُرى. والرقم المكتوب يُقرأ ولو كان العمود نفسه غير مرئي.
+                  */}
+                  <Bar dataKey="المقاطع" fill="#f59e0b" radius={[0, 4, 4, 0]} barSize={26}>
+                    <LabelList
+                      dataKey="المقاطع"
+                      position="right"
+                      fill="#94a3b8"
+                      fontSize={12}
+                      formatter={(value: number) => value.toLocaleString("ar-AE")}
+                    />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
+            )}
+
+            {/* والنقص يُقال بكلام صريح لا بعمود لا يُرى */}
+            {!archiveIsEmpty && smallest.length > 0 && (
+              <p className="mt-3 text-xs text-slate-500">
+                أصغر عائلتين:{" "}
+                {smallest.map((item, index) => (
+                  <span key={item.key}>
+                    {index > 0 && " · "}
+                    <span className="text-slate-400">{item.label}</span>{" "}
+                    ({item.chunks.toLocaleString("ar-AE")} مقطعاً = {smallShare[index]}٪)
+                  </span>
+                ))}
+                {" — "}وهما أولى ما يحتاج الرفع، فالأسلوب يُقلَّد من الصياغات لا من
+                التشريعات.
+              </p>
             )}
           </CardContent>
         </Card>
