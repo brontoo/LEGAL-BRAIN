@@ -278,26 +278,39 @@ class TestRefAllocator(unittest.TestCase):
 
     def test_assigns_sequential_prefixed_refs(self):
         alloc = RefAllocator()
-        self.assertEqual(alloc.next_ref("contracts", 0), "C1")
-        self.assertEqual(alloc.next_ref("contracts", 1), "C2")
-        self.assertEqual(alloc.next_ref("legislation", 0), "L1")
+        self.assertEqual(alloc.next_ref("contracts"), "C1")
+        self.assertEqual(alloc.next_ref("contracts"), "C2")
+        self.assertEqual(alloc.next_ref("legislation"), "L1")
 
-    def test_same_call_is_reproducible(self):
-        """إعادة النداء بنفس الفهرس تُنتج نفس المرجع — تمنع تصادماً خفياً."""
+    def test_counters_are_independent_per_prefix(self):
+        """كل أداة تعدّ وحدها — لا تتقدّم أداة بعدّاد أختها."""
         alloc = RefAllocator()
-        alloc.next_ref("notices", 0)
-        alloc.next_ref("notices", 1)
-        self.assertEqual(alloc.next_ref("notices", 1), "N2")
+        alloc.next_ref("contracts")
+        alloc.next_ref("contracts")
+        self.assertEqual(alloc.next_ref("notices"), "N1")
+
+    def test_repeated_calls_never_repeat_a_ref(self):
+        """
+        🔑 نداءان لنفس الأداة لا يُنتجان المرجع نفسه.
+
+        لو تكرّر المرجع لرأى النموذج مقطعين مختلفين بالمرجع ``N1``، فصار
+        اقتباسه غامضاً — والتحقّق يقبله من المقطع الخطأ.
+        """
+        alloc = RefAllocator()
+        refs = [alloc.next_ref("notices") for _ in range(5)]
+        self.assertEqual(refs, ["N1", "N2", "N3", "N4", "N5"])
+        self.assertEqual(len(set(refs)), len(refs))
 
     def test_unknown_tool_gets_fallback_prefix(self):
         """أداة جديدة بلا بادئة مسجّلة لا تُسقط المرجع."""
-        self.assertEqual(RefAllocator().next_ref("unknown_tool", 0), "X1")
+        self.assertEqual(RefAllocator().next_ref("unknown_tool"), "X1")
 
     def test_reset_clears_counters(self):
         alloc = RefAllocator()
-        alloc.next_ref("poa", 4)
+        alloc.next_ref("poa")
+        alloc.next_ref("poa")
         alloc.reset()
-        self.assertEqual(alloc.next_ref("poa", 0), "P1")
+        self.assertEqual(alloc.next_ref("poa"), "P1")
 
 
 # ==============================================================================

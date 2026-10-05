@@ -1,8 +1,11 @@
+import contextlib
+import contextvars
 import os
+from typing import Annotated, Iterator, Optional
+
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from sentence_transformers import SentenceTransformer
-from typing import Annotated, Optional
 from typing_extensions import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
@@ -10,6 +13,14 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+
+from citations import (
+    CITATIONS_BEGIN,
+    CITATIONS_END,
+    Evidence,
+    RefAllocator,
+    format_evidence_block,
+)
 
 load_dotenv()
 
@@ -64,60 +75,228 @@ def encode_query(text: str) -> list:
     """
     return get_model().encode(f"query: {text}").tolist()
 
+# ==============================================================================
+# جامع الأدلة — يربط ما استُرجع بما سيقتبسه النموذج
+# ==============================================================================
+# الغرض: أن نعرف **بالضبط** ما أُعطي للنموذج في هذه الجولة، لنحقّق استشهاداته.
+# فبدون هذا السجلّ لا يمكن التحقّق: «هل اقتبس النموذج ممّا استرجعناه؟» سؤال
+# لا جواب له إن لم نحتفظ بما استرجعناه.
+#
+# ⚠️ لماذا `ContextVar` لا متغيّر عام؟
+# لأن `main.py` يُشغّل الوكيل في **خيط منفصل لكل طلب**. والمتغيّر العام يخلط
+# أدلّة الطلبات المتزامنة، فيُقبل استشهاد مسودّة بمقطع من مسودّة أخرى — وهو
+# خطأ يمرّ بصمت لأنه يبدو تحقّقاً ناجحاً.
+#
+# و`ContextVar` معزول لكل خيط ولكل مهمّة asyncio، فالطلب لا يرى أدلّة غيره.
+
+_current_collector: contextvars.ContextVar[Optional["EvidenceCollector"]] = (
+    contextvars.ContextVar("legal_agent_evidence", default=None)
+)
+
+
+class EvidenceCollector:
+    """
+    يجمع أدلّة جولة واحدة، ويملك توزيع المراجع عليها.
+
+    الملكية هنا مقصودة: لو وزّع كل نداء أداة مراجعه بنفسه لبدأ كلٌّ منها من
+    ``L1``، فيرى النموذج مقطعين مختلفين بالمرجع نفسه — وهذا يُفسد الاقتباس
+    ويُفسد التحقّق معه.
+    """
+
+    def __init__(self) -> None:
+        self.allocator = RefAllocator()
+        self._evidence: list[Evidence] = []
+
+    def add(self, items: list[Evidence]) -> None:
+        """يُضيف مقاطع أداة واحدة إلى سجلّ الجولة."""
+        self._evidence.extend(items)
+
+    @property
+    def evidence(self) -> list[Evidence]:
+        """نسخة من الأدلّة — حتى لا يُعدّلها مستدعٍ بالخطأ."""
+        return list(self._evidence)
+
+    def __len__(self) -> int:
+        return len(self._evidence)
+
+
+def current_collector() -> Optional[EvidenceCollector]:
+    """الجامع النشط في هذا الخيط/المهمّة، أو `None` إن لم يُفتح مسار تحقّق."""
+    return _current_collector.get()
+
+
+@contextlib.contextmanager
+def collect_evidence() -> Iterator[EvidenceCollector]:
+    """
+    يفتح جامعاً لجولة واحدة، ويضمن إغلاقه::
+
+        with collect_evidence() as collected:
+            ... تشغيل الوكيل ...
+        print(len(collected.evidence))
+
+    الاستخدام كسياق مقصود لا تجميلي: لو بقي الجامع مفتوحاً بعد الجولة لتسرّبت
+    أدلّته إلى الجولة التالية، فيُقبل فيها اقتباس من مستند لم يُسترجَع فيها.
+    """
+    collector = EvidenceCollector()
+    token = _current_collector.set(collector)
+    try:
+        yield collector
+    finally:
+        _current_collector.reset(token)
+
+
+# ==============================================================================
+# إعداد أدوات الاسترجاع الخمس
+# ==============================================================================
+# كانت هذه الأدوات **نسخاً شبه حرفية** من بعضها: نفس النداء ونفس التنسيق ونفس
+# الاقتطاع، ويختلف اسم دالة RPC والعتبة والحدّ ووسم العرض فقط.
+#
+# وقد كلّفنا هذا التكرار خطأً فعلياً: أداة التشريعات سقطت من نسخة الموجّه في
+# `main.py` وحدها، فلم يعد الوكيل يستشهد بالتشريعات من تلك الواجهة.
+#
+# فجُمعت في جدول واحد ومسار واحد: تغيير عتبة أو تنسيق صار في موضع واحد، ولا
+# يمكن أن تنحرف أداة عن أخواتها بصمت.
+
+#: لكل أداة: (دالة RPC, عتبة التشابه, عدد المقاطع, وسم العرض في التنسيق القديم)
+_TOOL_CONFIG: dict[str, tuple[str, float, int, str]] = {
+    "legislation": ("match_legal_documents", 0.75, 3, ""),
+    "drafts": ("match_legal_drafts", 0.70, 2, "هيكلة من: "),
+    "contracts": ("match_legal_contracts", 0.70, 4, "بند من: "),
+    "notices": ("match_legal_notices", 0.70, 3, "قسم من: "),
+    "poa": ("match_legal_poa", 0.70, 3, "صلاحية من: "),
+}
+
+#: الرسالة المعروضة عند عدم وجود نتائج — لكل أداة صيغتها.
+_EMPTY_RESULTS: dict[str, str] = {
+    "legislation": "لا توجد نصوص قانونية مطابقة.",
+    "drafts": "لا توجد مذكرات مطابقة.",
+    "contracts": "لا توجد بنود عقود مطابقة.",
+    "notices": "لا توجد إنذارات مطابقة.",
+    "poa": "لا توجد وكالات مطابقة.",
+}
+
+_TOOL_ICONS: dict[str, str] = {
+    "legislation": "🔍",
+    "drafts": "📝",
+    "contracts": "📄",
+    "notices": "⚠️",
+    "poa": "✍️",
+}
+
+_TOOL_LOG_LABELS: dict[str, str] = {
+    "legislation": "Searching Legislation for",
+    "drafts": "Searching Drafting Style for",
+    "contracts": "Searching Contracts for",
+    "notices": "Searching Legal Notices for",
+    "poa": "Searching POAs for",
+}
+
+#: سقف ما يُعرض للنموذج من **كل مقطع** — لتقليل الرموز.
+#:
+#: ⚠️ كان السقف 1800 محرفاً على **مجموع** المقاطع، وكان يقطع في منتصف مقطع
+#: ويُسقط المقاطع التي تليه بالكامل. صار السقف لكل مقطع على حدة، فلا يضيع
+#: مقطع بسبب طول الذي قبله.
+MAX_CHARS_PER_CHUNK = 1800
+
+
+def _legacy_context(tool_key: str, rows: list[dict]) -> str:
+    """
+    التنسيق القديم بلا مراجع — يُستخدم عند غياب جامع الأدلة.
+
+    أُبقي **حرفياً** كما كان، ليبقى سلوك المسارات التي لا تتحقّق (سطر الأوامر،
+    Chainlit، Swarmmy) كما هو بالضبط. راجع `collect_evidence`.
+    """
+    label = _TOOL_CONFIG[tool_key][3]
+    context = "".join(
+        f"\n- {label}{row['document_name']}: {row['chunk_content']}\n" for row in rows
+    )
+    return context[:1800] + "\n... (تم الاقتطاع)" if len(context) > 1800 else context
+
+
+def _build_evidence(
+    tool_key: str, rows: list[dict], allocator: RefAllocator
+) -> list[Evidence]:
+    """يحوّل صفوف RPC إلى أدلّة مرقّمة، مع تطبيق سقف الطول."""
+    evidence: list[Evidence] = []
+    for row in rows:
+        text = str(row.get("chunk_content") or "")
+        if len(text) > MAX_CHARS_PER_CHUNK:
+            text = text[:MAX_CHARS_PER_CHUNK] + "\n... (تم الاقتطاع)"
+        evidence.append(
+            Evidence(
+                ref=allocator.next_ref(tool_key),
+                chunk_id=str(row.get("id", "")),
+                document_name=str(row.get("document_name") or ""),
+                text=text,
+                similarity=row.get("similarity"),
+                tool=tool_key,
+            )
+        )
+    return evidence
+
+
+def _search(tool_key: str, query: str) -> str:
+    """
+    المسار الواحد لكل أدوات الاسترجاع الخمس.
+
+    إن كان جامع أدلة نشطاً (انظر `collect_evidence`) سُجّلت المقاطع بمراجع
+    قصيرة وأُعيد نصّ مرقَّم يستطيع النموذج الاقتباس منه — وعندها يمكن التحقّق.
+    وإن لم يكن، أُعيد التنسيق القديم كما كان بالضبط.
+    """
+    rpc_name, threshold, count, _label = _TOOL_CONFIG[tool_key]
+    print(f"\n[Agent Tool] {_TOOL_ICONS[tool_key]} {_TOOL_LOG_LABELS[tool_key]}: {query}")
+
+    response = get_supabase().rpc(
+        rpc_name,
+        {
+            "query_embedding": encode_query(query),
+            "match_threshold": threshold,
+            "match_count": count,
+        },
+    ).execute()
+
+    rows = response.data or []
+    if not rows:
+        return _EMPTY_RESULTS[tool_key]
+
+    collector = current_collector()
+    if collector is None:
+        return _legacy_context(tool_key, rows)
+
+    evidence = _build_evidence(tool_key, rows, collector.allocator)
+    collector.add(evidence)
+    return format_evidence_block(evidence)
+
+
 # 1. أداة التشريعات والأحكام
 @tool
 def search_uae_legislation(query: str) -> str:
     """استخدم هذه الأداة للبحث عن السند القانوني والتشريعات والأحكام."""
-    print(f"\n[Agent Tool] 🔍 Searching Legislation for: {query}")
-    query_vector = encode_query(query)
-    response = get_supabase().rpc('match_legal_documents', {'query_embedding': query_vector, 'match_threshold': 0.75, 'match_count': 3}).execute()
-    if not response.data: return "لا توجد نصوص قانونية مطابقة."
-    context = "".join([f"\n- {res['document_name']}: {res['chunk_content']}\n" for res in response.data])
-    return context[:1800] + "\n... (تم الاقتطاع)" if len(context) > 1800 else context
+    return _search("legislation", query)
 
 # 2. أداة المذكرات والمسودات
 @tool
 def search_drafting_style(query: str) -> str:
     """استخدم هذه الأداة حصراً عند طلب صياغة (مذكرة دفاع، لائحة دعوى، طعن، تعقيب)."""
-    print(f"\n[Agent Tool] 📝 Searching Drafting Style for: {query}")
-    query_vector = encode_query(query)
-    response = get_supabase().rpc('match_legal_drafts', {'query_embedding': query_vector, 'match_threshold': 0.70, 'match_count': 2}).execute()
-    if not response.data: return "لا توجد مذكرات مطابقة."
-    context = "".join([f"\n- هيكلة من: {res['document_name']}: {res['chunk_content']}\n" for res in response.data])
-    return context[:1800] + "\n... (تم الاقتطاع)" if len(context) > 1800 else context
+    return _search("drafts", query)
 
 # 3. أداة العقود
 @tool
 def search_contract_clauses(query: str) -> str:
     """استخدم هذه الأداة حصراً عند طلب صياغة (عقد، اتفاقية، ملحق تعديل)."""
-    print(f"\n[Agent Tool] 📄 Searching Contracts for: {query}")
-    query_vector = encode_query(query)
-    response = get_supabase().rpc('match_legal_contracts', {'query_embedding': query_vector, 'match_threshold': 0.70, 'match_count': 4}).execute()
-    if not response.data: return "لا توجد بنود عقود مطابقة."
-    context = "".join([f"\n- بند من: {res['document_name']}: {res['chunk_content']}\n" for res in response.data])
-    return context[:1800] + "\n... (تم الاقتطاع)" if len(context) > 1800 else context
+    return _search("contracts", query)
 
 # 4. أداة الإنذارات
 @tool
 def search_legal_notices(query: str) -> str:
     """استخدم هذه الأداة حصراً عند طلب صياغة (إنذار قانوني، إنذار عدلي، إشعار، رد على إنذار)."""
-    print(f"\n[Agent Tool] ⚠️ Searching Legal Notices for: {query}")
-    query_vector = encode_query(query)
-    response = get_supabase().rpc('match_legal_notices', {'query_embedding': query_vector, 'match_threshold': 0.70, 'match_count': 3}).execute()
-    if not response.data: return "لا توجد إنذارات مطابقة."
-    context = "".join([f"\n- قسم من: {res['document_name']}: {res['chunk_content']}\n" for res in response.data])
-    return context[:1800] + "\n... (تم الاقتطاع)" if len(context) > 1800 else context
+    return _search("notices", query)
 
 # 5. أداة الوكالات
 @tool
 def search_poa_clauses(query: str) -> str:
     """استخدم هذه الأداة حصراً عند طلب صياغة (وكالة، توكيل خاص، توكيل عام، تفويض)."""
-    print(f"\n[Agent Tool] ✍️ Searching POAs for: {query}")
-    query_vector = encode_query(query)
-    response = get_supabase().rpc('match_legal_poa', {'query_embedding': query_vector, 'match_threshold': 0.70, 'match_count': 3}).execute()
-    if not response.data: return "لا توجد وكالات مطابقة."
-    context = "".join([f"\n- صلاحية من: {res['document_name']}: {res['chunk_content']}\n" for res in response.data])
-    return context[:1800] + "\n... (تم الاقتطاع)" if len(context) > 1800 else context
+    return _search("poa", query)
 
 # ==============================================================================
 # موجّه التوجيه الموحّد — مصدر واحد لكل الواجهات
@@ -169,6 +348,40 @@ SYSTEM_PROMPT = (
     "جانبية أو شرح لما تفعله. إن لم تجد سنداً في السياق المسترجع، اكتب المستند "
     "واعتمد على القواعد القانونية الإماراتية العامة دون تأليف نصوص مواد."
 )
+
+# ------------------------------------------------------------------------------
+# قواعد توثيق الأسانيد
+# ------------------------------------------------------------------------------
+# تُضاف إلى الموجّه **فقط** في الواجهات التي تفتح جامع أدلة (`collect_evidence`)،
+# لأنها الوحيدة التي تستطيع التحقّق فعلاً. فمطالبة النموذج بالاقتباس في واجهة
+# لا تتحقّق منه تُنتج أسانيد لا يفحصها أحد — وهي أسوأ من غيابها، لأنها تُوهم
+# المحامي بأن المسودّة موثَّقة.
+#
+# ولذلك `SYSTEM_PROMPT` نفسها لم تُعدَّل: بقيت Chainlit وSwarmmy وسطر الأوامر
+# على سلوكها السابق بالضبط.
+# ------------------------------------------------------------------------------
+CITATION_RULES = (
+    "توثيق الأسانيد (إلزامي):\n"
+    "المقاطع المسترجعة تأتي مرقّمة بمراجع مثل [L1] و[C2] و[N1].\n"
+    "1. كل استناد إلى حكم أو مادة أو بند في المتن يجب أن يقابله سند في كتلة "
+    "الأسانيد.\n"
+    "2. السند اقتباس **حرفي** من نصّ المقطع: انسخ العبارة كما وردت بلا إعادة "
+    "صياغة ولا اختصار ولا تصرّف في الألفاظ.\n"
+    "3. اكتب كل سند في سطر مستقل: المرجع، ثم الفاصل ::، ثم الاقتباس. وضع "
+    "الأسطر كلها بين هذين الوسمين في آخر المستند:\n"
+    f"{CITATIONS_BEGIN}\n"
+    "L1 :: العبارة الحرفية كما وردت في المقطع\n"
+    f"{CITATIONS_END}\n"
+    "4. ضع الكتلة مرة واحدة في آخر المستند، ولا تشرحها ولا تعلّق عليها ولا "
+    "تكرّرها.\n"
+    "5. لا تذكر رقم مادة لم يرد في المقاطع المسترجعة. وإن لم تجد سنداً لحكمٍ "
+    "تريد ذكره فاحذفه.\n"
+    "6. الاقتباس القصير لا يُقبل: انقل عبارة كاملة ذات معنى، لا كلمة أو "
+    "كلمتين.\n"
+)
+
+#: الموجّه الموحّد **مع** قواعد التوثيق — للواجهات التي تفتح جامع أدلة.
+SYSTEM_PROMPT_CITED = SYSTEM_PROMPT + CITATION_RULES
 
 
 class State(TypedDict):

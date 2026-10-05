@@ -304,29 +304,28 @@ class RefAllocator:
     البادئة لكل أداة تجعل المرجع مفهوم السياق: يرى المحامي ``C3`` فيعرف أنه
     البند الثالث من العقود.
 
+    ⚠️ العدّاد **تصاعدي لكل بادئة على حدة** ولا يُعاد ضبطه تلقائياً. والسبب
+    مهمّ: لو أعاد كل نداء أداة العدّ من البداية، لأعاد نداءان لنفس الأداة في
+    الجولة الواحدة المراجع نفسها — فيرى النموذج مقطعين مختلفين بالمرجع ``L1``،
+    ويصير اقتباسه غامضاً والتحقّق معه بلا معنى.
+
     >>> alloc = RefAllocator()
-    >>> alloc.next_ref("contracts", 0)
+    >>> alloc.next_ref("contracts")
     'C1'
-    >>> alloc.next_ref("contracts", 1)
+    >>> alloc.next_ref("contracts")
     'C2'
+    >>> alloc.next_ref("legislation")
+    'L1'
     """
 
     def __init__(self) -> None:
         self._counters: dict[str, int] = {}
 
-    def next_ref(self, tool: str, index: int) -> str:
-        """
-        يعيد المرجع للمقطع رقم ``index`` من الأداة ``tool``.
-
-        ``index`` موجود ليكون النداء قابلاً للتكرار بأمان: إعادة تشغيل نفس
-        النداء تُنتج نفس المراجع، فتظلّ الاستشهادات صحيحة. (المخزن الداخلي
-        عدّاد تصاعدي يمنع التصادم بين نداءات متتابعة في الجولة نفسها.)
-        """
+    def next_ref(self, tool: str) -> str:
+        """يعيد المرجع التالي للأداة المعطاة."""
         prefix = TOOL_REF_PREFIXES.get(tool, "X")
-        current = self._counters.get(prefix, 0)
-        if index >= current:
-            self._counters[prefix] = index + 1
-        return f"{prefix}{index + 1}"
+        self._counters[prefix] = self._counters.get(prefix, 0) + 1
+        return f"{prefix}{self._counters[prefix]}"
 
     def reset(self) -> None:
         """يصفّر العدّادات — يُستدعى في بداية كل جولة."""
