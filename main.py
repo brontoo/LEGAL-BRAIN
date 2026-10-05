@@ -50,6 +50,8 @@ from citations import (
     verify_citations,
 )
 from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence, get_supabase
+from language_audit import audit_language
+from language_audit import summarize as summarize_language_audit
 from revisions import RevisionRejected, build_revision, summarize
 
 load_dotenv()
@@ -139,7 +141,9 @@ TOOL_STAGE_LABELS = {
 STAGE_ANALYSING = "جاري تحليل الطلب وتحديد المسار القانوني..."
 STAGE_EVIDENCE_FOUND = "تم استرجاع السند من أرشيفك — جاري الصياغة..."
 STAGE_DRAFTING = "الفريق القانوني يصوغ المستند الآن..."
-STAGE_VERIFYING = "مدقّق الأسانيد يراجع كل سند قبل التسليم..."
+STAGE_VERIFYING = "المفتش ثُغرة يراجع كل سند قبل التسليم..."
+STAGE_POLISHING = "سيبويه المُكشّر يضبط الصياغة..."
+STAGE_SEALING = "المعلم أبو الختم يعتمد المستند ويختمه..."
 
 
 # ------------------------------------------------------------------------------
@@ -158,6 +162,8 @@ KEY_INTAKE = "intake"
 KEY_EVIDENCE = "evidence"
 KEY_DRAFTING = "drafting"
 KEY_VERIFYING = "verifying"
+KEY_POLISH = "polish"
+KEY_SEAL = "seal"
 
 #: من اسم الأداة إلى مفتاح الشخصية التي تشتغل.
 TOOL_STAGE_KEYS = {
@@ -434,26 +440,40 @@ def _stream_agent(messages: list):
         yield ("stage", StageEvent(KEY_DRAFTING, STAGE_DRAFTING))
 
     if final_text:
-        # مرحلة التحقّق: تُبثّ **قبل** التقرير، فترى الواجهة المدقّق يعمل ثم
-        # يستلم نتيجته. وهي حقيقية لا تجميلية: التحقّق يجري فعلاً هنا.
+        # ترتيب المراجعة يتبع فريق `smart_office.py` نفسه:
+        #   مُسوَدَّة أفندي (الصياغة) ← المفتش ثُغرة (الأسانيد)
+        #   ← سيبويه المُكشّر (الصياغة اللغوية) ← أبو الختم (الاعتماد والختم)
+        #
+        # وكل مرحلة **تُبثّ قبل** نتيجتها: فيرى المحامي المدقّق يعمل ثم يستلم
+        # تقريره، بدل أن يظهر التقرير من العدم.
         yield ("stage", StageEvent(KEY_VERIFYING, STAGE_VERIFYING))
         clean, report = _verify_round(final_text, evidence)
         yield ("citations", report)
+
+        # سيبويه المُكشّر — تدقيق لغوي حتمي بلا نموذج (انظر language_audit.py)
+        yield ("stage", StageEvent(KEY_POLISH, STAGE_POLISHING))
+        yield ("language", summarize_language_audit(audit_language(clean)))
+
+        # المعلم أبو الختم — لا عمل بعد الختم إلا التسليم
+        yield ("stage", StageEvent(KEY_SEAL, STAGE_SEALING))
         yield ("final", clean)
     else:
         yield ("final", "")
 
 
-def _run_agent_collect(messages: list) -> tuple[str, dict]:
-    """ينفّذ الوكيل ويُرجع (النصّ النهائي, تقرير الأسانيد) — يُستخدم في /chat."""
+def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
+    """ينفّذ الوكيل ويُرجع (النصّ, تقرير الأسانيد, تقرير الصياغة) — لـ /chat."""
     final_text = ""
     report: dict = {}
+    language: dict = {}
     for kind, payload in _stream_agent(messages):
         if kind == "citations":
             report = payload
+        elif kind == "language":
+            language = payload
         elif kind == "final":
             final_text = payload
-    return final_text, report
+    return final_text, report, language
 
 
 # ==============================================================================
@@ -508,6 +528,8 @@ async def _sse_generator(messages: list) -> AsyncIterator[str]:
                     )
                 elif kind == "citations":
                     emit({"type": "citations", "report": payload})
+                elif kind == "language":
+                    emit({"type": "language", "report": payload})
                 elif kind == "final":
                     if payload:
                         emit({"type": "done", "document": payload})
@@ -565,7 +587,7 @@ async def chat_endpoint(req: ChatRequest):
     history.append(HumanMessage(content=req.prompt))
 
     try:
-        answer, citations = await asyncio.to_thread(
+        answer, citations, language = await asyncio.to_thread(
             _run_agent_collect, _trim_history(history)
         )
     except Exception as exc:  # noqa: BLE001
@@ -578,7 +600,12 @@ async def chat_endpoint(req: ChatRequest):
         )
 
     history.append(AIMessage(content=answer))
-    return {"response": answer, "session_id": session_id, "citations": citations}
+    return {
+        "response": answer,
+        "session_id": session_id,
+        "citations": citations,
+        "language": language,
+    }
 
 
 @app.post("/revisions", dependencies=[Depends(require_token)])

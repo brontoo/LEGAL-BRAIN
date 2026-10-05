@@ -3,136 +3,140 @@
 /**
  * مشهد «فريق المكتب» — تمثيل بصري حقيقي لمراحل الصياغة.
  * ============================================================================
- * الفكرة: بدل انتظار فراغ، يرى المحامي فريقه يعمل: كل شخص على مكتبه، واسمه
- * تحته، ومهمته. ولمن يعمل شاشة مضيئة وحركة، ولمن ينتظر فنجان قهوة.
+ * الفريق **أسماء موجودة في النظام نفسه** لا مخترعة هنا:
  *
- * ⚠️ **والأهم أنه ليس رسوماً متحركة تجميلية.**
- * كل شخصية مرتبطة بمفتاح مرحلة **حقيقي** يبثّه الخادم (`stage` في إطار SSE)،
- * وهذا المفتاح يأتي من المرحلة الفعلية: أي أداة استرجاع نُفِّذت فعلاً، ومتى
- * بدأ التوليد، ومتى جرى التحقّق. فإن لم تُستدعَ أداة الوكالات مثلاً، تبقى
- * ليلى على قهوتها ولا تُوهم بأنها عملت.
+ *   smart_office.py  →  «أمين المكتبة» · «مُسوَدَّة أفندي» · «المفتش ثُغرة»
+ *                       · «سيبويه المُكشّر»
+ *   office_test.py   →  «المعلم أبو الختم»
  *
- * وهذا مقصود: لو حُرِّك المشهد بمؤقّت زمني لصار مسرحاً يخفي ما يجري فعلاً —
- * وهو النمط المضادّ نفسه الذي رأيناه في مشروع «محاكاة التفاوض»: قيود مكتوبة
- * في الموجّه ولا فحص واحد في الكود.
+ * ⚠️ وملاحظة صريحة: تلك الأسماء في `smart_office.py` — وهو **سكربت مستقلّ لا
+ * يستدعيه `/generate`**. فـ«سيبويه» و«المفتش ثُغرة» لم يراجعا مستنداً واحداً
+ * أنتجه الموقع قبل هذا التغيير. وقد مُنحا هنا عملاً حقيقياً في المسار الفعلي:
+ * المفتش يتحقّق من الأسانيد (`citations.py`)، وسيبويه يدقّق الصياغة
+ * (`language_audit.py`) — وكلاهما فحص حتمي لا نموذج.
  *
- * والمفتاح آلي ثابت لا نصّ عربي، لأن ربط الواجهة بالنصّ ينكسر بصمت عند أول
- * تعديل صياغة.
+ * ⚠️ **ولا شيء في هذا المشهد تجميلي.**
+ * كل شخصية مرتبطة بمفتاح مرحلة يبثّه الخادم، والمفاتيح تأتي من مراحل وقعت
+ * فعلاً. فإن لم تُستدعَ أداة العقود مثلاً، لا يُوهم المشهد بأن أحداً بحث فيها.
+ * ولو حُرِّك بمؤقّت زمني لصار مسرحاً يخفي ما يجري — وهو النمط المضادّ نفسه
+ * الذي رأيناه في مشروع «محاكاة التفاوض»: قيود في الموجّه ولا فحص في الكود.
  */
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import {
-  AlertTriangle,
   Archive,
-  Briefcase,
   Clock,
   Coffee,
   FileText,
   PenTool,
-  Scale,
-  ShieldCheck,
+  ShieldAlert,
   Stamp,
-  Users,
 } from "lucide-react";
 
-/** موظّف واحد في المكتب — يقابل مرحلة حقيقية من الخادم. */
+/** موظّف واحد في المكتب. */
 type Worker = {
-  /** مفتاح المرحلة كما يبثّه الخادم (`main.py`) */
+  /** مفتاح الشخصية — وتُشتقّ مفاتيح مراحله من `STAGE_CHARACTER` */
   key: string;
   name: string;
   role: string;
-  icon: typeof Scale;
-  /** لون البدلة والهالة — يميّز الشخص بصرياً */
+  icon: typeof Archive;
   color: string;
   glow: string;
 };
 
 /**
- * الفريق — والمفاتيح هنا يجب أن تطابق `main.py` حرفياً:
- * `TOOL_STAGE_KEYS` و`KEY_INTAKE` و`KEY_EVIDENCE` و`KEY_DRAFTING` و`KEY_VERIFYING`.
+ * الفريق — خمسة بأسمائهم في النظام.
+ *
+ * وأربعة منهم **نكات قانونية حقيقية** وضعها صاحب المكتب:
+ * «مُسوَدَّة أفندي» و«المفتش ثُغرة» و«سيبويه المُكشّر» و«المعلم أبو الختم».
  */
 const TEAM: Worker[] = [
   {
-    key: "intake",
-    name: "أ. حيث إن",
-    role: "مدير المكتب",
-    icon: Users,
-    color: "#f59e0b",
-    glow: "rgba(245,158,11,0.35)",
-  },
-  {
-    key: "evidence",
-    name: "حافظ",
-    role: "أمين الأرشيف",
+    key: "library",
+    name: "أمين المكتبة",
+    role: "البحث في الأرشيف",
     icon: Archive,
     color: "#2dd4bf",
     glow: "rgba(45,212,191,0.35)",
   },
   {
-    key: "legislation",
-    name: "أ. مادة",
-    role: "التشريعات والأحكام",
-    icon: Scale,
-    color: "#38bdf8",
-    glow: "rgba(56,189,248,0.35)",
+    key: "drafter",
+    name: "مُسوَدَّة أفندي",
+    role: "وكيل الصياغة",
+    icon: PenTool,
+    color: "#f59e0b",
+    glow: "rgba(245,158,11,0.35)",
   },
   {
-    key: "drafts",
-    name: "أ. صيغة",
-    role: "أسلوب المذكرات",
+    key: "inspector",
+    name: "المفتش ثُغرة",
+    role: "المدقق القانوني",
+    icon: ShieldAlert,
+    color: "#4ade80",
+    glow: "rgba(74,222,128,0.35)",
+  },
+  {
+    key: "polisher",
+    name: "سيبويه المُكشّر",
+    role: "المدقق اللغوي",
     icon: FileText,
     color: "#a78bfa",
     glow: "rgba(167,139,250,0.35)",
   },
   {
-    key: "contracts",
-    name: "أ. بند",
-    role: "بنود العقود",
-    icon: Briefcase,
-    color: "#34d399",
-    glow: "rgba(52,211,153,0.35)",
-  },
-  {
-    key: "notices",
-    name: "أ. مهلة",
-    role: "صيغ الإنذارات",
-    icon: AlertTriangle,
-    color: "#fb923c",
-    glow: "rgba(251,146,60,0.35)",
-  },
-  {
-    key: "poa",
-    name: "أ. وكيلة",
-    role: "صيغ الوكالات",
+    key: "sealer",
+    name: "المعلم أبو الختم",
+    role: "الاعتماد والختم",
     icon: Stamp,
     color: "#f472b6",
     glow: "rgba(244,114,182,0.35)",
   },
-  {
-    key: "drafting",
-    name: "أ. مسودة",
-    role: "الكاتب القانوني",
-    icon: PenTool,
-    color: "#facc15",
-    glow: "rgba(250,204,21,0.35)",
-  },
-  {
-    key: "verifying",
-    name: "أ. سند",
-    role: "تدقيق الأسانيد",
-    icon: ShieldCheck,
-    color: "#4ade80",
-    glow: "rgba(74,222,128,0.35)",
-  },
 ];
 
-/** حالة الموظّف — تُشتقّ من المفاتيح التي وصلت فعلاً. */
+/**
+ * من مفتاح المرحلة إلى الشخصية التي تعمل فيها.
+ *
+ * ⚠️ هذا الجدول هو **العقد بين الخادم والواجهة**، ويُفحص في `tests/test_main.py`
+ * (`TestOfficeSceneContract`). ولو أُضيفت مرحلة في `main.py` ولم تُضف هنا، لما
+ * ظهر خطأ — تبقى الشخصية نائمة أبداً. وهو الانحراف الصامت نفسه الذي أصلحناه في
+ * الأدوات الخمس حين سقطت أداة التشريعات من نسخة موجّه واحدة.
+ *
+ * و«أمين المكتبة» يغطّي سبع مراحل: الاستقبال، والأدوات الخمس، وتسليم المقاطع.
+ * والسبب أنه هو من يعمل فيها كلها فعلاً — والنصّ المعروض تحته يقول أيّ رفّ
+ * يبحث فيه. فشخصية واحدة صادقة خير من سبع شخصيات وهمية.
+ */
+const STAGE_CHARACTER: Record<string, string> = {
+  intake: "library",
+  legislation: "library",
+  drafts: "library",
+  contracts: "library",
+  notices: "library",
+  poa: "library",
+  evidence: "library",
+  drafting: "drafter",
+  verifying: "inspector",
+  polish: "polisher",
+  seal: "sealer",
+};
+
+/** مفاتيح المراحل التي تخصّ كل شخصية — معكوسة من الجدول أعلاه. */
+const CHARACTER_STAGES: Record<string, string[]> = Object.entries(
+  STAGE_CHARACTER
+).reduce<Record<string, string[]>>((acc, [stage, character]) => {
+  (acc[character] ??= []).push(stage);
+  return acc;
+}, {});
+
+/** حالة الموظّف — تُشتقّ من مفاتيح المراحل التي وصلت فعلاً. */
 type Phase = "waiting" | "working" | "done";
 
-function phaseOf(worker: Worker, activeKey: string, completed: Set<string>): Phase {
-  if (worker.key === activeKey) return "working";
-  if (completed.has(worker.key)) return "done";
+function phaseOf(worker: Worker, activeStage: string, completed: Set<string>): Phase {
+  // النشِط أولاً: أمين المكتبة يعمل في سبع مراحل متتالية، ولو فُحص «المنتهي»
+  // قبله لظهر «أنجز مهمته» وهو ما زال يبحث.
+  if (STAGE_CHARACTER[activeStage] === worker.key) return "working";
+  const stages = CHARACTER_STAGES[worker.key] ?? [];
+  if (stages.some((stage) => completed.has(stage))) return "done";
   return "waiting";
 }
 
@@ -141,7 +145,8 @@ function ElapsedClock({ startedAt }: { startedAt: number }) {
   const [seconds, setSeconds] = useState(0);
 
   useEffect(() => {
-    const tick = () => setSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    const tick = () =>
+      setSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
@@ -153,33 +158,24 @@ function ElapsedClock({ startedAt }: { startedAt: number }) {
   return (
     <span className="inline-flex items-center gap-1 font-mono tabular-nums">
       <Clock className="h-3.5 w-3.5" />
-      {minutes > 0
-        ? `${minutes}:${String(rest).padStart(2, "0")} دقيقة`
-        : `${rest} ثانية`}
+      {minutes > 0 ? `${minutes}:${String(rest).padStart(2, "0")} دقيقة` : `${rest} ثانية`}
     </span>
   );
 }
 
 /** مكتب واحد: الشخص، ومنضدته، واسمه، وحالته. */
-function Desk({
-  worker,
-  phase,
-}: {
-  worker: Worker;
-  phase: Phase;
-}) {
+function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
   const working = phase === "working";
   const done = phase === "done";
   const Icon = worker.icon;
 
   // هل توجد صورة مولَّدة لهذا الموظّف؟
   //
-  // المنطق: نحاول تحميل `/agents/<key>.png`، وإن فشل نرجع إلى الأيقونة. فبمجرد
-  // أن تُسقط الصور في `frontend/public/agents/` تعمل بلا أي تعديل في الكود.
+  // نحاول تحميل `/agents/<key>.png`، وإن فشل نرجع إلى الأيقونة. فبمجرد أن
+  // تُسقط الصور في `frontend/public/agents/` تعمل بلا أي تعديل في الكود.
   //
-  // ⚠️ وقبل إضافة الصور ستظهر أخطاء 404 في طرفية المتصفح لتسعة ملفات — وهي
-  // متوقّعة ولا تعني خللاً. اخترناها على بديلَين أسوأ: علم ثابت يُنسى تشغيله،
-  // أو ملف بيان يُنسى تحديثه.
+  // ⚠️ وقبل إضافة الصور ستظهر أخطاء 404 في طرفية المتصفح لخمسة ملفات — وهي
+  // متوقّعة ولا تعني خللاً. اخترناها على علم ثابت يُنسى أو ملف بيان يُنسى.
   const [artFailed, setArtFailed] = useState(false);
 
   return (
@@ -232,8 +228,8 @@ function Desk({
         ) : (
           /*
            * الصورة: صدر الشخص فقط بلا منضدة — فالمنضدة والشاشة تُرسمان هنا
-           * بـ CSS فوقها، فتتّسق التركيبة مع الموظفين التسعة سواء وُجدت
-           * صورهم أم لا. (ولهذا تطلب موجّهات التوليد «chest-up, no desk»).
+           * بـ CSS فوقها، فتتّسق التركيبة مع الفريق كله سواء وُجدت صورهم أم لا.
+           * (ولهذا تطلب موجّهات التوليد «chest-up, no desk»).
            *
            * و`<img>` لا `next/image` عن قصد: الصور تُضاف بعد البناء، و
            * `next/image` يطلب أبعاداً معروفة وقت البناء.
@@ -274,7 +270,7 @@ function Desk({
 
       <div className="mt-1.5 text-center leading-tight">
         <div
-          className="text-[13px] font-bold transition-colors"
+          className="text-[12px] font-bold transition-colors"
           style={{ color: working ? worker.color : done ? "#cbd5e1" : "#64748b" }}
         >
           {worker.name}
@@ -282,7 +278,7 @@ function Desk({
         <div className="text-[11px] text-slate-500">{worker.role}</div>
       </div>
 
-      <div className="mt-1 text-[11px] h-4">
+      <div className="mt-1 h-4 text-[11px]">
         {working ? (
           <span style={{ color: worker.color }}>● يعمل الآن</span>
         ) : done ? (
@@ -298,18 +294,18 @@ function Desk({
 /**
  * المشهد الكامل — يُعرض أثناء الصياغة.
  *
- * @param activeKey   مفتاح المرحلة الجارية الآن (من الخادم)
- * @param completedKeys كل المفاتيح التي انتهت
- * @param message     نصّ المرحلة كما وصل من الخادم
- * @param startedAt   وقت بدء الطلب (Date.now)
+ * @param activeStage   مفتاح المرحلة الجارية الآن (من الخادم)
+ * @param completedKeys كل مفاتيح المراحل التي انتهت
+ * @param message       نصّ المرحلة كما وصل من الخادم
+ * @param startedAt     وقت بدء الطلب (Date.now)
  */
 export function OfficeScene({
-  activeKey,
+  activeStage,
   completedKeys,
   message,
   startedAt,
 }: {
-  activeKey: string;
+  activeStage: string;
   completedKeys: string[];
   message: string;
   startedAt: number;
@@ -318,7 +314,7 @@ export function OfficeScene({
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-      {/* جدار المكتب: نافذة ونبات — تفاصيل صغيرة تصنع المكان */}
+      {/* جدار المكتب: نافذة ونبتة — تفاصيل صغيرة تصنع المكان */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
         <div className="absolute start-6 top-6 h-20 w-32 rounded-t-full border-4 border-slate-400" />
         <div className="absolute start-10 top-10 h-0.5 w-24 bg-slate-400" />
@@ -339,10 +335,10 @@ export function OfficeScene({
         </div>
       </div>
 
-      {/* المكتب: شبكة تتوسّع إلى صفّين على الشاشات الواسعة */}
-      <div className="relative grid grid-cols-2 gap-x-2 gap-y-6 sm:grid-cols-3 lg:grid-cols-5">
+      {/* المكتب: خمسة مكاتب في صفّ واحد على الشاشات الواسعة */}
+      <div className="relative grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-5">
         {TEAM.map((worker) => (
-          <Desk key={worker.key} worker={worker} phase={phaseOf(worker, activeKey, completed)} />
+          <Desk key={worker.key} worker={worker} phase={phaseOf(worker, activeStage, completed)} />
         ))}
       </div>
 
@@ -360,13 +356,15 @@ export function OfficeScene({
 }
 
 /**
- * شريط الفريق بعد انتهاء العمل — من شارك فعلاً ومن لم يُستدعَ.
+ * شريط الفريق بعد انتهاء العمل — من شارك فعلاً.
  *
  * الفائدة الحقيقية أنه **صادق**: يرى المحامي أن أداة الوكالات لم تُستعمل في
  * هذه المسودّة، فيعرف أن ما فيها من صلاحيات لم يُستند فيه إلى أرشيفه.
  */
-export function TeamStrip({ workedKeys }: { workedKeys: string[] }) {
-  const worked = new Set(workedKeys);
+export function TeamStrip({ stageKeys }: { stageKeys: string[] }) {
+  const worked = new Set(
+    stageKeys.map((stage) => STAGE_CHARACTER[stage]).filter(Boolean)
+  );
   const participants = TEAM.filter((worker) => worked.has(worker.key));
 
   if (participants.length === 0) return null;

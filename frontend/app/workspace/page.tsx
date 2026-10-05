@@ -68,9 +68,28 @@ type CitationsReport = {
   malformed_lines: string[];
 };
 
+/** ملاحظة واحدة من «سيبويه المُكشّر» — التدقيق اللغوي. */
+type LanguageFinding = {
+  kind: string;
+  severity: "error" | "notice";
+  message: string;
+  sample: string;
+  line: number | null;
+};
+
+/** تقرير التدقيق اللغوي — فحص حتمي لا نموذج (انظر language_audit.py). */
+type LanguageReport = {
+  summary: string;
+  clean: boolean;
+  error_count: number;
+  notice_count: number;
+  findings: LanguageFinding[];
+};
+
 type StreamEvent =
-  | { type: "stage"; message: string }
+  | { type: "stage"; stage?: string; message: string }
   | { type: "citations"; report: CitationsReport }
+  | { type: "language"; report: LanguageReport }
   | { type: "done"; document: string }
   | { type: "error"; message: string };
 
@@ -229,6 +248,81 @@ function CitationsPanel({ report }: { report: CitationsReport | null }) {
 }
 
 /**
+ * لوحة التدقيق اللغوي — عمل «سيبويه المُكشّر».
+ *
+ * فحص حتمي لا نموذج: مخلفات Markdown، وافتتاح حواري، وحقول قالب لم تُملأ،
+ * وكلمات لاتينية، وأسطر مكرّرة. انظر `language_audit.py`.
+ *
+ * والأخطاء تمنع التسليم، والملاحظات للعلم فقط — ولذلك يختلف لونهما.
+ */
+function LanguagePanel({ report }: { report: LanguageReport | null }) {
+  if (!report) return null;
+  if (report.findings.length === 0) {
+    return (
+      <div className="flex items-center gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3 text-sm text-green-700">
+        <ShieldCheck className="w-4 h-4" />
+        <span className="font-semibold">التدقيق اللغوي:</span>
+        <span>{report.summary}</span>
+      </div>
+    );
+  }
+
+  const errors = report.findings.filter((item) => item.severity === "error");
+  const notices = report.findings.filter((item) => item.severity === "notice");
+
+  return (
+    <div className="space-y-3 border-t border-slate-200 bg-slate-50 p-6">
+      <div className="flex flex-wrap items-center gap-2">
+        {report.clean ? (
+          <ShieldCheck className="w-5 h-5 text-green-600" />
+        ) : (
+          <ShieldAlert className="w-5 h-5 text-red-600" />
+        )}
+        <h3 className="font-bold text-slate-900">التدقيق اللغوي</h3>
+        <span className="text-sm text-slate-500">({report.summary})</span>
+      </div>
+
+      {errors.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-red-700">يجب إصلاحها قبل التسليم</h4>
+          {errors.map((item, index) => (
+            <div
+              key={`e-${index}`}
+              className="rounded-lg border border-red-200 bg-white p-3 text-sm"
+            >
+              <div className="text-xs text-red-600 mb-1">
+                {item.message}
+                {item.line != null && <span className="text-slate-400"> — سطر {item.line}</span>}
+              </div>
+              <p className="font-mono text-xs text-slate-700" dir="auto">
+                {item.sample}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {notices.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-amber-700">ملاحظات للعلم</h4>
+          {notices.map((item, index) => (
+            <div
+              key={`n-${index}`}
+              className="rounded-lg border border-amber-200 bg-white p-3 text-sm"
+            >
+              <div className="text-xs text-amber-700 mb-1">{item.message}</div>
+              <p className="font-mono text-xs text-slate-600" dir="auto">
+                {item.sample}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * شريط حفظ التصحيح — المادة الخام لتقليد أسلوب المحامي.
  *
  * الفكرة: بعد أن يعدّل المحامي المسودّة (هنا أو في Word ثم يلصقها)، يحفظها
@@ -368,6 +462,7 @@ export default function Workspace() {
   const [finalDocument, setFinalDocument] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [citationReport, setCitationReport] = useState<CitationsReport | null>(null);
+  const [languageReport, setLanguageReport] = useState<LanguageReport | null>(null);
 
   // مراحل العمل — تُشغّل مشهد «فريق المكتب».
   // ⚠️ المفاتيح تأتي من الخادم (`stage` في إطار SSE) ولا تُخمَّن هنا. فالمشهد
@@ -397,6 +492,7 @@ export default function Workspace() {
     setFinalDocument("");
     setErrorMessage("");
     setCitationReport(null);
+    setLanguageReport(null);
 
     // تصفير مشهد المكتب — وإلا ظهر الفريق وقد «أنجز» عمل الطلب السابق
     setActiveStage("");
@@ -483,6 +579,8 @@ export default function Workspace() {
           } else if (event.type === "citations") {
             // يصل قبل "done" — فالتقرير جاهز حين يُعرض المستند
             setCitationReport(event.report);
+          } else if (event.type === "language") {
+            setLanguageReport(event.report);
           } else if (event.type === "done") {
             setFinalDocument(event.document);
             setStatus("done");
@@ -596,7 +694,7 @@ export default function Workspace() {
                 exit={{ opacity: 0, y: -20 }}
               >
                 <OfficeScene
-                  activeKey={activeStage}
+                  activeStage={activeStage}
                   completedKeys={completedStages}
                   message={liveMessage}
                   startedAt={startedAt}
@@ -645,9 +743,10 @@ export default function Workspace() {
                 </div>
                 {/* من عمل فعلاً على هذا المستند — ومن لم يُستدعَ يغيب عن الشريط */}
                 <TeamStrip
-                  workedKeys={[...completedStages, activeStage].filter(Boolean)}
+                  stageKeys={[...completedStages, activeStage].filter(Boolean)}
                 />
                 <CitationsPanel report={citationReport} />
+                <LanguagePanel report={languageReport} />
                 <RevisionBar
                   generatedText={cleanDocument}
                   docType={docType}

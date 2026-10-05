@@ -775,36 +775,82 @@ class TestOfficeSceneContract(MainTestBase):
         super().setUp()
         self.source = self.SCENE.read_text(encoding="utf-8")
 
-    def backend_keys(self) -> set:
+    def backend_stages(self) -> set:
         """كل مفتاح مرحلة يبثّه الخادم فعلاً."""
         return set(main.TOOL_STAGE_KEYS.values()) | {
             main.KEY_INTAKE,
             main.KEY_EVIDENCE,
             main.KEY_DRAFTING,
             main.KEY_VERIFYING,
+            main.KEY_POLISH,
+            main.KEY_SEAL,
         }
 
-    def scene_keys(self) -> set:
-        """مفاتيح الشخصيات المعرَّفة في المشهد."""
-        return set(re.findall(r'key:\s*"([a-z_]+)"', self.source))
+    def stage_map(self) -> dict:
+        """جدول `STAGE_CHARACTER` من ملف المشهد: مرحلة ← شخصية."""
+        block = re.search(
+            r"const STAGE_CHARACTER[^{]*\{(.*?)\n\};", self.source, re.DOTALL
+        )
+        self.assertIsNotNone(block, "لم يُعثر على STAGE_CHARACTER في المشهد")
+        return dict(re.findall(r'(\w+):\s*"(\w+)"', block.group(1)))
+
+    def characters(self) -> set:
+        """
+        مفاتيح الشخصيات في `TEAM`.
+
+        ويُقرأ من كتلة `TEAM` وحدها لا من الملف كله: فـ`key={worker.key}` في
+        JSX ليس تعريف شخصية، ولو قرأناه لظهرت مفاتيح وهمية.
+        """
+        block = re.search(r"const TEAM[^=]*=\s*\[(.*?)\n\];", self.source, re.DOTALL)
+        self.assertIsNotNone(block, "لم يُعثر على TEAM في المشهد")
+        return set(re.findall(r'key:\s*"(\w+)"', block.group(1)))
 
     def test_scene_file_is_present(self):
         self.assertTrue(self.SCENE.exists(), f"مفقود: {self.SCENE}")
 
-    def test_every_backend_stage_has_a_character(self):
-        """كل مرحلة يبثّها الخادم لها شخصية — وإلا نائمة أبداً."""
-        missing = self.backend_keys() - self.scene_keys()
+    def test_every_backend_stage_is_mapped(self):
+        """كل مرحلة يبثّها الخادم لها مدخل في الجدول — وإلا نائمة أبداً."""
+        missing = self.backend_stages() - set(self.stage_map())
         self.assertEqual(missing, set(), f"مراحل بلا شخصية: {sorted(missing)}")
 
-    def test_no_character_without_a_backend_stage(self):
-        """ولا شخصية بمفتاح لا يبثّه الخادم — وإلا لم تتحرّك قطّ."""
-        orphans = self.scene_keys() - self.backend_keys()
-        self.assertEqual(orphans, set(), f"مفاتيح لا يبثّها الخادم: {sorted(orphans)}")
+    def test_no_stage_is_mapped_without_a_backend_stage(self):
+        """ولا مدخل لمرحلة لا يبثّها الخادم — وإلا لم تتحرّك قطّ."""
+        orphans = set(self.stage_map()) - self.backend_stages()
+        self.assertEqual(orphans, set(), f"مراحل لا يبثّها الخادم: {sorted(orphans)}")
 
-    def test_scene_has_a_name_for_every_character(self):
+    def test_every_character_owns_at_least_one_stage(self):
+        """كل شخصية معرَّفة لها مرحلة — وإلا فلا تظهر أبداً."""
+        idle = self.characters() - set(self.stage_map().values())
+        self.assertEqual(idle, set(), f"شخصيات بلا مرحلة: {sorted(idle)}")
+
+    def test_no_stage_maps_to_an_unknown_character(self):
+        """ولا مرحلة تُوجَّه إلى شخصية غير معرَّفة — وإلا اختفت الحركة."""
+        unknown = set(self.stage_map().values()) - self.characters()
+        self.assertEqual(unknown, set(), f"شخصيات غير معرَّفة: {sorted(unknown)}")
+
+    def test_scene_has_a_name_and_role_for_every_character(self):
         """لكل شخصية اسم ودور معروضان — وهذا ما طلبه المستخدم صراحةً."""
-        self.assertEqual(len(re.findall(r"name:\s*\"", self.source)), len(self.scene_keys()))
-        self.assertEqual(len(re.findall(r"role:\s*\"", self.source)), len(self.scene_keys()))
+        count = len(self.characters())
+        self.assertEqual(len(re.findall(r'name:\s*"', self.source)), count)
+        self.assertEqual(len(re.findall(r'role:\s*"', self.source)), count)
+
+    def test_the_team_uses_the_names_that_already_exist_in_the_system(self):
+        """
+        ⚠️ الأسماء تأتي من `smart_office.py` و`office_test.py` لا من خيال أحد.
+
+        اخترعتُ سابقاً تسعة أسماء فرفضها المستخدم: الفريق في نظامه **خمسة**
+        بأسمائهم. وهذا الفحص يمنع عودة الاختراع — ولو أُضيف اسم في الكود
+        وليس في `smart_office.py` لظهر هنا.
+        """
+        expected_names = {
+            "أمين المكتبة",
+            "مُسوَدَّة أفندي",
+            "المفتش ثُغرة",
+            "سيبويه المُكشّر",
+            "المعلم أبو الختم",
+        }
+        found = set(re.findall(r'name:\s*"([^"]+)"', self.source))
+        self.assertEqual(found, expected_names)
 
     def test_scene_uses_logical_spacing_for_rtl(self):
         """
@@ -818,6 +864,15 @@ class TestOfficeSceneContract(MainTestBase):
     def test_scene_draws_no_untrusted_html(self):
         """لا `dangerouslySetInnerHTML` في المشهد — كبقية الواجهة."""
         self.assertNotIn("dangerouslySetInnerHTML", self.source)
+
+    def test_character_keys_do_not_collide_with_stage_keys(self):
+        """
+        مفاتيح الشخصيات مختلفة عن مفاتيح المراحل.
+
+        لو تشابهت لالتبس الجدول: `drafting` مرحلة، ولو كانت كذلك شخصية لكان
+        `STAGE_CHARACTER[drafting] == drafting` وهو التباس لا خطأ صريح.
+        """
+        self.assertEqual(self.characters() & self.backend_stages(), set())
 
 
 if __name__ == "__main__":
