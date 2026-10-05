@@ -138,27 +138,73 @@ class TestPreamble(unittest.TestCase):
 
 
 class TestPlaceholders(unittest.TestCase):
-    """الحقل الفارغ أخطرها: مستند يخرج ومكان اسم الطرف فراغ."""
+    """
+    الفراغ في المستند — **ملاحظة لا خطأً**.
+
+    ⚠️ وهذا التصنيف كان خطأً في أوّل نسخة، **والتشغيل الحقيقي هو الذي كشفه**:
+    أنتج إنذاراً قانونياً فيه `الاسم والصفة [..]` و`التوقيع: [..]` (فراغان
+    مشروعان ليملأهما المحامي)، فوسمته الأداة **أحد عشر خطأً أحمر**.
+
+    والدرس أن الحدّ بين «خطأ يمنع التسليم» و«ملاحظة للعلم» **لا يُوضع بالحدس**:
+    فحدسي الأول — «فراغ مجرّد مشروع، وحقل مسمّى خطأ» — لم يصمد، لأن النموذج
+    لا يعرف الاسم في الحالتين.
+    """
 
     def test_catches_placeholder_forms(self):
         for text in ("السيد [اسم المدعي]", "المبلغ {{ amount }}", "الاسم: ___", "رقم XXX"):
             with self.subTest(text=text):
-                report = audit_language(f"الوقائع:\n{text}")
-                self.assertFalse(report.clean)
-                self.assertEqual(report.errors[0].kind, "placeholder", f"عند: {text}")
+                found = audit_language(f"الوقائع:\n{text}").notices
+                self.assertTrue(found, f"لم يُكتشف: {text}")
+                self.assertEqual(found[0].kind, "placeholder", f"عند: {text}")
+
+    def test_a_blank_does_not_block_delivery(self):
+        """
+        🔑 **اختبار الحالة الحقيقية التي كشفت العيب.**
+
+        فراغ التوقيع واسم الشركة في إنذار **سلوك صحيح**: النموذج لا يعرف
+        التوقيع. فوسمُه خطأً كان يمنع تسليم مستند سليم.
+        """
+        notice = (
+            "إنذار قانوني\n"
+            "\n"
+            "عن الشركة المنذرة:\n"
+            "الاسم والصفة [..]\n"
+            "التوقيع: [..]\n"
+        )
+        report = audit_language(notice)
+        self.assertTrue(report.clean, "فراغ التوقيع لا يجوز أن يمنع التسليم")
+        self.assertTrue(report.notices)
+        self.assertTrue(all(item.kind == "placeholder" for item in report.notices))
+
+    def test_identical_blanks_are_reported_once(self):
+        """
+        الفراغ المتكرّر ملاحظة **واحدة** لا إحدى عشرة.
+
+        أداة تُنذر أحد عشر مرّة على الشيء نفسه لا تُقرأ، ومعها يضيع العيب
+        الحقيقي حين يظهر.
+        """
+        document = "\n".join("[..]" for _ in range(11))
+        report = audit_language(document)
+        self.assertEqual(len(report.notices), 1)
+        self.assertIn("تكرّر 11", report.notices[0].message)
+
+    def test_distinct_blanks_are_separate_notices(self):
+        report = audit_language("المدعي: [الاسم]\nالتوقيع: [..]")
+        self.assertEqual(len(report.notices), 2)
 
     def test_underscores_are_a_blank_not_markdown(self):
         """
         `___` فراغ لملء لا تسميك Markdown.
 
-        القاعدتان تتصادمان ظاهرياً، والفصل بينهما مهمّ: «حقل لم يُملأ» عيب
-        يمنع التسليم، أما لو صُنّف «مخلّف Markdown» لضاع المعنى الأخطر.
+        القاعدتان تتصادمان ظاهرياً، والفصل بينهما مهمّ: لو صُنّف «مخلّف
+        Markdown» لضاع معناه ولو كان ملاحظة.
         """
         report = audit_language("الاسم: ___")
-        self.assertEqual(report.errors[0].kind, "placeholder")
+        self.assertEqual(report.notices[0].kind, "placeholder")
+        self.assertEqual(report.errors, [])
 
     def test_real_markdown_underline_bold_is_still_caught(self):
-        """وفي المقابل `__نصّ__` تسميك حقيقي — فيُلتقط."""
+        """وفي المقابل `__نصّ__` تسميك حقيقي — فيبقى **خطأً**."""
         report = audit_language("__الوقائع__")
         self.assertEqual(report.errors[0].kind, "markdown")
 
@@ -168,9 +214,13 @@ class TestPlaceholders(unittest.TestCase):
         self.assertEqual(len(report.findings), 1)
         self.assertEqual(report.findings[0].kind, "placeholder")
 
+    def test_reports_the_line_number(self):
+        report = audit_language("الوقائع:\nسطر سليم.\nالمدعي: [الاسم]")
+        self.assertEqual(report.notices[0].line, 3)
+
     def test_catches_placeholder_anywhere_not_just_first_line(self):
         report = audit_language("الوقائع:\nسطر سليم.\nالمدعي: [الاسم]")
-        self.assertEqual(report.errors[0].kind, "placeholder")
+        self.assertEqual(report.notices[0].kind, "placeholder")
 
 
 class TestNotices(unittest.TestCase):
@@ -228,7 +278,9 @@ class TestReportShape(unittest.TestCase):
     def test_summarize_is_json_serializable(self):
         payload = summarize(audit_language("**أ**\n[فراغ]"))
         json.dumps(payload, ensure_ascii=False)
-        self.assertEqual(payload["error_count"], 2)
+        # `**` خطأ، و`[فراغ]` ملاحظة — والفرق هو ما يمنع التسليم وما لا يمنعه
+        self.assertEqual(payload["error_count"], 1)
+        self.assertEqual(payload["notice_count"], 1)
         self.assertIn("findings", payload)
 
     def test_samples_are_truncated(self):
