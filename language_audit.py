@@ -90,6 +90,9 @@ _MARKDOWN_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 #: أقلّ طول لسطر يُعتدّ به في فحص التكرار — الأسطر القصيرة تتكرّر بحقّ.
 _MIN_REPEAT_LINE = 40
 
+#: أقصى مسافة بين تكرارين ليُعدّا «لصقاً مزدوجاً». وما تباعد أكثر فبنية مستند.
+_REPEAT_DISTANCE = 3
+
 
 @dataclass(frozen=True)
 class LanguageFinding:
@@ -252,21 +255,55 @@ def _check_latin(text: str) -> list[LanguageFinding]:
 
 
 def _check_repetition(lines: Sequence[str]) -> list[LanguageFinding]:
-    counts: dict[str, int] = {}
-    for line in lines:
+    """
+    الأسطر المكرّرة — **المتجاورة فقط**.
+
+    ⚠️ و«المتجاورة» ليست تفصيلاً، بل هي **جوهر الفحص**. وسّعناها بعد تشغيل
+    حقيقي ثانٍ، لأن أول نسخة عدّت **كل تكرار في المستند**.
+
+    والمستند الذي كشفها إنذار قانوني فيه **كتلتا عنوان**: عنوان المنذَر إليه،
+    وعنوان المنذِر. فتكرّرت فيه هذه الأسطر:
+
+        العنوان: .......................
+        رقم الهاتف: ....................
+        البريد الإلكتروني: .............
+
+    **مرّتين — وهو الصواب.** فالمستند القانوني يضع عنوان الطرفين، ولا سبيل
+    لكتابته بغير التكرار. فوسمُه «أثر لصق مزدوج» كان **وسمَ الصيغة القانونية
+    السليمة بالعطب**.
+
+    والفرق أن عيب اللصق المزدوج حقيقته **تجاور**: السطر يُلصق مرّتين متتاليتين.
+    والتكرار المتباعد في مستند منظّم **بنية لا عطب**. فالفحص الآن يقيس المسافة
+    بين التكرارين، لا وجودهما.
+    """
+    positions: dict[str, list[int]] = {}
+    for number, line in enumerate(lines, 1):
         key = line.strip()
         if len(key) >= _MIN_REPEAT_LINE:
-            counts[key] = counts.get(key, 0) + 1
-    return [
-        LanguageFinding(
-            kind="repetition",
-            severity="notice",
-            message=f"سطر مكرّر {count} مرات — أثر لصق مزدوج غالباً.",
-            sample=key[:70],
-        )
-        for key, count in counts.items()
-        if count > 1
-    ]
+            positions.setdefault(key, []).append(number)
+
+    findings: list[LanguageFinding] = []
+    for key, numbers in positions.items():
+        nearby = [
+            (first, second)
+            for first, second in zip(numbers, numbers[1:])
+            if second - first <= _REPEAT_DISTANCE
+        ]
+        if nearby:
+            first, second = nearby[0]
+            findings.append(
+                LanguageFinding(
+                    kind="repetition",
+                    severity="notice",
+                    message=(
+                        f"سطر مكرّر في سطرين متجاورين (السطران {first} و{second}) "
+                        "— أثر لصق مزدوج غالباً."
+                    ),
+                    sample=key[:70],
+                    line=first,
+                )
+            )
+    return findings
 
 
 def audit_language(document: Optional[str]) -> LanguageReport:

@@ -253,6 +253,41 @@ class TestNotices(unittest.TestCase):
         self.assertTrue(report.clean)
         self.assertEqual(report.notices[0].kind, "repetition")
 
+    def test_two_address_blocks_are_not_a_paste_artifact(self):
+        """
+        🔑 **اختبار الحالة الحقيقية الثانية.**
+
+        إنذار قانوني فيه كتلتا عنوان — للمنذَر إليه وللمنذِر — فتتكرّر فيه أسطر
+        العنوان والهاتف والبريد. **وهذا هو الصواب**، ولا تُكتب عناوين الطرفين
+        بغير التكرار. فوسمُه «أثر لصق مزدوج» كان وسمَ الصيغة القانونية السليمة
+        بالعطب.
+        """
+        notice = (
+            "إلى المنذر إليه:\n"
+            "العنوان: .....................................................\n"
+            "رقم الهاتف: .....................................................\n"
+            "البريد الإلكتروني: .....................................................\n"
+            "\n"
+            "من المنذر:\n"
+            "العنوان: .....................................................\n"
+            "رقم الهاتف: .....................................................\n"
+            "البريد الإلكتروني: .....................................................\n"
+        )
+        report = audit_language(notice)
+        self.assertEqual(report.notices, [], "كتلتا العنوان بنية لا لصق مزدوج")
+
+    def test_a_far_apart_repeat_is_not_flagged(self):
+        line = "يلتزم الطرف الثاني بسداد كامل المبلغ المتفق عليه خلال ثلاثين يوماً."
+        filler = "\n".join(f"بند رقم {index}: نصّ تعبئة." for index in range(5))
+        report = audit_language(f"{line}\n{filler}\n{line}")
+        self.assertEqual(report.notices, [])
+
+    def test_adjacent_repeat_is_flagged_even_with_a_blank_between(self):
+        """واللصق المزدوج غالباً يفصل بينه سطر فارغ — فيُلتقط."""
+        line = "يلتزم الطرف الثاني بسداد كامل المبلغ المتفق عليه خلال ثلاثين يوماً."
+        report = audit_language(f"{line}\n\n{line}")
+        self.assertEqual(report.notices[0].kind, "repetition")
+
     def test_short_repeated_lines_are_not_flagged(self):
         """«المادة» و«البند» تتكرّر بحقّ — ووسمها يُغرق التقرير."""
         report = audit_language("المادة\nالمادة\nالمادة")
