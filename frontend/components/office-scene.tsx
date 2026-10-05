@@ -316,18 +316,28 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
  * @param message       نصّ المرحلة كما وصل من الخادم
  * @param startedAt     وقت بدء الطلب (Date.now)
  */
+/* === الحالتان في مكوّنة واحدة ==============================================
+   `activeStage` و`startedAt` اختياريان عن قصد: تُستدعى هذه المكوّنة مرّتين —
+   في **الوضع الافتراضي** (الفريق في مقاعده، لا مرحلة ولا ساعة) وأثناء
+   **الصياغة**. فالمكوّنة الواحدة تخدم الحالتين، ولا تُبنى نسخة ثانية تنحرف
+   عن الأولى بعد شهر.
+
+   و«الخمول» يُشتقّ من `startedAt <= 0` لا من خاصية منفصلة: فحالة واحدة لا
+   تتناقض مع نفسها، بدل خاصيّتين قد تختلفان.
+   ========================================================================= */
 export function OfficeScene({
-  activeStage,
-  completedKeys,
-  message,
-  startedAt,
+  activeStage = "",
+  completedKeys = [],
+  message = "الفريق في مقاعده. اكتب الوقائع، وسيبدأون فوراً.",
+  startedAt = 0,
 }: {
-  activeStage: string;
-  completedKeys: string[];
-  message: string;
-  startedAt: number;
+  activeStage?: string;
+  completedKeys?: string[];
+  message?: string;
+  startedAt?: number;
 }) {
   const completed = new Set(completedKeys);
+  const idle = startedAt <= 0;
 
   return (
     /*
@@ -354,11 +364,21 @@ export function OfficeScene({
         <div>
           <h3 className="text-lg font-bold text-amber-500">مكتب العقل القانوني</h3>
           <p className="text-xs text-slate-500">
-            الفريق يعمل على مستندك الآن — كل شخص ومهمته
+            {idle
+              ? "الفريق في مقاعده — بانتظار موجزك"
+              : "الفريق يعمل على مستندك الآن — كل شخص ومهمته"}
           </p>
         </div>
         <div className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-400">
-          <ElapsedClock startedAt={startedAt} />
+          {/* وفي الخمول لا ساعة: عدّاد وقت بلا عمل يوهم بأن شيئاً يجري */}
+          {idle ? (
+            <span className="inline-flex items-center gap-1">
+              <Coffee className="h-3.5 w-3.5" />
+              بانتظار الموجز
+            </span>
+          ) : (
+            <ElapsedClock startedAt={startedAt} />
+          )}
         </div>
       </div>
 

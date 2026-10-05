@@ -674,15 +674,19 @@ export default function Workspace() {
         <div className="lg:col-span-2">
           <AnimatePresence mode="wait">
             {status === "idle" && (
-              <motion.div 
+              <motion.div
                 key="empty"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="h-full min-h-[500px] flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-xl text-slate-500"
               >
-                <FileText className="w-16 h-16 mb-4 opacity-50" />
-                <p className="text-lg">المستند النهائي سيظهر هنا</p>
+                {/* الفريق حاضر من البداية: يرى المحامي من سيعمل على مستنده
+                    قبل أن يكتب حرفاً. والوضع الافتراضي ليس فراغاً. */}
+                <OfficeScene />
+                <div className="mt-4 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-800 py-8 text-slate-500">
+                  <FileText className="w-8 h-8 mb-2 opacity-50" />
+                  <p className="text-sm">المستند النهائي سيظهر هنا</p>
+                </div>
               </motion.div>
             )}
 
