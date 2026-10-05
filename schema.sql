@@ -134,12 +134,33 @@ comment on table legal_poa is 'الوكالات والتوكيلات والتف�
 -- لماذا source_file؟ لأن contracts_ingester.py كان يفحص وجود الملف عبر
 -- source_file قبل الرفع دون أن يكتبه، فأُصلح ليكتبه. فإن لم يكن العمود موجوداً
 -- في legal_contracts سيفشل الإدخال بخطأ "column source_file does not exist".
+--
+-- ⚠️ وسبب إضافة document_type وcreated_at هنا: ظهور خطأ حقيقي عند تنفيذ
+--    القسم ١١ — `column "created_at" does not exist` في legal_drafts.
+--    فالكتلة كانت تنقص عمودين تحتاجهما دالّتا الأرشيف، ولم يكن أحد يعلم حتى
+--    شُغِّلتا. والقاعدة: كل عمود في `create table` أعلاه يجب أن يقابله
+--    `add column if not exists` هنا — وإلا بقي النقص صامتاً في قواعد قديمة.
 
-alter table legal_documents add column if not exists source_file text;
-alter table legal_drafts    add column if not exists source_file text;
-alter table legal_contracts add column if not exists source_file text;
-alter table legal_notices   add column if not exists source_file text;
-alter table legal_poa       add column if not exists source_file text;
+alter table legal_documents add column if not exists source_file   text;
+alter table legal_drafts    add column if not exists source_file   text;
+alter table legal_contracts add column if not exists source_file   text;
+alter table legal_notices   add column if not exists source_file   text;
+alter table legal_poa       add column if not exists source_file   text;
+
+alter table legal_documents add column if not exists document_type text;
+alter table legal_drafts    add column if not exists document_type text;
+alter table legal_contracts add column if not exists document_type text;
+alter table legal_notices   add column if not exists document_type text;
+alter table legal_poa       add column if not exists document_type text;
+
+-- ⚠️ وملاحظة صريحة عن `default now()`: الصفوف الموجودة **ستأخذ كلها وقت تنفيذ
+--    هذا الأمر**. فعمود «أُضيف في» يكون دقيقاً للصفوف المرفوعة **بعد** التعديل،
+--    ويُظهر وقت التعديل للقديمة. وهذا أفضل من غياب العمود، وأصدق من اختلاق تاريخ.
+alter table legal_documents add column if not exists created_at timestamptz not null default now();
+alter table legal_drafts    add column if not exists created_at timestamptz not null default now();
+alter table legal_contracts add column if not exists created_at timestamptz not null default now();
+alter table legal_notices   add column if not exists created_at timestamptz not null default now();
+alter table legal_poa       add column if not exists created_at timestamptz not null default now();
 
 
 -- ==============================================================================
