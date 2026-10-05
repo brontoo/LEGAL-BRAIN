@@ -163,6 +163,20 @@ function ElapsedClock({ startedAt }: { startedAt: number }) {
   );
 }
 
+/**
+ * الامتدادات المجرَّبة بالترتيب.
+ *
+ * ⚠️ ولماذا امتدادان؟ لأن صور الفريق التي وُلِّدت فعلاً **JPEG بأسماء
+ * `.png`** — والامتداد الكاذب ليس تفصيلاً شكلياً: الخادم يعلن `image/png`
+ * والمحتوى JPEG، ومع ترويسة `X-Content-Type-Options: nosniff` **يرفض المتصفح
+ * رسمها**. فأُعيدت تسميتها إلى `.jpg` الصحيحة.
+ *
+ * ويُجرَّب الامتدادان معاً لأن الصور المولَّدة مستقبلاً قد تكون PNG حقيقية.
+ * والترتيب مقصود: `.jpg` أولاً لأنها الصيغة الموجودة، فلا يُطلَق طلب فاشل
+ * عند كل تحميل للصفحة.
+ */
+const ART_EXTENSIONS = ["jpg", "png"] as const;
+
 /** مكتب واحد: الشخص، ومنضدته، واسمه، وحالته. */
 function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
   const working = phase === "working";
@@ -171,12 +185,10 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
 
   // هل توجد صورة مولَّدة لهذا الموظّف؟
   //
-  // نحاول تحميل `/agents/<key>.png`، وإن فشل نرجع إلى الأيقونة. فبمجرد أن
-  // تُسقط الصور في `frontend/public/agents/` تعمل بلا أي تعديل في الكود.
-  //
-  // ⚠️ وقبل إضافة الصور ستظهر أخطاء 404 في طرفية المتصفح لخمسة ملفات — وهي
-  // متوقّعة ولا تعني خللاً. اخترناها على علم ثابت يُنسى أو ملف بيان يُنسى.
-  const [artFailed, setArtFailed] = useState(false);
+  // نحاول `/agents/<key>.jpg` ثم `.png`، وإن فشل الاثنان نرجع إلى الأيقونة.
+  // فبمجرد أن تُسقط الصور في `frontend/public/agents/` تعمل بلا تعديل في الكود.
+  const [attempt, setAttempt] = useState(0);
+  const artExtension = ART_EXTENSIONS[attempt];
 
   return (
     <motion.div
@@ -197,8 +209,10 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
           />
         )}
 
-        {/* الشخص: صورة مولَّدة إن وُجدت، وإلا أيقونة الدور */}
-        {artFailed ? (
+        {/* الشخص: صورة مولَّدة إن وُجدت، وإلا أيقونة الدور.
+            والشرط `!artExtension` لأن الفرعين مرتَّبان: الأيقونة أولاً
+            (حالة «لا صورة»)، والصورة ثانياً (الحالة الغالبة). */}
+        {!artExtension ? (
           <>
             {/* الرأس — أيقونة الدور بدل وجه، لتفادي تمثيل أشخاص بعينهم */}
             <motion.div
@@ -236,10 +250,13 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
            */
           // eslint-disable-next-line @next/next/no-img-element
           <motion.img
-            src={`/agents/${worker.key}.png`}
+            // المفتاح يُجبر React على إعادة تركيب العنصر عند تغيّر الامتداد،
+            // فيُطلَق طلب جديد بدل إعادة استخدام الصورة الفاشلة.
+            key={artExtension}
+            src={`/agents/${worker.key}.${artExtension}`}
             alt=""
             aria-hidden="true"
-            onError={() => setArtFailed(true)}
+            onError={() => setAttempt((value) => value + 1)}
             className="absolute inset-x-0 bottom-2.5 mx-auto h-[72px] w-auto object-contain sm:h-[84px]"
             style={{
               filter: working
@@ -313,7 +330,17 @@ export function OfficeScene({
   const completed = new Set(completedKeys);
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+    /*
+     * ⚠️ لون الخلفية `#0F1525` لا `slate-900` (`#0F172A`)، والفرق مقصود.
+     *
+     * الصور المولَّدة جاءت بخلفية `(15,21,37)` = `#0F1525` — أي أخفض من
+     * `slate-900` بمقدار درجتين في الأخضر وخمس في الأزرق. والفرق طفيف لكنه
+     * **حدّ صريح**: مستطيل داكن باهت حول كل شخص.
+     *
+     * فطابقنا خلفية المشهد بها، فاندمجت الصور بلا إطار. وتغيير اللون بمقدار
+     * ٢/٢٥٥ لا تراه العين، أما الحدّ فتراه.
+     */
+    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-[#0f1525] p-6 shadow-2xl">
       {/* جدار المكتب: نافذة ونبتة — تفاصيل صغيرة تصنع المكان */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
         <div className="absolute start-6 top-6 h-20 w-32 rounded-t-full border-4 border-slate-400" />

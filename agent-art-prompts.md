@@ -24,7 +24,7 @@ dress shirts and neckties. An ethnically diverse team. Do not depict traditional
 or regional dress of any kind.
 
 Soft warm amber rim light from the upper left, deep navy dark background
-(#0F172A), subtle cool fill from the right.
+(#0F1525), subtle cool fill from the right.
 
 Bold, readable silhouette that stays legible when scaled down to 112 pixels.
 
@@ -130,11 +130,24 @@ no busy or cluttered background, no desk, no table, no chair, no cropped head
 
 | البند | القيمة |
 |---|---|
-الأبعاد | **مربّع 1:1** · **1024×1024** على الأقل |
-الصيغة | **PNG** |
-الخلفية | **`#0F172A`** (لون التطبيق) — أو **شفّافة** إن دعمها النموذج |
-الأسماء | `library.png` · `drafter.png` · `inspector.png` · `polisher.png` · `sealer.png` |
+الأبعاد | **1024×1024** على الأقل — والطولية مقبولة بل أفضل لهذا التخطيط |
+الصيغة | **PNG أو JPEG** — ⚠️ **ويجب أن يطابق الامتداد المحتوى الفعلي** |
+الحجم | أقلّ من **٢٠٠ كيلوبايت** للصورة |
+الخلفية | **`#0F1525`** (وهو لون المشهد) — أو **شفّافة** |
+الأسماء | `library` · `drafter` · `inspector` · `polisher` · `sealer` |
 المكان | `frontend/public/agents/` |
+
+> ⚠️ **وتنبيه من تجربة فعلية:** الصور الخمس التي وُلِّدت جاءت **JPEG بأسماء
+> `.png`**. والامتداد الكاذب **ليس شكلياً**: الخادم يعلن `image/png` والمحتوى
+> JPEG، ومع ترويسة `X-Content-Type-Options: nosniff` **يرفض المتصفح رسمها**.
+>
+> فتحقّق من الصيغة الحقيقية قبل الوضع:
+> ```bash
+> file frontend/public/agents/library.png
+> # إن قال JPEG فغيّر الامتداد إلى .jpg
+> ```
+>
+> والكود يجرّب `.jpg` ثم `.png`، فكلاهما يعمل — **بشرط أن يكون الامتداد صادقاً.**
 
 **والأسماء تطابق مفاتيح الشخصيات في `office-scene.tsx` حرفياً.** واسم خاطئ لا
 يُنتج خطأً واضحاً بل يرجع للأيقونة بصمت.
@@ -154,7 +167,7 @@ no busy or cluttered background, no desk, no table, no chair, no cropped head
 ### موجّه ورقة الشخصيات
 
 ```text
-A single 5-panel character lineup on a deep navy background (#0F172A), panels
+A single 5-panel character lineup on a deep navy background (#0F1525), panels
 arranged in one horizontal row with generous spacing and thin subtle dividers.
 All five are men in formal business attire — suits, dress shirts and neckties.
 An ethnically diverse team. No traditional or regional dress of any kind.
