@@ -55,7 +55,7 @@ type Worker = {
 const TEAM: Worker[] = [
   {
     key: "intake",
-    name: "أ. سليم",
+    name: "أ. حيث إن",
     role: "مدير المكتب",
     icon: Users,
     color: "#f59e0b",
@@ -63,7 +63,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "evidence",
-    name: "حسن",
+    name: "حافظ",
     role: "أمين الأرشيف",
     icon: Archive,
     color: "#2dd4bf",
@@ -71,7 +71,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "legislation",
-    name: "نورا",
+    name: "أ. مادة",
     role: "التشريعات والأحكام",
     icon: Scale,
     color: "#38bdf8",
@@ -79,7 +79,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "drafts",
-    name: "سامي",
+    name: "أ. صيغة",
     role: "أسلوب المذكرات",
     icon: FileText,
     color: "#a78bfa",
@@ -87,7 +87,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "contracts",
-    name: "ريم",
+    name: "أ. بند",
     role: "بنود العقود",
     icon: Briefcase,
     color: "#34d399",
@@ -95,7 +95,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "notices",
-    name: "خالد",
+    name: "أ. مهلة",
     role: "صيغ الإنذارات",
     icon: AlertTriangle,
     color: "#fb923c",
@@ -103,7 +103,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "poa",
-    name: "ليلى",
+    name: "أ. وكيلة",
     role: "صيغ الوكالات",
     icon: Stamp,
     color: "#f472b6",
@@ -111,7 +111,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "drafting",
-    name: "ماهر",
+    name: "أ. مسودة",
     role: "الكاتب القانوني",
     icon: PenTool,
     color: "#facc15",
@@ -119,7 +119,7 @@ const TEAM: Worker[] = [
   },
   {
     key: "verifying",
-    name: "أ. منى",
+    name: "أ. سند",
     role: "تدقيق الأسانيد",
     icon: ShieldCheck,
     color: "#4ade80",
@@ -172,6 +172,16 @@ function Desk({
   const done = phase === "done";
   const Icon = worker.icon;
 
+  // هل توجد صورة مولَّدة لهذا الموظّف؟
+  //
+  // المنطق: نحاول تحميل `/agents/<key>.png`، وإن فشل نرجع إلى الأيقونة. فبمجرد
+  // أن تُسقط الصور في `frontend/public/agents/` تعمل بلا أي تعديل في الكود.
+  //
+  // ⚠️ وقبل إضافة الصور ستظهر أخطاء 404 في طرفية المتصفح لتسعة ملفات — وهي
+  // متوقّعة ولا تعني خللاً. اخترناها على بديلَين أسوأ: علم ثابت يُنسى تشغيله،
+  // أو ملف بيان يُنسى تحديثه.
+  const [artFailed, setArtFailed] = useState(false);
+
   return (
     <motion.div
       className="flex flex-col items-center"
@@ -191,27 +201,59 @@ function Desk({
           />
         )}
 
-        {/* الرأس — أيقونة الدور بدل وجه، لتفادي تمثيل أشخاص بعينهم */}
-        <motion.div
-          className="absolute start-1/2 top-2 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border-2 bg-slate-900"
-          style={{
-            borderColor: working ? worker.color : "#334155",
-            boxShadow: working ? `0 0 14px ${worker.glow}` : "none",
-          }}
-          animate={working ? { rotate: [-5, 5, -5] } : { rotate: 0 }}
-          transition={working ? { repeat: Infinity, duration: 1.1, ease: "easeInOut" } : {}}
-        >
-          <Icon
-            className="h-5 w-5 transition-colors"
-            style={{ color: working ? worker.color : done ? "#64748b" : "#475569" }}
-          />
-        </motion.div>
+        {/* الشخص: صورة مولَّدة إن وُجدت، وإلا أيقونة الدور */}
+        {artFailed ? (
+          <>
+            {/* الرأس — أيقونة الدور بدل وجه، لتفادي تمثيل أشخاص بعينهم */}
+            <motion.div
+              className="absolute start-1/2 top-2 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border-2 bg-slate-900"
+              style={{
+                borderColor: working ? worker.color : "#334155",
+                boxShadow: working ? `0 0 14px ${worker.glow}` : "none",
+              }}
+              animate={working ? { rotate: [-5, 5, -5] } : { rotate: 0 }}
+              transition={working ? { repeat: Infinity, duration: 1.1, ease: "easeInOut" } : {}}
+            >
+              <Icon
+                className="h-5 w-5 transition-colors"
+                style={{ color: working ? worker.color : done ? "#64748b" : "#475569" }}
+              />
+            </motion.div>
 
-        {/* الكتفان */}
-        <div
-          className="absolute bottom-5 start-1/2 h-7 w-14 -translate-x-1/2 rounded-t-2xl transition-colors"
-          style={{ background: working ? worker.color : "#334155", opacity: working ? 0.9 : 0.5 }}
-        />
+            {/* الكتفان */}
+            <div
+              className="absolute bottom-5 start-1/2 h-7 w-14 -translate-x-1/2 rounded-t-2xl transition-colors"
+              style={{
+                background: working ? worker.color : "#334155",
+                opacity: working ? 0.9 : 0.5,
+              }}
+            />
+          </>
+        ) : (
+          /*
+           * الصورة: صدر الشخص فقط بلا منضدة — فالمنضدة والشاشة تُرسمان هنا
+           * بـ CSS فوقها، فتتّسق التركيبة مع الموظفين التسعة سواء وُجدت
+           * صورهم أم لا. (ولهذا تطلب موجّهات التوليد «chest-up, no desk»).
+           *
+           * و`<img>` لا `next/image` عن قصد: الصور تُضاف بعد البناء، و
+           * `next/image` يطلب أبعاداً معروفة وقت البناء.
+           */
+          // eslint-disable-next-line @next/next/no-img-element
+          <motion.img
+            src={`/agents/${worker.key}.png`}
+            alt=""
+            aria-hidden="true"
+            onError={() => setArtFailed(true)}
+            className="absolute inset-x-0 bottom-2.5 mx-auto h-[72px] w-auto object-contain sm:h-[84px]"
+            style={{
+              filter: working
+                ? `drop-shadow(0 0 10px ${worker.glow})`
+                : "saturate(0.55) brightness(0.75)",
+            }}
+            animate={working ? { y: [0, -2, 0] } : { y: 0 }}
+            transition={working ? { repeat: Infinity, duration: 1.4, ease: "easeInOut" } : {}}
+          />
+        )}
 
         {/* المنضدة */}
         <div className="absolute bottom-0 inset-x-0 h-2.5 rounded-md bg-slate-700" />
