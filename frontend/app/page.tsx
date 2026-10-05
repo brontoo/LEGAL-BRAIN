@@ -64,22 +64,6 @@ type Family = {
 
 type Overview = { documents: number; chunks: number; families: Family[] };
 
-type ArchiveDocument = {
-  document_name: string;
-  document_type: string;
-  family: string;
-  family_label: string;
-  chunks: number;
-  added_at: string | null;
-};
-
-type DocumentsPayload = {
-  count: number;
-  limit: number;
-  truncated: boolean;
-  documents: ArchiveDocument[];
-};
-
 type RevisionStats = {
   count: number;
   median_edit_ratio: number;
@@ -107,27 +91,10 @@ async function failureOf(response: Response): Promise<string> {
   }
 }
 
-const SQL_HINT = "نفّذ القسم ١١ من schema.sql في Supabase SQL Editor";
-
-function whenLabel(iso: string | null): string {
-  if (!iso) return "—";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
-  const minutes = Math.floor((Date.now() - then) / 60000);
-  if (minutes < 1) return "الآن";
-  if (minutes < 60) return `منذ ${minutes} دقيقة`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `منذ ${hours} ساعة`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "أمس" : `منذ ${days} يوماً`;
-}
-
 export default function Dashboard() {
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [recent, setRecent] = useState<DocumentsPayload | null>(null);
   const [revisions, setRevisions] = useState<RevisionStats | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
-
   const [loading, setLoading] = useState(true);
   const [archiveError, setArchiveError] = useState("");
   const [revisionsError, setRevisionsError] = useState("");
@@ -140,11 +107,16 @@ export default function Dashboard() {
       /*
        * `allSettled` لا `all`: فلو كان جدول التصحيحات غير منشأ (القسم ١٠)، لا
        * يجوز أن تُفرغ الصفحة كلها. كل بطاقة تُخطئ وحدها.
+       *
+       * ⚠️ ولم يبقَ نداء `/archive/documents`: كان يجلب «أحدث ما أُضيف»،
+       *    وترتيبه بالتاريخ. وبعد أن صارت تواريخ أربع عائلات **متطابقة**
+       *    (وقت إضافة العمود) لم يعد «الأحدث» يعني شيئاً — فالصفوف الخمسة
+       *    عشوائية والصفحة تقول «منذ ٣ دقائق» عن مستندات قديمة. فاستُبدلت
+       *    البطاقة بتفصيل العائلات، وهو من `/archive/overview` نفسه.
        */
-      const [overviewResult, recentResult, revisionsResult, healthResult] =
+      const [overviewResult, revisionsResult, healthResult] =
         await Promise.allSettled([
           fetch(`${API_URL}/archive/overview`),
-          fetch(`${API_URL}/archive/documents?limit=5`),
           fetch(`${API_URL}/revisions/stats`),
           fetch(`${API_URL}/health`),
         ]);
@@ -157,10 +129,6 @@ export default function Dashboard() {
         setArchiveError(await failureOf(overviewResult.value));
       } else {
         setArchiveError("تعذّر الوصول إلى الخادم.");
-      }
-
-      if (recentResult.status === "fulfilled" && recentResult.value.ok) {
-        setRecent((await recentResult.value.json()) as DocumentsPayload);
       }
 
       if (revisionsResult.status === "fulfilled" && revisionsResult.value.ok) {
@@ -363,34 +331,46 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* أحدث ما أُضيف للأرشيف */}
+        {/*
+          تفصيل العائلات — بديل «أحدث ما أُضيف».
+
+          ⚠️ ولماذا استُبدلت تلك البطاقة؟ لأن تواريخ أربع عائلات من خمس صارت
+          **متطابقة** (وقت إضافة العمود بـ`alter table`)، والترتيب بالتاريخ
+          صار **عشوائياً**: تعرض خمسة مستندات عشوائية وتقول عنها «منذ ٣ دقائق».
+
+          وهذه البطاقة تعرض ما هو **حقيقي دائماً**: عدد كل عائلة ونصيبها. ولا
+          تعتمد على عمود تاريخ أصلاً.
+        */}
         <Card className="bg-slate-900 border-slate-800 text-white">
           <CardHeader>
-            <CardTitle className="text-xl">أحدث ما أُضيف للأرشيف</CardTitle>
+            <CardTitle className="text-xl">تفصيل العائلات</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
               <p className="text-sm text-slate-500">…</p>
-            ) : (recent?.documents.length ?? 0) === 0 ? (
-              <p className="text-sm text-slate-500">لا مستندات بعد.</p>
+            ) : archiveError ? (
+              <p className="text-sm text-slate-500">غير متاح.</p>
+            ) : families.length === 0 ? (
+              <p className="text-sm text-slate-500">لا عائلات.</p>
             ) : (
-              <div className="space-y-5">
-                {recent?.documents.map((doc, index) => (
+              <div className="space-y-4">
+                {families.map((item) => (
                   <div
-                    key={`${doc.document_name}-${index}`}
-                    className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4 last:border-0 last:pb-0"
+                    key={item.key}
+                    className="border-b border-slate-800 pb-3 last:border-0 last:pb-0"
                   >
-                    <div className="space-y-1 min-w-0">
-                      <p className="text-sm font-medium leading-snug text-slate-200 break-words">
-                        {doc.document_name}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {doc.family_label || doc.document_type || "بلا تصنيف"} · {doc.chunks} مقطعاً
-                      </p>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm font-medium text-slate-200">
+                        {item.label}
+                      </span>
+                      <span className="shrink-0 font-mono text-xs text-slate-400">
+                        {((item.chunks / Math.max(total, 1)) * 100).toFixed(1)}٪
+                      </span>
                     </div>
-                    <span className="shrink-0 text-xs text-slate-500">
-                      {whenLabel(doc.added_at)}
-                    </span>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {item.documents.toLocaleString("ar-AE")} مستنداً ·{" "}
+                      {item.chunks.toLocaleString("ar-AE")} مقطعاً
+                    </p>
                   </div>
                 ))}
               </div>

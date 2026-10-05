@@ -47,6 +47,24 @@ type DocumentsPayload = {
   documents: ArchiveDocument[];
 };
 
+/**
+ * هل كل التواريخ المعروضة متطابقة؟
+ *
+ * ⚠️ وهذا ليس تلمّيحاً تجميلياً بل تشخيص لحالة حقيقية: جدولان أُنشئا قبل
+ * إضافة عمود `created_at`، فأخذت صفوفهما **كلها لحظة إضافة العمود**. فتاريخ
+ * واحد لثلاثمئة مستند ليس مصادفة — بل أثر ترقية.
+ *
+ * والفحص على **اليوم** لا اللحظة الكاملة: فمستندان رُفعا في اليوم نفسه
+ * بحقّ، ولا يجوز أن يُوسَما.
+ */
+function allDatesIdentical(documents: ArchiveDocument[]): boolean {
+  if (documents.length < 3) return false;
+  const days = new Set(
+    documents.map((doc) => (doc.added_at ? doc.added_at.slice(0, 10) : ""))
+  );
+  return days.size === 1 && !days.has("");
+}
+
 export default function Library() {
   const [search, setSearch] = useState("");
   const [family, setFamily] = useState("");
@@ -256,6 +274,24 @@ export default function Library() {
               ? `تُعرض أول ${documents.length.toLocaleString("ar-AE")} مستنداً — يوجد غيرها. استخدم البحث أو التصفية.`
               : `${documents.length.toLocaleString("ar-AE")} مستنداً — الأرشيف كاملاً.`}
           </p>
+
+          {/*
+            ⚠️ وتنبيه على التواريخ المتطابقة.
+
+            في أربع عائلات من خمس، التواريخ **كلها لحظة واحدة** — وقت إضافة
+            العمود بـ`alter table` — لأن الجداول أُنشئت قبل إضافته. ولا سبيل
+            لاستعادة التاريخ الأصلي: `metadata` لا يحمل تاريخاً (تُحقّق منه
+            فعلاً، وفيه `chunk_index` و`source_file` و`document_type` فقط).
+
+            والعمود يبقى لأن **يصير دقيقاً للمستندات المرفوعة من الآن**، ويُقال
+            ذلك صراحةً بدل ترك تاريخ واحد يوهم بأن كل شيء أُضيف في يوم واحد.
+          */}
+          {allDatesIdentical(documents) && (
+            <p className="text-xs text-amber-500/80">
+              كل التواريخ متطابقة لأنها وقت إضافة عمود التاريخ نفسه، لا وقت رفع
+              المستند. وتصبح دقيقة للمستندات المرفوعة من الآن فصاعداً.
+            </p>
+          )}
         </>
       )}
     </div>

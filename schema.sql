@@ -535,7 +535,11 @@ as $$
             or combined.family_key = family_filter
           )
     group by combined.document_name, combined.family_key
-    order by min(combined.created_at) desc
+    -- ⚠️ والاسم فاصلٌ ثانٍ لا زينة: التواريخ في أربع عائلات **متطابقة** (وقت
+    --    إضافة العمود بـ`alter table`)، فالترتيب بالتاريخ وحده **غير حتميّ** —
+    --    قد تُعاد صفوف مختلفة في كل نداء مع أن البيانات لم تتغيّر. والفاصل
+    --    يجعل النتيجة ثابتة، وهو شرط أي قائمة تُقرأ مرتين.
+    order by min(combined.created_at) desc, combined.document_name
     -- ⚠️ سقف صريح: بلا `least` يستطيع أي نداء طلب الأرشيف كله في صفّ واحد
     limit least(greatest(coalesce(max_rows, 200), 1), 500);
 $$;
