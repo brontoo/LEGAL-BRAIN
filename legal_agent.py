@@ -6,6 +6,7 @@ from typing import Annotated, Iterator, Optional
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from sentence_transformers import SentenceTransformer
+import threading
 from typing_extensions import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
@@ -39,6 +40,22 @@ EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large"
 _supabase: Optional[Client] = None
 _model: Optional[SentenceTransformer] = None
 
+#: ⚠️ **قفل على التحميل — وهو إصلاح عطب حقيقي.**
+#:
+#: كان الحرس `if _model is None` وحده. والأدوات تُنادى **معاً** (نداء أدوات
+#: متوازٍ في LangChain)، فدخل خيطان الحرس قبل أن يكتب أيٌّ منهما `_model`،
+#: **فحمّل كلٌّ نسخته**: نموذج ٢.٢ غ.ب يُقرأ من القرص **مرتين**، وتُهدَر
+#: **١٢ ثانية** في كل توليد، **وتُشغَل ٤.٤ غ.ب من الذاكرة بدل ٢.٢**.
+#:
+#: وقد ظهر ذلك في طرفية المستخدم سطرين متتاليين:
+#:     Loading weights: 391/391 [00:11]
+#:     Loading weights: 391/391 [00:12]
+#:
+#: ⚠️ والقفل المزدوج (فحصٌ بلا قفل، ثم فحصٌ بقفل) **مقصود**: القراءة الأولى
+#: تُجنّب كل نداء لاحق أخذ القفل أصلاً — والقفل لا يُؤخَذ إلا مرة واحدة في
+#: عمر العملية.
+_model_lock = threading.Lock()
+
 
 def get_supabase() -> Client:
     """اتصال Supabase — يُنشأ مرة واحدة عند أول استخدام."""
@@ -61,7 +78,10 @@ def get_model() -> SentenceTransformer:
     """نموذج التضمين — يُحمَّل مرة واحدة عند أول استخدام (~2.2 GB)."""
     global _model
     if _model is None:
-        _model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+        with _model_lock:
+            # ⚠️ والفحص الثاني **لازم**: خيط آخر قد يكون حمّله بينما انتظرنا.
+            if _model is None:
+                _model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     return _model
 
 
