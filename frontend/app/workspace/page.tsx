@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { OfficeScene, TeamStrip } from "@/components/office-scene";
+import { ReviewPanel, type ReviewReport } from "@/components/review-panel";
 
 // كل النداءات تمر عبر وسيط Next.js على /api — انظر app/api/[...path]/route.ts
 //
@@ -105,6 +106,7 @@ type StreamEvent =
   | { type: "stage"; stage?: string; message: string }
   | { type: "citations"; report: CitationsReport }
   | { type: "language"; report: LanguageReport }
+  | { type: "review"; report: ReviewReport }
   | { type: "done"; document: string }
   | { type: "error"; message: string };
 
@@ -478,6 +480,9 @@ export default function Workspace() {
   const [errorMessage, setErrorMessage] = useState("");
   const [citationReport, setCitationReport] = useState<CitationsReport | null>(null);
   const [languageReport, setLanguageReport] = useState<LanguageReport | null>(null);
+  // تقرير المراجعة الثانية («المفتش ثُغرة») — يصل قبل "done" كتقريرَي الأسانيد
+  // واللغة، فيكون جاهزاً حين يُعرض المستند. انظر `_review_round` في main.py.
+  const [reviewReport, setReviewReport] = useState<ReviewReport | null>(null);
 
   // مراحل العمل — تُشغّل مشهد «فريق المكتب».
   // ⚠️ المفاتيح تأتي من الخادم (`stage` في إطار SSE) ولا تُخمَّن هنا. فالمشهد
@@ -508,6 +513,7 @@ export default function Workspace() {
     setErrorMessage("");
     setCitationReport(null);
     setLanguageReport(null);
+    setReviewReport(null);
 
     // تصفير مشهد المكتب — وإلا ظهر الفريق وقد «أنجز» عمل الطلب السابق
     setActiveStage("");
@@ -596,6 +602,10 @@ export default function Workspace() {
             setCitationReport(event.report);
           } else if (event.type === "language") {
             setLanguageReport(event.report);
+          } else if (event.type === "review") {
+            // ⚠️ يصل بصمتٍ لا إطار فشل: فشل المُراجع لا يُسقط التوليد (انظر
+            // main.py)، بل يُعلَن داخل التقرير نفسه (`failed`) فتعرضه اللوحة.
+            setReviewReport(event.report);
           } else if (event.type === "done") {
             setFinalDocument(event.document);
             setStatus("done");
@@ -766,6 +776,10 @@ export default function Workspace() {
                 />
                 <CitationsPanel report={citationReport} />
                 <LanguagePanel report={languageReport} />
+                {/* المراجعة الثانية آخر اللوحات — لأنها آخر ما يجري قبل الختم
+                    في `_stream_agent` (الأسانيد ← اللغة ← المراجعة ← الختم)،
+                    فالترتيب المعروض يتبع ترتيب العمل لا ترتيب الكتابة. */}
+                <ReviewPanel report={reviewReport} />
                 <RevisionBar
                   generatedText={cleanDocument}
                   docType={docType}
