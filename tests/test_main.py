@@ -970,7 +970,11 @@ class TestArchiveChunks(MainTestBase):
     def test_passes_all_four_filters_trimmed(self):
         asyncio.run(
             main.archive_chunks(
-                search="  إيجار  ", family="contracts", document="  عقد أ  ", limit=10
+                search="  إيجار  ",
+                family="contracts",
+                document="  عقد أ  ",
+                sort="name",
+                limit=10,
             )
         )
         _name, params = self.supabase.last_call()
@@ -980,6 +984,7 @@ class TestArchiveChunks(MainTestBase):
                 "search_term": "إيجار",
                 "family_filter": "contracts",
                 "document_filter": "عقد أ",
+                "sort_order": "name",
                 "max_rows": 10,
             },
         )
@@ -1150,6 +1155,51 @@ class TestProxyContract(MainTestBase):
             if not line.lstrip().startswith(("*", "//", "/*"))
         )
         self.assertNotIn("NEXT_PUBLIC_", code, "بادئة حسّاسة في كود المتصفح")
+
+
+class TestArchiveSort(MainTestBase):
+    """
+    الفرز **يُرفض إن كان مجهولاً** ولا يُتجاهَل.
+    ========================================================================
+    ⚠️ والسبب أن الفرز المجهول لو تُوجّه إلى «لا فرز» لعادت **النتيجة نفسها**
+    بلا خطأ — فيظنّ المستخدم أن زرّ الترتيب لا يعمل، ويُهدر وقته في الواجهة
+    **والعطب في الخادم**. فالرفض الصريح (400) أرحم من الصمت.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.supabase = fake_deps.FAKE_SUPABASE
+
+    def test_accepts_the_three_known_orders(self):
+        for key in ("recent", "name", "size"):
+            with self.subTest(key=key):
+                self.assertEqual(main._archive_sort(key), key)
+
+    def test_defaults_to_recent(self):
+        self.assertEqual(main._archive_sort(""), "recent")
+        self.assertEqual(main._archive_sort(None), "recent")  # type: ignore[arg-type]
+
+    def test_is_case_and_space_insensitive(self):
+        self.assertEqual(main._archive_sort("  NAME  "), "name")
+
+    def test_rejects_an_unknown_order(self):
+        with self.assertRaises(main.HTTPException) as caught:
+            main._archive_sort("newest")
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("newest", caught.exception.detail)
+
+    def test_documents_pass_the_sort_through(self):
+        asyncio.run(main.archive_documents(sort="size"))
+        self.assertEqual(self.supabase.last_call()[1]["sort_order"], "size")
+
+    def test_chunks_pass_the_sort_through(self):
+        asyncio.run(main.archive_chunks(sort="name"))
+        self.assertEqual(self.supabase.last_call()[1]["sort_order"], "name")
+
+    def test_documents_reject_a_bad_sort_before_touching_the_database(self):
+        with self.assertRaises(main.HTTPException):
+            asyncio.run(main.archive_documents(sort="nope"))
+        self.assertEqual(self.supabase.calls, [])
 
 
 class TestOfficeSceneContract(MainTestBase):

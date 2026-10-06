@@ -487,9 +487,15 @@ comment on function archive_overview() is
     'عدد المستندات والمقاطع لكل عائلة من العائلات الخمس — للوحة القيادة';
 
 
+-- ⚠️ و`drop` قبل `create or replace` **لازم**: إضافة معامل تُنشئ **نسخة
+--    زائدة (overload)** لا استبدالاً، فتبقى القديمة بثلاثة معاملات وقد
+--    يناديها PostgREST فتتجاهل الفرز بصمت.
+drop function if exists archive_documents(text, text, int);
+
 create or replace function archive_documents(
     search_term   text default null,
     family_filter text default null,
+    sort_order    text default 'recent',
     max_rows      int  default 200
 )
 returns table (
@@ -539,12 +545,22 @@ as $$
     --    إضافة العمود بـ`alter table`)، فالترتيب بالتاريخ وحده **غير حتميّ** —
     --    قد تُعاد صفوف مختلفة في كل نداء مع أن البيانات لم تتغيّر. والفاصل
     --    يجعل النتيجة ثابتة، وهو شرط أي قائمة تُقرأ مرتين.
-    order by min(combined.created_at) desc, combined.document_name
+    order by
+        -- ⚠️ والفرز **بمعامل** لا ثابتاً: الصفحة تعرض «ترتيب» للمستخدم، فرأي
+        --    المستخدم هو المُعمَل. و`recent` هو الافتراضي.
+        case when coalesce(sort_order, 'recent') = 'name'
+             then combined.document_name end asc nulls last,
+        case when coalesce(sort_order, 'recent') = 'size'
+             then count(*) end desc nulls last,
+        case when coalesce(sort_order, 'recent') not in ('name', 'size')
+             then min(combined.created_at) end desc nulls last,
+        combined.document_name,
+        combined.family_key
     -- ⚠️ سقف صريح: بلا `least` يستطيع أي نداء طلب الأرشيف كله في صفّ واحد
     limit least(greatest(coalesce(max_rows, 200), 1), 500);
 $$;
 
-comment on function archive_documents(text, text, int) is
+comment on function archive_documents(text, text, text, int) is
     'قائمة مستندات الأرشيف مجموعةً بالاسم — لصفحة الأرشيف والمكتبة';
 
 
@@ -592,10 +608,16 @@ comment on function archive_documents(text, text, int) is
 --    رقمية لانهارت الدالّة كلها عند أول صفّ مخالف. والقيد `~` يمنع ذلك.
 -- ------------------------------------------------------------------------------
 
+-- ⚠️ و`drop` قبل `create or replace` **لازم**: إضافة معامل تُنشئ نسخة زائدة
+--    (overload) لا استبدالاً. وتبقى القديمة بأربعة معاملات، فإن ناداها
+--    PostgREST لمعاملاتها المطابقة **تجاهلت الفرز بصمت**.
+drop function if exists archive_chunks(text, text, text, int);
+
 create or replace function archive_chunks(
     search_term     text default null,
     family_filter   text default null,
     document_filter text default null,
+    sort_order      text default 'recent',
     max_rows        int  default 50
 )
 returns table (
@@ -663,17 +685,22 @@ as $$
             or combined.document_name ilike '%' || search_term || '%'
           )
     order by
-        -- داخل المستند: بترتيب الفقرات. وفي البحث: هذا التعبير `null` للجميع
-        -- فلا يؤثّر في الترتيب، ويبقى الترتيب بالأحدث.
+        -- ① داخل المستند: بترتيب الفقرات، **ويُلغى الفرز المختار**. لأن ترتيب
+        --    الوثيقة ترتيبُ مؤلّفها لا اختيارُ قارئها — ولا يُعاد ترتيب وثيقة.
         case when coalesce(document_filter, '') <> '' then combined.chunk_index end
             nulls last,
-        combined.created_at desc nulls last,
+        -- ② وفي غير ذلك: الفرز المختار. وكلٌّ منها `null` للصفوف التي لا
+        --    يخصّها، فلا يؤثّر في الترتيب.
+        case when coalesce(sort_order, 'recent') = 'name' then combined.document_name end
+            asc nulls last,
+        case when coalesce(sort_order, 'recent') <> 'name' then combined.created_at end
+            desc nulls last,
         combined.document_name,
         combined.id
     limit least(greatest(coalesce(max_rows, 50), 1), 200);
 $$;
 
-comment on function archive_chunks(text, text, text, int) is
+comment on function archive_chunks(text, text, text, text, int) is
     'المقاطع نفسها: فتح مستند بفقراته، أو بحث نصّي في المتن — لصفحة الأرشيف';
 
 

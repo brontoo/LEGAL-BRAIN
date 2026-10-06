@@ -295,6 +295,26 @@ ARCHIVE_MAX_ROWS = 500
 #: حمولة قد تبلغ ميغابايتات. والسقف في القاعدة أيضاً.
 ARCHIVE_MAX_CHUNK_ROWS = 200
 
+#: أوامر الفرز المسموحة: مفتاح آلي ← ما تفهمه دالّة SQL.
+#: ⚠️ والتحقّق **برفض ما ليس هنا (400)** لا بتجاهله: فرز مجهول يُتجاهَل
+#:    صامتاً **يُعيد النتيجة نفسها** فيظنّ المستخدم أن الزرّ لا يعمل.
+ARCHIVE_SORTS: dict[str, str] = {
+    "recent": "recent",
+    "name": "name",
+    "size": "size",
+}
+
+
+def _archive_sort(value: str) -> str:
+    """يتحقّق من أمر الفرز — ويرفض المجهول بدل تجاهله."""
+    key = (value or "recent").strip().lower()
+    if key not in ARCHIVE_SORTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"ترتيب غير معروف: {value!r} — المتاح: {sorted(ARCHIVE_SORTS)}",
+        )
+    return ARCHIVE_SORTS[key]
+
 
 def _archive_storage_error(exc: Exception) -> str:
     """
@@ -766,6 +786,7 @@ async def archive_overview():
 async def archive_documents(
     search: str = "",
     family: str = "",
+    sort: str = "recent",
     limit: int = 200,
 ):
     """
@@ -791,6 +812,7 @@ async def archive_documents(
                 {
                     "search_term": search.strip() or None,
                     "family_filter": family or None,
+                    "sort_order": _archive_sort(sort),
                     "max_rows": bounded,
                 },
             )
@@ -827,6 +849,7 @@ async def archive_chunks(
     search: str = "",
     family: str = "",
     document: str = "",
+    sort: str = "recent",
     limit: int = 50,
 ):
     """
@@ -862,6 +885,7 @@ async def archive_chunks(
                     "search_term": search.strip() or None,
                     "family_filter": family or None,
                     "document_filter": document.strip() or None,
+                    "sort_order": _archive_sort(sort),
                     "max_rows": bounded,
                 },
             )
