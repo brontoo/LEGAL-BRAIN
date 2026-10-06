@@ -365,7 +365,7 @@ export function OfficeScene({
      * فطابقنا خلفية المشهد بها، فاندمجت الصور بلا إطار. وتغيير اللون بمقدار
      * ٢/٢٥٥ لا تراه العين، أما الحدّ فتراه.
      */
-    <div className="relative overflow-hidden rounded-xl border border-slate-800 bg-[#0f1525] p-6 shadow-2xl">
+    <div className="relative overflow-hidden border border-slate-800 bg-[#0f1525] p-6">
       {/* جدار المكتب: نافذة ونبتة — تفاصيل صغيرة تصنع المكان */}
       <div className="pointer-events-none absolute inset-0 opacity-[0.07]">
         <div className="absolute start-6 top-6 h-20 w-32 rounded-t-full border-4 border-slate-400" />
@@ -384,7 +384,7 @@ export function OfficeScene({
               : "الفريق يعمل على مستندك الآن — كل شخص ومهمته"}
           </p>
         </div>
-        <div className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-xs text-slate-400">
+        <div className="border border-slate-700 bg-slate-950 px-3 py-1 text-[10px] tracking-[0.15em] text-slate-500">
           {/* وفي الخمول لا ساعة: عدّاد وقت بلا عمل يوهم بأن شيئاً يجري */}
           {idle ? (
             <span className="inline-flex items-center gap-1">
@@ -405,7 +405,7 @@ export function OfficeScene({
       </div>
 
       {/* فقاعة الكلام: ما يفعله المكتب الآن */}
-      <div className="relative mt-6 flex items-start gap-3 rounded-lg border border-slate-700 bg-slate-950 p-4">
+      <div className="relative mt-6 flex items-start gap-3 border border-slate-700 bg-slate-950 p-4">
         <motion.span
           className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"
           animate={{ opacity: [1, 0.25, 1] }}

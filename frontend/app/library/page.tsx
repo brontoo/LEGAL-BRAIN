@@ -218,7 +218,7 @@ export default function Library() {
 
       {!error && documents.length > 0 && (
         <>
-          <Card className="bg-slate-900 border-slate-800 shadow-xl overflow-hidden">
+          <Card className="bg-slate-900 border-slate-800 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-right border-collapse">
                 <thead>
@@ -238,9 +238,7 @@ export default function Library() {
                     >
                       <td className="p-4">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-slate-950 rounded-md border border-slate-800 group-hover:border-amber-500/50 transition-colors shrink-0">
-                            <FileText className="w-5 h-5 text-amber-500" />
-                          </div>
+                          <FileText className="w-4 h-4 shrink-0 text-amber-500" strokeWidth={1.5} />
                           <span className="font-medium text-slate-200 break-words">
                             {doc.document_name || "بلا اسم"}
                           </span>
@@ -248,7 +246,7 @@ export default function Library() {
                       </td>
                       <td className="p-4 text-slate-400">{doc.document_type || "—"}</td>
                       <td className="p-4">
-                        <span className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+                        <span className="inline-flex items-center border border-amber-500/25 px-2 py-0.5 text-[10px] tracking-[0.15em] text-amber-500">
                           {doc.family_label || "—"}
                         </span>
                       </td>

@@ -172,7 +172,7 @@ function CitationsPanel({ report }: { report: CitationsReport | null }) {
       {report.verified.map((c, i) => (
         <div
           key={`v-${i}`}
-          className="rounded-lg border border-green-200 bg-white p-3 text-sm"
+          className="border border-green-200 bg-white p-3 text-sm"
         >
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mb-1">
             <span className="font-mono font-bold text-green-700">[{c.ref}]</span>
@@ -198,7 +198,7 @@ function CitationsPanel({ report }: { report: CitationsReport | null }) {
           {report.rejected.map((c, i) => (
             <div
               key={`r-${i}`}
-              className="rounded-lg border border-red-200 bg-white p-3 text-sm"
+              className="border border-red-200 bg-white p-3 text-sm"
             >
               <div className="text-xs text-red-600 mb-1">
                 <span className="font-mono font-bold">[{c.ref}]</span> {c.reason}
@@ -215,7 +215,7 @@ function CitationsPanel({ report }: { report: CitationsReport | null }) {
       )}
 
       {report.unbacked_articles.length > 0 && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm space-y-1">
+        <div className="border border-amber-300 bg-amber-50 p-3 text-sm space-y-1">
           <div className="font-semibold text-amber-900">
             مواد مذكورة في المستند ولم ترد في أرشيفك
           </div>
@@ -228,7 +228,7 @@ function CitationsPanel({ report }: { report: CitationsReport | null }) {
       )}
 
       {report.malformed_lines.length > 0 && (
-        <div className="rounded-lg border border-slate-300 bg-white p-3 text-xs text-slate-600 space-y-1">
+        <div className="border border-slate-300 bg-white p-3 text-xs text-slate-600 space-y-1">
           <div className="font-semibold">أسطر أسانيد لم تُقرأ</div>
           {report.malformed_lines.map((line, i) => (
             <div key={`m-${i}`} dir="auto" className="font-mono">
@@ -288,7 +288,7 @@ function LanguagePanel({ report }: { report: LanguageReport | null }) {
           {errors.map((item, index) => (
             <div
               key={`e-${index}`}
-              className="rounded-lg border border-red-200 bg-white p-3 text-sm"
+              className="border border-red-200 bg-white p-3 text-sm"
             >
               <div className="text-xs text-red-600 mb-1">
                 {item.message}
@@ -308,7 +308,7 @@ function LanguagePanel({ report }: { report: LanguageReport | null }) {
           {notices.map((item, index) => (
             <div
               key={`n-${index}`}
-              className="rounded-lg border border-amber-200 bg-white p-3 text-sm"
+              className="border border-amber-200 bg-white p-3 text-sm"
             >
               <div className="text-xs text-amber-700 mb-1">{item.message}</div>
               <p className="font-mono text-xs text-slate-600" dir="auto">
@@ -391,7 +391,7 @@ function RevisionBar({
   return (
     <div className="border-t border-slate-200 bg-white p-6 space-y-3">
       {state === "saved" && result ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+        <div className="flex flex-wrap items-center gap-2 border border-green-200 bg-green-50 p-3 text-sm text-green-800">
           <CheckCircle className="w-4 h-4 shrink-0" />
           <span className="font-semibold">حُفظ تصحيحك.</span>
           <span>
@@ -446,7 +446,7 @@ function RevisionBar({
       )}
 
       {state === "error" && error && (
-        <div className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="whitespace-pre-wrap border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -623,7 +623,7 @@ export default function Workspace() {
         
         {/* العمود الأيمن: لوحة الإدخال */}
         <div className="lg:col-span-1">
-          <Card className="bg-slate-900 border-slate-800 text-white shadow-xl">
+          <Card className="bg-slate-900 border-slate-800 text-white">
             <CardHeader>
               <CardTitle>مساحة الصياغة</CardTitle>
               <CardDescription className="text-slate-400">
@@ -634,7 +634,7 @@ export default function Workspace() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-300">نوع المستند</label>
                 <select 
-                  className="w-full p-3 rounded-md bg-slate-950 border border-slate-800 text-white focus:ring-amber-500"
+                  className="w-full p-3 bg-slate-950 border border-slate-800 text-white focus:ring-amber-500"
                   value={docType}
                   onChange={(e) => setDocType(e.target.value)}
                 >
@@ -683,7 +683,7 @@ export default function Workspace() {
                 {/* الفريق حاضر من البداية: يرى المحامي من سيعمل على مستنده
                     قبل أن يكتب حرفاً. والوضع الافتراضي ليس فراغاً. */}
                 <OfficeScene />
-                <div className="mt-4 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-800 py-8 text-slate-500">
+                <div className="mt-4 flex flex-col items-center justify-center border-2 border-dashed border-slate-800 py-8 text-slate-500">
                   <FileText className="w-8 h-8 mb-2 opacity-50" />
                   <p className="text-sm">المستند النهائي سيظهر هنا</p>
                 </div>
@@ -712,7 +712,7 @@ export default function Workspace() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="h-full min-h-[500px] flex flex-col items-center justify-center bg-slate-900 border border-red-900/50 rounded-xl p-8 shadow-2xl"
+                className="h-full min-h-[500px] flex flex-col items-center justify-center bg-slate-900 border border-red-900/50 p-8"
               >
                 <AlertTriangle className="w-16 h-16 mb-6 text-red-500" />
                 <h3 className="text-2xl font-bold text-white mb-3">تعذّر إتمام الصياغة</h3>
@@ -731,7 +731,7 @@ export default function Workspace() {
                 key="done"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden"
+                className="bg-white text-slate-900 overflow-hidden"
               >
                 <div className="bg-slate-100 p-4 border-b flex justify-between items-center">
                   <div className="flex items-center gap-2 text-green-600 font-semibold">

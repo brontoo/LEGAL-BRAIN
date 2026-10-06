@@ -39,7 +39,7 @@ export function DataNotice({
   const Icon = style.icon;
 
   return (
-    <div className={`rounded-xl border ${style.ring} ${style.bg} p-6`}>
+    <div className={`border ${style.ring} ${style.bg} p-6`}>
       <div className={`flex items-start gap-3 ${style.text}`}>
         <Icon className={`w-5 h-5 mt-0.5 shrink-0 ${tone === "loading" ? "animate-spin" : ""}`} />
         <div className="space-y-2 min-w-0">
@@ -48,7 +48,7 @@ export function DataNotice({
           {action && (
             <pre
               dir="ltr"
-              className="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-3 text-start text-xs text-amber-200"
+              className="mt-2 overflow-x-auto border border-slate-800 bg-slate-950 p-3 text-start text-xs text-amber-200"
             >
               {action}
             </pre>
