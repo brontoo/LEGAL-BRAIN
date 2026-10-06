@@ -16,7 +16,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Search, Filter, FileText, Layers } from "lucide-react";
+import { Search, Filter } from "lucide-react";
+import { EngravedIcon } from "@/components/engraved-icon";
 import { Card } from "@/components/ui/card";
 import {
   InputGroup,
@@ -238,7 +239,7 @@ export default function Library() {
                     >
                       <td className="p-4">
                         <div className="flex items-center gap-3">
-                          <FileText className="w-4 h-4 shrink-0 text-amber-500" strokeWidth={1.5} />
+                          <EngravedIcon name="papers" className="size-4 text-amber-500" />
                           <span className="font-medium text-slate-200 break-words">
                             {doc.document_name || "بلا اسم"}
                           </span>
@@ -252,7 +253,7 @@ export default function Library() {
                       </td>
                       <td className="p-4 text-slate-400 font-mono text-sm">
                         <span className="inline-flex items-center gap-1.5">
-                          <Layers className="w-3.5 h-3.5 text-slate-600" />
+                          <EngravedIcon name="papers" className="size-3.5 text-slate-600" />
                           {doc.chunks.toLocaleString("ar-AE")}
                         </span>
                       </td>

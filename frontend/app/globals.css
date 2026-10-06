@@ -203,4 +203,28 @@
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
+
+  /*
+   * الأيقونة المنقوشة — من game-icons.net (CC BY 3.0، والإسناد في /credits).
+   *
+   * ⚠️ ولماذا قناع CSS (`mask`) لا `<img src="…svg">`؟
+   *
+   * لأن `<img>` **لا يرث `currentColor`**: تبقى الأيقونة بلون الملف، فلا
+   * تتلوّن مع النصّ ولا مع `hover` ولا مع البند الفعّال في الفهرس. والقناع
+   * يحلّ ذلك بلا جافاسكربت: **الخلفية بلون النصّ الحالي، والشكل من الملف**.
+   *
+   * ⚠️ وكل ملفات game-icons بيضاء على **خلفية معتمة** (`M0 0h512v512H0z`)،
+   * وقد حُذفت الخلفية عند التنزيل وحُوِّل الأبيض إلى `currentColor`. فلو
+   * أُعيد تنزيلها يوماً **يجب تكرار التحويل**، وإلا ظهر مربّع أسود مكانها.
+   */
+  .engraved-icon {
+    display: inline-block;
+    background-color: currentColor;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    -webkit-mask-size: contain;
+  }
 }

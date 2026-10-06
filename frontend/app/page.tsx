@@ -24,7 +24,7 @@
 
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Layers, ClipboardCheck, Activity } from "lucide-react";
+import { EngravedIcon } from "@/components/engraved-icon";
 import {
   BarChart,
   Bar,
@@ -192,7 +192,7 @@ export default function Dashboard() {
         <Card className="bg-slate-900 border-slate-800 text-white">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg font-medium text-slate-300">مستندات الأرشيف</CardTitle>
-            <FileText className="w-5 h-5 text-amber-500" />
+            <EngravedIcon name="papers" className="size-5 text-amber-500" />
           </CardHeader>
           <CardContent>
             <MetricValue value={overview?.documents ?? 0} loading={loading} failed={!!archiveError} />
@@ -205,7 +205,7 @@ export default function Dashboard() {
         <Card className="bg-slate-900 border-slate-800 text-white">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg font-medium text-slate-300">المقاطع المفهرسة</CardTitle>
-            <Layers className="w-5 h-5 text-amber-500" />
+            <EngravedIcon name="book-cover" className="size-5 text-amber-500" />
           </CardHeader>
           <CardContent>
             <MetricValue value={overview?.chunks ?? 0} loading={loading} failed={!!archiveError} />
@@ -216,7 +216,7 @@ export default function Dashboard() {
         <Card className="bg-slate-900 border-slate-800 text-white">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg font-medium text-slate-300">التصحيحات المحفوظة</CardTitle>
-            <ClipboardCheck className="w-5 h-5 text-amber-500" />
+            <EngravedIcon name="stamper" className="size-5 text-amber-500" />
           </CardHeader>
           <CardContent>
             <MetricValue
@@ -237,7 +237,10 @@ export default function Dashboard() {
         <Card className="bg-slate-900 border-slate-800 text-white">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-lg font-medium text-slate-300">حالة الخادم</CardTitle>
-            <Activity className={`w-5 h-5 ${healthError ? "text-red-500" : "text-emerald-500"}`} />
+            <EngravedIcon
+              name="checked-shield"
+              className={`size-5 ${healthError ? "text-red-500" : "text-emerald-500"}`}
+            />
           </CardHeader>
           <CardContent>
             <div className={`text-2xl font-bold ${healthError ? "text-red-400" : "text-emerald-500"}`}>
