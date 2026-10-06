@@ -44,8 +44,8 @@ const kufi = Noto_Kufi_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "العقل القانوني | Legal Brain",
-  description: "منصة الذكاء الاصطناعي القانونية المتكاملة",
+  title: "أحمد عيد · العقل القانوني",
+  description: "مساحة عمل قانونية شخصية — صياغة مستندات مسندة إلى الأرشيف",
 };
 
 export default function RootLayout({
@@ -64,12 +64,18 @@ export default function RootLayout({
       >
         {/* القائمة الجانبية — مصنّف الملفات */}
         <aside className="flex w-72 flex-col border-s border-slate-800 bg-slate-900">
-          {/* ترويسة المكتب — كترويسة خطاب: رمز، ثم اسم، ثم خطّ */}
+          {/*
+            ترويسة شخصية — **اسم صاحب المكتب لا اسم شركة**.
+
+            ⚠️ والفرق ليس تجميلاً: «مكتب المحاماة والاستشارات» عبارة تصلح لأي
+            جهة فلا تقول شيئاً. أما **اسمٌ واحد ولقبٌ واحد** فيقولان إن هذا
+            المكتب **لشخص بعينه** — وهو أول ما يميّز مساحة عمل عن قالب.
+          */}
           <div className="border-b border-slate-800 px-5 py-5">
             <div className="flex items-center gap-2.5">
               <span className="h-6 w-1 bg-amber-500" aria-hidden="true" />
               <span className="font-heading text-2xl leading-none text-slate-50">
-                العقل القانوني
+                أحمد عيد
               </span>
             </div>
             {/* الخطّ المزدوج الرفيع — من ترويسات الخطابات الرسمية */}
@@ -77,8 +83,11 @@ export default function RootLayout({
               <div className="h-px bg-slate-700" />
               <div className="h-px bg-slate-800" />
             </div>
-            <p className="mt-2 text-[10px] tracking-[0.2em] text-slate-600">
-              مكتب المحاماة والاستشارات
+            <p className="mt-2 text-[10px] tracking-[0.25em] text-slate-500">
+              المستشار القانوني
+            </p>
+            <p className="mt-1 text-[10px] tracking-[0.25em] text-slate-700">
+              العقل القانوني
             </p>
           </div>
 
@@ -89,7 +98,7 @@ export default function RootLayout({
         <main className="flex h-screen flex-1 flex-col overflow-hidden">
           <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950 ps-8 pe-8">
             <div className="font-heading text-sm text-slate-500">
-              مرحباً بك في مكتبك الذكي
+              مرحباً بك، أستاذ أحمد
             </div>
             <div className="flex items-center gap-4">
               <button

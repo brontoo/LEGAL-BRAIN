@@ -193,8 +193,22 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
   return (
     <motion.div
       className="flex flex-col items-center"
-      animate={working ? { y: [0, -3, 0] } : { y: 0 }}
-      transition={working ? { repeat: Infinity, duration: 1.4, ease: "easeInOut" } : {}}
+      /*
+       * ⚠️ ولا بوب متصل هنا — وهذا أهمّ إصلاح في المشهد.
+       *
+       * كان كل مكتب يهتزّ رأسياً بلا توقّف ما دام صاحبه يعمل، **وخمسة مكاتب
+       * بخمسة إيقاعات متوازية** (٠.٨٥ و١.١ و١.٤ و١.٨ ثانية). وهذا بالذات ما
+       * جعل المشهد يبدو رخيصاً: لا هو ساكن فيُقرأ، ولا هو متحرّك فيُفهم — بل
+       * **مضطرب**، والعين لا تجد شيئاً ترتاح إليه.
+       *
+       * والبديل **حالة منفصلة** على نمط محرّكات الروايات البصرية: انتقال واحد
+       * عند تغيّر الحالة ثم ثبات. و`key={phase}` يُجبر React على إعادة التركيب
+       * فيُشغَّل الانتقال **مرة واحدة لكل تغيّر** لا في حلقة لا تنتهي.
+       */
+      key={phase}
+      initial={{ opacity: 0.4, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 260, damping: 26 }}
     >
       <div className="relative h-24 w-24 sm:h-28 sm:w-28">
         {/* هالة العمل — أوضح إشارة على من يشتغل الآن */}
@@ -204,8 +218,15 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
             style={{
               background: `radial-gradient(circle, ${worker.glow} 0%, transparent 70%)`,
             }}
-            animate={{ opacity: [0.4, 0.9, 0.4] }}
-            transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
+            /*
+             * ⚠️ الحركة المستمرّة **الوحيدة** الباقية في المشهد كله.
+             *
+             * وسببها وظيفي لا تجميلي: هي العلامة على «من يعمل الآن» حين
+             * تتشابه الصور. ولذلك **واحدة، وبطيئة (٢.٨ ثانية)، وعلى العنصر
+             * الفعّال وحده** — بخلاف اثنتَي عشرة حركة متوازية.
+             */
+            animate={{ opacity: [0.35, 0.75, 0.35] }}
+            transition={{ repeat: Infinity, duration: 2.8, ease: "easeInOut" }}
           />
         )}
 
@@ -215,20 +236,18 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
         {!artExtension ? (
           <>
             {/* الرأس — أيقونة الدور بدل وجه، لتفادي تمثيل أشخاص بعينهم */}
-            <motion.div
+            <div
               className="absolute start-1/2 top-2 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border-2 bg-slate-900"
               style={{
                 borderColor: working ? worker.color : "#334155",
                 boxShadow: working ? `0 0 14px ${worker.glow}` : "none",
               }}
-              animate={working ? { rotate: [-5, 5, -5] } : { rotate: 0 }}
-              transition={working ? { repeat: Infinity, duration: 1.1, ease: "easeInOut" } : {}}
             >
               <Icon
                 className="h-5 w-5 transition-colors"
                 style={{ color: working ? worker.color : done ? "#64748b" : "#475569" }}
               />
-            </motion.div>
+            </div>
 
             {/* الكتفان */}
             <div
@@ -278,20 +297,22 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
               opacity: working ? 1 : 0.7,
               filter: working ? `drop-shadow(0 0 10px ${worker.glow})` : "none",
             }}
-            animate={working ? { y: [0, -2, 0] } : { y: 0 }}
-            transition={working ? { repeat: Infinity, duration: 1.4, ease: "easeInOut" } : {}}
           />
         )}
 
         {/* المنضدة */}
         <div className="absolute bottom-0 inset-x-0 h-2.5 rounded-md bg-slate-700" />
 
-        {/* الشاشة — تومض عند العمل */}
-        <motion.div
+        {/*
+          الشاشة المضيئة — **ثابتة لا وامضة**.
+
+          كانت تنبض ٠.٨٥ ثانية، وهي **أسرع حركة في المشهد** ومع ذلك أضعفها
+          معنى: خمس شاشات تومض بإيقاعات مختلفة تُنتج وميضاً لا يُقرأ. واللون
+          وحده يقول «تعمل» أو «لا تعمل» — فلا حاجة إلى نبض.
+        */}
+        <div
           className="absolute bottom-2.5 start-1/2 h-1.5 w-9 -translate-x-1/2 rounded-sm"
           style={{ background: working ? worker.color : "#1e293b" }}
-          animate={working ? { opacity: [1, 0.35, 1] } : { opacity: 1 }}
-          transition={working ? { repeat: Infinity, duration: 0.85, ease: "easeInOut" } : {}}
         />
 
         {/* فنجان القهوة — لمن ينتظر دوره */}
@@ -406,11 +427,8 @@ export function OfficeScene({
 
       {/* فقاعة الكلام: ما يفعله المكتب الآن */}
       <div className="relative mt-6 flex items-start gap-3 border border-slate-700 bg-slate-950 p-4">
-        <motion.span
-          className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"
-          animate={{ opacity: [1, 0.25, 1] }}
-          transition={{ repeat: Infinity, duration: 1.3 }}
-        />
+        {/* مربّع لا نقطة، وثابت لا نابض — فحالة «جارٍ» يقولها النصّ نفسه */}
+        <span className="mt-1.5 h-2 w-2 shrink-0 bg-amber-500" aria-hidden="true" />
         <p className="text-sm leading-relaxed text-amber-200">{message}</p>
       </div>
     </div>
