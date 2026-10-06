@@ -32,6 +32,7 @@ from tests import fake_deps
 fake_deps.install()
 
 import legal_agent  # noqa: E402
+import labour_rules  # noqa: E402
 from citations import (  # noqa: E402
     CITATIONS_BEGIN,
     CITATIONS_END,
@@ -446,10 +447,20 @@ class TestPrompts(unittest.TestCase):
         self.assertIn(legal_agent.FORMATTING_RULES, prompt)
 
     def test_cited_prompt_is_base_plus_rules(self):
-        """الموجّه الموثَّق = الأساسي + قواعد التوثيق، لا نسخة موازية."""
+        """
+        الموجّه الموثَّق = الأساسي + قواعد التوثيق + قواعد الاحتساب، لا نسخة موازية.
+
+        ⚠️ **وهذا السطر عُدِّل بقدر ما لزم وحده.** كان يفحص أن المجموع طرفان
+        (الأساسي + التوثيق)، فأُضيف الطرف الثالث — وهو `rules_block()` من
+        `labour_rules` — لأن قواعد احتساب المستحقات العمالية تُلحَق بالموجّه
+        الموثَّق. والفحص باقٍ على معناه: الموجّه **مُركَّب** من أجزائه المعروفة،
+        لا نصّاً ثالثاً يُنسخ ويُنسى.
+        """
         self.assertEqual(
             legal_agent.SYSTEM_PROMPT_CITED,
-            legal_agent.SYSTEM_PROMPT + legal_agent.CITATION_RULES,
+            legal_agent.SYSTEM_PROMPT
+            + legal_agent.CITATION_RULES
+            + labour_rules.rules_block(),
         )
 
     def test_citation_rules_state_the_contract(self):
@@ -461,6 +472,22 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("حرفي", rules)
         self.assertIn("[L1]", rules)
         self.assertIn("لا تذكر رقم مادة", rules)
+
+    def test_the_labour_rules_reach_the_model_through_the_prompt(self):
+        """
+        🔑 **اختبار الوصلة التي كانت مفقودة.**
+
+        العيب الذي جاء `labour_rules` لمنعه وقع **لأن القاعدة لم تكن في المنظومة
+        بل في محادثة**: المراجع أبلغ النموذج بالعيب، وعاد في التشغيل التالي. فما
+        يُفحص هنا ليس وجود الملف ولا جودة نصّه، بل **أن الأساس الذي تطلبه القاعدة
+        يصل إلى النموذج فعلاً**. ولو نُسي الإلحاق لمرّ كل شيء وبقي العيب.
+        """
+        prompt = legal_agent.SYSTEM_PROMPT_CITED
+        self.assertIn(labour_rules.rules_block(), prompt)
+        self.assertIn("٢٩/٩", prompt)
+        self.assertIn("٤٣/٢", prompt)
+        self.assertIn("غير محقَّق", prompt)
+        self.assertNotIn("قواعد احتساب المستحقات العمالية", legal_agent.SYSTEM_PROMPT)
 
     def test_rules_match_what_the_parser_expects(self):
         """
