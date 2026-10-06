@@ -1,41 +1,43 @@
 "use client";
 
 /**
- * الأرشيف والمكتبة — أداة بحث حقيقية على المستندات والمقاطع.
+ * الأرشيف والمكتبة — فهرسُ ملفٍّ، لا لوحةَ قياس.
  * ============================================================================
- * ⚠️ ما كان هنا قبل هذا التغيير: سبعة مستندات **مكتوبة في الملف** بأسماء
- * وتواريخ (٢٠٢٦-٠٩-٢٥) وحالات (مكتمل · قيد المراجعة · مسودة).
+ * ⚠️ ما تغيّر في هذه الجولة، ولماذا:
  *
- * ⚠️ والحالات كانت الخطأ الأكبر: «مكتمل» و«قيد المراجعة» أوصاف **مستندات
- *    مصوغة**، وهذا الجدول يعرض **مصادر مستوردة** للأرشيف. والمصدر المستورد
- *    لا يكون «قيد المراجعة» — هو مفهرس أو غير مفهرس.
+ *   • **البحث صار الحقل الأبرز** بعرض الصفحة كلها تحت العنوان. كان في طرف
+ *     سطرٍ مع القائمة المنسدلة، والحقلُ الذي يُبحث به دائماً لا يجوز أن يكون
+ *     أضعف عنصر في الصفحة.
  *
- * ⚠️ والأزرار الثلاثة كانت **لا تفعل شيئاً**: عرضٌ وتحميلٌ وحذف. وزرّ لا يعمل
- *    أسوأ من غيابه، لأنه يوعد بقدرة غير موجودة. فحُذفت.
+ *   • **مستندٌ واحد يُفتح في لوحة جانبية** — كما في Drive — لا في صفحة أخرى
+ *     ولا في وجهٍ يستبدل الجدول. والسبب عملي: القارئ يقارن مستنداً بآخر،
+ *     والوجه الذي يُخفي الجدول يفقده موضعه في الفهرس.
  *
- * ⚠️ والنقص الذي بقي بعد ذلك: الجدول كان يعرض المستند **ولا يفتحه**. فيعرف
- *    المستخدم أن «اتفاقية كذا» في الأرشيف، ولا سبيل لقراءة مقطع واحد منها
- *    إلا بفتح Supabase. وهذه الصفحة الآن تجيب السؤال الذي جاء المستخدم من
- *    أجله: **ماذا يقول المصدر في هذه المسألة؟**
+ *   • **آثار التنقّل (breadcrumb) ظاهرة دائماً**: الأرشيف › العائلة › المستند.
+ *     وفي أرشيفٍ بعائلات متشابهة الأسماء، هذه هي الوسيلة الوحيدة لمعرفة
+ *     «أين أنا» قبل «ماذا أرى».
  *
- *    ولذلك **وضعان** لا صفحتان: «المستندات» للعرض والتصفية، و«المقاطع»
- *    للقراءة. والصفّ في الجدول **يُضغط** فينقل إلى مقاطع ذلك المستند — فلا
- *    يبقى الانتقال بين الوضعين إجراءً يبحث عنه المستخدم في مكان آخر.
+ *   • **والعائلات صارت شرائح (chips)** في سطر واحد: القائمة المنسدلة كانت
+ *     تُخفي خيارات التصفية خلف نقرة، والتصفية هي ثاني أكثر فعلٍ بعد البحث.
  *
- * ⚠️ ثم بقي نقصٌ ثالث، وهو أخفى الثلاثة: **المقطع ليس المستند**. من يفتح
- *    «اتفاقية كذا» يقرأ عشرين بطاقة منفصلة، كلٌّ منها بحدّها وعنوانها، وعليه
- *    أن يجمعها في ذهنه ليعرف **ما تقوله الاتفاقية**. والوثيقة القانونية
- *    تُقرأ **متّصلة** — فقرة ثم فقرة — كما تُقرأ على الورق.
- *
- *    ولهذا صار لفتح المستند **ثلاثة أوجه**: «النصّ الكامل» (وهو الافتراضي،
- *    لأن فتح المستند طلبُ قراءةٍ لا طلبُ تصفّح) · «المقاطع» للبطاقات
- *    المفردة وظلّ البحث · «المستندات» للجدول.
+ * ⚠️ وما بقي كما هو عن قصد: مقاطع المستند تُعرض **مرتّبةً بترتيب فقراته**
+ *    (`orderChunks`)، والورقة الكريمية بترويستها الفاتحة (`PaperLetterhead`)،
+ *    وظلٌّ واحد عليها وحدها، وتشخيص تواريخ متطابقة، وتلميح قسم `schema.sql`.
+ *    فهذه كلها صحيحة، وتغييرُها تغييرٌ لا إصلاح.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Filter, X } from "lucide-react";
+import {
+  Search,
+  X,
+  ArrowUp,
+  ArrowDown,
+  List,
+  LayoutGrid,
+  Copy,
+} from "lucide-react";
 import { EngravedIcon } from "@/components/engraved-icon";
-import { Letterhead, Najma } from "@/components/letterhead";
+import { Najma } from "@/components/letterhead";
 import { Card } from "@/components/ui/card";
 import {
   InputGroup,
@@ -51,8 +53,8 @@ const API_URL = "/api";
  * ⚠️ ولماذا سقفٌ عالٍ (٢٠٠) لا ترقيم صفحات؟
  *
  * لأن هذا **أرشيف بحث** لا قائمة تصفُّح: المستخدم يضيّق بالبحث أو بالعائلة
- * حتى تصغر النتيجة، ولا يتنقّل بين صفحات. ومع ذلك يبقى القَصّ **مُعلَناً** في
- * سطر أسفل القائمة — فالرقم الذي يُعرض بلا إعلان القَصّ يوهم أنه الكل.
+ * حتى تصغر النتيجة، ولا يتنقّل بين صفحات. ومع ذلك يبقى القَصّ **مُعلَناً** أسفل
+ * القائمة — فالرقم الذي يُعرض بلا إعلان القَصّ يوهم أنه الكل.
  *
  * ⚠️ ولا ثابتَ لعدد أسطر الطيّ: العدد يعيش في الصنف `line-clamp-6` وحده.
  * وثابتٌ في TS لا يغيّر الصنف، فيصيرا مصدرَي حقيقة يفترقان بصمت.
@@ -61,24 +63,62 @@ const PAGE_SIZE = 200;
 
 /** عتبةُ إظهار «عرض المزيد». الحرف العربي أضيق من اللاتيني، وهذا تقدير
  *  محافظ يكفي لأن يقرّر الزر: ٢٤٠ حرفاً لا تبلغ ستة أسطر في بطاقة بعرض
- *  الصفحة عادةً، وما زاد عليها قد يبلغها — فالزر يظهر ولا يضرّ ظهوره. */
+ *  اللوحة عادةً، وما زاد عليها قد يبلغها — فالزر يظهر ولا يضرّ ظهوره. */
 const CLAMP_HINT_CHARS = 240;
 
 /** مدة «نُسخ» الظاهرة بعد النسخ. قصيرة لأنها إقرار بفعل وقع، لا حالة تُراقب. */
 const COPIED_MS = 2000;
 
-type Mode = "documents" | "chunks";
+/** التأجيل نفسه الذي كان في النسخة السابقة — لا يُمسّ: ٣٥٠ مللي ثانية هي
+ *  الحدّ الذي يمنع عشرة طلبات عند كتابة كلمة، ولا يُحسّ بها القارئ. */
+const DEBOUNCE_MS = 350;
 
 /**
- * وجه العرض — **منفصل عن `mode` عن قصد**.
- *
- * ⚠️ `mode` يقرّر **أي نداء يُطلق**، وله نوعان لأن الخادم له نقطتان.
- *    أما الأوجه فثلاثة، واثنان منها («النصّ الكامل» و«المقاطع») يقرآن
- *    **الردّ نفسه**: مقاطع المستند الواحد. فلو حُشرت الثلاثة في `mode`
- *    لصار تبديل الوجه **نداءً جديداً إلى الخادم** — وهو إبطاء بلا سبب وإبطال
- *    للبيانات التي بين اليدين.
+ * ⚠️ مفتاح `localStorage` **مؤطَّر باسم الصفحة** (`library`) لا باسم عام.
+ * المفتاح العام (`view`) يُتصادم مع أي صفحة أخرى تكتب تفضيلاً بالاسم نفسه،
+ * فيصير تبديل ترتيب في صفحةٍ مبدّلاً لها هنا. والتفضيل يبقى بعد إغلاق التبويب
+ * لأن اختيار «قائمة/شبكة» ليس حالة جلسة، بل طريقةَ عمل.
  */
-type View = "documents" | "chunks" | "text";
+const VIEW_KEY = "library.view";
+
+type Mode = "documents" | "chunks";
+
+/** أعمدة الترتيب الثلاثة — وهي **مصدر حقيقة واحد** لزرّ القائمة ولمعالج رأس
+ *  العمود معاً. ولو صار للاثنين حالتان لافترقا: يختار المستخدم «الاسم» في
+ *  القائمة، ويبقى رأس العمود يعلن «الأحدث» — وهو أسوأ من غياب المؤشّر. */
+type SortKey = "recent" | "name" | "chunks";
+
+/**
+ * وجه اللوحة الجانبية — **حالةٌ ثالثة مستقلة** عن `mode` (أي نداء) وعن
+ * `view` (قائمة أم شبكة).
+ *
+ * ⚠️ ولماذا لا تُحفظ في `localStorage` كحالة العرض؟ لأن الافتراضي «النصّ
+ *    الكامل» هو الصواب في كل مرة: من فتح مستنداً أراد أن **يقرأه**، لا أن
+ *    يرى أنه مُقطَّع. والوجه المفضَّل محفوظاً يجعل أول ما يراه القارئ بعد
+ *    أسبوع هو آخر ما تركه — وهو غالباً تفصيلٌ عارض لا الغرض.
+ */
+type PanelTab = "text" | "chunks" | "meta";
+
+const TABS: { key: PanelTab; label: string }[] = [
+  { key: "text", label: "النصّ الكامل" },
+  { key: "chunks", label: "المقاطع" },
+  { key: "meta", label: "بيانات المستند" },
+];
+
+/**
+ * تعريف الأعمدة — وفي `index` سببان:
+ *   ١) الرقم يعطي العين مرساةً في صفٍّ طويل، كما في فهرس ملفٍّ مطبوع — وهو
+ *      النمط نفسه في `app/page.tsx` (رقم المدخل بخطٍّ ثابت قبل العنوان).
+ *   ٢) ومن لا يميّز الألوان يجد في العمود نفسه علامةً على الترتيب الفعّال،
+ *      لا لوناً وحده.
+ */
+const COLUMNS: { key: string; label: string; index: string; sort: SortKey | null }[] = [
+  { key: "name", label: "اسم المستند", index: "٠١", sort: "name" },
+  { key: "type", label: "التصنيف", index: "٠٢", sort: null },
+  { key: "family", label: "العائلة", index: "٠٣", sort: null },
+  { key: "chunks", label: "المقاطع", index: "٠٤", sort: "chunks" },
+  { key: "date", label: "أُضيف في", index: "٠٥", sort: "recent" },
+];
 
 type Family = {
   key: string;
@@ -122,62 +162,93 @@ type Result =
   | { key: "documents"; envelope: Envelope; documents: ArchiveDocument[] }
   | { key: "chunks"; envelope: Envelope; chunks: ArchiveChunk[] };
 
+/** الشكل المشترك للردّين — يُفحص مرة واحدة في `readEnvelope`. */
+type RawEnvelope = { count: number; limit: number; truncated: boolean; rows: Record<string, unknown>[] };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
 /**
- * تحويل الردّ الخام إلى نتيجة مفحوصة.
+ * قراءة المغلّف مع صفوفه.
  *
  * ⚠️ ولماذا الفحص بحرفيّته؟ لأن الردّ يأتي من دالّة SQL تُضاف على التوازي،
  * وقد يعود بشكل مختلف عمّا وُصف. والقراءة العمياء (`data.documents.map`)
  * تُسقط الصفحة كلها — شاشة بيضاء بدل رسالة. والفحص هنا يحوّل «شكلاً غير
  * متوقّع» إلى خطأ يُقال، ويُبقي حقولَ الصفّ ناقصةً بـ«—» بدل `undefined`.
  */
-function normalizeResult(mode: Mode, raw: unknown): Result {
+function readEnvelope(raw: unknown, key: "documents" | "chunks"): RawEnvelope {
   const source = isRecord(raw) ? raw : {};
-  const envelope: Envelope = {
+  return {
     count: typeof source.count === "number" ? source.count : 0,
     limit: typeof source.limit === "number" ? source.limit : PAGE_SIZE,
     truncated: source.truncated === true,
+    rows: Array.isArray(source[key]) ? (source[key] as unknown[]).filter(isRecord) : [],
   };
+}
 
-  const text = (value: unknown): string => (typeof value === "string" ? value : "");
-  const rows = (value: unknown): Record<string, unknown>[] =>
-    Array.isArray(value) ? value.filter(isRecord) : [];
+function readText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
 
-  if (mode === "documents") {
-    return {
-      key: "documents",
-      envelope,
-      documents: rows(source.documents).map((row) => ({
-        document_name: text(row.document_name),
-        document_type: text(row.document_type),
-        family: text(row.family),
-        family_label: text(row.family_label),
-        chunks: typeof row.chunks === "number" ? row.chunks : 0,
-        added_at: typeof row.added_at === "string" ? row.added_at : null,
-      })),
-    };
-  }
+/** ⚠️ صفوف المستند بلا افتراض: التاريخ الغائب `null` لا سلسلة فارغة، لأن
+ *  الفراغ سلسلةٌ صحيحة الشكل تعني «لا تاريخ» و«تاريخ فارغ» معاً. */
+function readDocuments(raw: unknown): Result {
+  const envelope = readEnvelope(raw, "documents");
+  return {
+    key: "documents",
+    envelope: {
+      count: envelope.count,
+      limit: envelope.limit,
+      truncated: envelope.truncated,
+    },
+    documents: envelope.rows.map((row) => ({
+      document_name: readText(row.document_name),
+      document_type: readText(row.document_type),
+      family: readText(row.family),
+      family_label: readText(row.family_label),
+      chunks: typeof row.chunks === "number" ? row.chunks : 0,
+      added_at: typeof row.added_at === "string" ? row.added_at : null,
+    })),
+  };
+}
 
+function readChunks(raw: unknown): Result {
+  const envelope = readEnvelope(raw, "chunks");
   return {
     key: "chunks",
-    envelope,
-    chunks: rows(source.chunks).map((row, index) => ({
-      /* `id` هو مفتاح React. وإن غاب من ردٍّ غير متوقّع فالترتيب يكفي مؤقّتاً
-         — خيرٌ من `undefined` في المفتاح، وهو ما يُفقد React التتبّع. */
+    envelope: {
+      count: envelope.count,
+      limit: envelope.limit,
+      truncated: envelope.truncated,
+    },
+    chunks: envelope.rows.map((row, index) => ({
+      /* `id` فريد **داخل جدوله وحده**: `legal_drafts.id = 24` و
+         `legal_contracts.id = 24` كلاهما موجود. ولهذا لا يُستعمل وحده مفتاحاً
+         في React — المفتاح دائماً `family-id` (انظر `chunkKey`). */
       id: typeof row.id === "number" ? row.id : index,
-      document_name: text(row.document_name),
-      document_type: text(row.document_type),
-      family: text(row.family),
-      family_label: text(row.family_label),
-      content: text(row.content),
-      source_file: text(row.source_file),
+      document_name: readText(row.document_name),
+      document_type: readText(row.document_type),
+      family: readText(row.family),
+      family_label: readText(row.family_label),
+      content: readText(row.content),
+      source_file: readText(row.source_file),
       chunk_index: typeof row.chunk_index === "number" ? row.chunk_index : null,
       created_at: typeof row.created_at === "string" ? row.created_at : null,
     })),
   };
+}
+
+/**
+ * ⚠️ **المفتاح الوحيد الصحيح للمقطع.**
+ *
+ * المعرّف في الأرشيف فريدٌ داخل جدوله لا في الردّ كله. وقد وقع الخطأ فعلاً:
+ * مفتاحٌ بالمعرّف وحده جعل React يظنّ مقطعاً في جدولٍ هو نفسه مقطعٌ في جدول
+ * آخر، فأبقى نصّ الأول في موضع الثاني — **فعُرض نصّ مستند مكان نصّ مستند**.
+ * وهذا لا يُكتشف إلا بقراءة النصّ، فهو أخطر أنواع الأخطاء هنا.
+ */
+function chunkKey(chunk: ArchiveChunk): string {
+  return `${chunk.family}-${chunk.id}`;
 }
 
 /**
@@ -200,6 +271,11 @@ async function readError(response: Response): Promise<string> {
   return raw.trim().slice(0, 500) || `HTTP ${response.status}`;
 }
 
+/** خطأ الإلغاء ليس فشلاً — لا يُقال للمستخدم ولا يُعرض. */
+function isAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 /**
  * هل يذكر الخطأ قسماً من `schema.sql`؟
  *
@@ -213,6 +289,20 @@ function schemaSectionHint(detail: string): string | undefined {
   const section = detail.match(/القسم\s+([0-9٠-٩]+)/)?.[1];
   if (!section) return undefined;
   return `-- افتح schema.sql وانسخ «القسم ${section}» كاملاً ثم نفّذه في Supabase ← SQL Editor\nselect * from archive_overview();\nselect * from archive_chunks(null, null, null, 5);`;
+}
+
+/**
+ * ⚠️ ترتيب الطلب يعتمد على الوضع، لا على الاختيار وحده.
+ *
+ * `sort=size` مقبول في `/archive/documents` وحدها؛ وفي المقاطع يُقبل
+ * `recent|name` فقط. وإرسال `size` هناك يعني `400` — أي أن **اختياراً بريئاً
+ * في القائمة يُفشل الطلب كله**. فالاختيار يبقى كما هو في الواجهة (فلا
+ * يتبدّل تحت يد المستخدم)، ويُنزل إلى `recent` في الطلب، وتُقال الحقيقة في
+ * سطر تحت شريط الأدوات بدل أن تُخفى.
+ */
+function sortQuery(mode: Mode, sort: { key: SortKey; dir: "asc" | "desc" }): string {
+  const key = mode === "chunks" && sort.key === "chunks" ? "recent" : sort.key;
+  return sort.dir === "asc" ? `${key}:asc` : key;
 }
 
 /**
@@ -269,10 +359,7 @@ function HighlightedText({ content, term }: { content: string; term: string }) {
     <>
       {parts.map((part, index) =>
         part.hit ? (
-          <mark
-            key={index}
-            className="bg-amber-500/25 text-amber-200 px-0.5"
-          >
+          <mark key={index} className="bg-amber-500/25 text-amber-200 px-0.5">
             {part.text}
           </mark>
         ) : (
@@ -346,7 +433,7 @@ function orderChunks(chunks: ArchiveChunk[]): ArchiveChunk[] {
  * يُرسم مرّتين.
  *
  * ⚠️ والبنية مطابقة لبنية الأصل حرفياً (نجمة · اسم · خطّ بنجمة · القب ·
- *    السطر اللاتيني) ومقاساتها كذلك — فلو غُيّر الأصل بقي الفرق **مقروءاً**
+ *    السطر اللاتيني) ومقاساتها كذلك — فلو غُيِّر الأصل بقي الفرق **مقروءاً**
  *    لا مكتشفاً بالعين. وألوان الحبر هنا هي وحدها المختلفة، وهذا هو المقصود.
  */
 function PaperLetterhead() {
@@ -380,44 +467,54 @@ function PaperLetterhead() {
   );
 }
 
-/** بطاقة مقطع — مكوّن مستقلّ حتى لا يختلط الطيّ ببعضه عند كل إعادة رسم. */
+/**
+ * بطاقة مقطع — مكوّن مستقلّ حتى لا يختلط الطيّ ببعضه عند كل إعادة رسم.
+ *
+ * ⚠️ ولا سقفَ على البطاقة نفسها: النقر عليها يفتح اللوحة على «النصّ الكامل»،
+ *    وهناك يُقرأ المستند كاملاً بلا طيّ. فالبطاقة مدخلٌ لا مستند.
+ */
 function ChunkCard({
   chunk,
   term,
-  onOpenDocument,
+  selected,
+  onOpen,
 }: {
   chunk: ArchiveChunk;
   term: string;
-  onOpenDocument: (name: string) => void;
+  selected: boolean;
+  onOpen: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  /* ⚠️ إعادة ضبط الطيّ عند تغيّر النتيجة: بطاقة طُوّيت في بحث سابق كانت
-     تفتح على نصّ آخر مطويّ — وهو إرباك بلا سبب. و`key` بحسب المعرّف في
-     القائمة يجعل React ينشئ البطاقة من جديد، لكن الضبط هنا أصرح. */
+  /* ⚠️ إعادة ضبط الطيّ عند تغيّر المقطع: بطاقة طُوّيت في بحث سابق كانت تفتح
+     على نصّ آخر مطويّ — وهو إرباك بلا سبب. والمفتاح المركّب `family-id` هو
+     الذي يجعل React يعرف أنه مقطع آخر لا المقطع نفسه. */
   useEffect(() => {
     setExpanded(false);
-  }, [chunk.id]);
+  }, [chunk.family, chunk.id]);
 
   const long = chunk.content.length > CLAMP_HINT_CHARS;
 
   return (
     <Card
       size="sm"
-      className="bg-slate-900 border border-slate-800 ring-0 gap-3 py-4"
+      className={`bg-slate-900 border ring-0 gap-3 py-4 ${
+        selected ? "border-amber-500/40" : "border-slate-800"
+      }`}
     >
       <div className="px-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
+          {/* ⚠️ الضغط هنا لا يقود إلى «مقاطع هذا المستند» كما كان، بل يفتح
+              اللوحة على المستند نفسه: المقاطع المفردة صارت وجهاً **داخلها**،
+              فلا معنى لوجهٍ خارجي يقود إلى وجهٍ داخلي. */}
           <button
             type="button"
-            onClick={() => onOpenDocument(chunk.document_name)}
-            title="اعرض مقاطع هذا المستند وحده"
-            className="flex items-center gap-2 text-start font-medium text-slate-200 transition-colors hover:text-amber-500"
+            onClick={onOpen}
+            title="افتح المستند كاملاً في اللوحة"
+            className="flex items-center gap-2 text-start font-medium text-slate-200 transition-colors hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
           >
             <EngravedIcon name="papers" className="size-4 text-amber-500" />
-            <span className="break-words">
-              {chunk.document_name || "بلا اسم"}
-            </span>
+            <span className="break-words">{chunk.document_name || "بلا اسم"}</span>
           </button>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
             <span className="inline-flex items-center border border-amber-500/25 px-2 py-0.5 tracking-[0.15em] text-amber-500">
@@ -431,6 +528,10 @@ function ChunkCard({
             )}
           </p>
         </div>
+
+        {/* ⚠️ ولا رقم لموضع البطاقة هنا: رقمُ الموضع في نتيجةٍ متغيّرة ليس
+            بياناً عن المستند، وقد يُقرأ خطأً كرقم مقطع. ورقم المقطع الحقيقي
+            (`#chunk_index`) معروضٌ في السطر الذي فوقه، وهو الوحيد الصادق. */}
       </div>
 
       <p
@@ -461,25 +562,29 @@ function ChunkCard({
   );
 }
 
+/** رأسان لعمودين — الاتجاه نفسه بمسطرتين، ويُقلب في RTL آلياً. */
+function SortIndicator({ dir }: { dir: "asc" | "desc" | null }) {
+  const Icon = dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <span className="inline-block size-3.5 shrink-0">
+      {dir && <Icon className="size-3.5 text-amber-500" aria-hidden="true" />}
+    </span>
+  );
+}
+
 /**
- * زرّ وجه — نفس صنف زرّ الوضع القائم حرفياً (حدّ رفيع، والفعّال نحاسي).
- *
- * ⚠️ و`aria-pressed` أُبقي كما كان، وأُضيف `disabled` **وشرحُه**: الوجهان
- *    «النصّ الكامل» و«المقاطع» لا معنى لهما بلا مستند. وزرٌّ يبدو فعّالاً ثم
- *    لا يفعل شيئاً هو الخطأ الذي وُجد هذا الملف لتلافيه — فالمعطَّل يبقى
- *    ظاهراً (فيُعرف أنه ممكن) لكنه **يقول لماذا لا يعمل الآن**.
+ * زرّ مبدّل — نمط واحد للثلاثة (الوضع · العرض · اللوحة) حتى لا تتعلّم العين
+ * ثلاث لغات في سطر واحد. و`aria-pressed` هو الإعلان، لا اللون وحده.
  */
-function ViewButton({
+function ToggleButton({
   label,
   active,
-  disabled,
   title,
   onClick,
 }: {
   label: string;
   active: boolean;
-  disabled?: boolean;
-  title?: string;
+  title: string;
   onClick: () => void;
 }) {
   return (
@@ -487,40 +592,138 @@ function ViewButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      disabled={disabled}
       title={title}
-      className={`font-heading border px-4 py-2 text-sm transition-colors ${
+      className={`border px-3 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
         active
-          ? "border-amber-500/40 bg-slate-900 text-amber-500"
-          : "border-slate-800 text-slate-400 hover:bg-slate-900"
-      } disabled:cursor-not-allowed disabled:border-slate-800/60 disabled:text-slate-600 disabled:hover:bg-transparent`}
+          ? "border-amber-500/40 text-amber-500"
+          : "border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+      }`}
     >
       {label}
     </button>
   );
 }
 
+/** زرّ عرض بأيقونة وحدها — والشرح في `title` و`aria-label` معاً، لأن الأولى
+ *  لا يقرأها قارئ الشاشة والثانية لا تُعرض للمبصر. */
+function IconToggle({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: typeof List;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
+      className={`flex size-9 items-center justify-center border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
+        active
+          ? "border-amber-500/40 text-amber-500"
+          : "border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+      }`}
+    >
+      <Icon className="size-4" aria-hidden="true" />
+    </button>
+  );
+}
+
+/**
+ * صفوف الهيكل العظمي — **ساكنة لا نابضة**.
+ *
+ * ⚠️ ولماذا لا `animate-pulse`؟ لأن الحركة الزخرفية ممنوعة في هذا المشروع:
+ *    الفراغُ الذي يخفق يقول «انظر إليّ»، والصفّ الذي ينتظر يقول «مكانك محفوظ».
+ *    والمستطيل الباهت يقول الثاني بلا ضجيج.
+ */
+function SkeletonRows({ rows }: { rows: number }) {
+  return (
+    <div className="divide-y divide-slate-800 border border-slate-800 bg-slate-900" aria-hidden="true">
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="flex h-11 items-center gap-4 px-4">
+          <span className="h-3 w-4 shrink-0 bg-slate-800" />
+          <span className="h-3 flex-1 bg-slate-800/70" />
+          <span className="hidden h-3 w-24 bg-slate-800/50 sm:block" />
+          <span className="hidden h-3 w-16 bg-slate-800/50 md:block" />
+          <span className="h-3 w-10 shrink-0 bg-slate-800/50" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SkeletonTiles({ tiles }: { tiles: number }) {
+  return (
+    <div
+      className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+      aria-hidden="true"
+    >
+      {Array.from({ length: tiles }, (_, index) => (
+        <div
+          key={index}
+          className="flex flex-col items-center gap-3 border border-slate-800 bg-slate-900 px-4 py-6"
+        >
+          <span className="size-9 bg-slate-800/70" />
+          <span className="h-3 w-3/4 bg-slate-800/60" />
+          <span className="h-2.5 w-1/2 bg-slate-800/40" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Library() {
   const [mode, setMode] = useState<Mode>("documents");
-  const [view, setView] = useState<View>("documents");
+  /** ⚠️ «قائمة/شبكة» تفضيلُ عملٍ لا حالة جلسة: من رتّب مكتبه على الشبكة
+   *  يريدها شبكةً في كل زيارة. ولهذا تُخزَّن، وتُقرأ بعد التركيب لا قبله. */
+  const [view, setView] = useState<"list" | "grid">("list");
   const [search, setSearch] = useState("");
   const [family, setFamily] = useState("");
-  /** تصفية مستند بعينه — تُملأ من ضغط صفّ أو من ضغط اسم مستند داخل مقطع. */
+  /** المستند المفتوح في اللوحة — `""` يعني لا لوحة. */
   const [documentName, setDocumentName] = useState("");
+  const [panelTab, setPanelTab] = useState<PanelTab>("text");
+  /** الترتيب: المفتاح **والاتجاه** معاً في حالة واحدة، فلا يفترق مؤشّر الرأس
+   *  عن قيمة القائمة المنسدلة. والاتجاه في الواجهة لا في الطلب وحده. */
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "recent",
+    dir: "desc",
+  });
   const [families, setFamilies] = useState<Family[]>([]);
 
+  /** نتيجة القائمة المعروضة، ونتيجة **اللوحة** منفصلة عنها: اللوحة تسأل عن
+   *  مستند واحد والقائمة تسأل عن الأرشيف، وخلطهما في حالة واحدة يجعل فتح
+   *  مستندٍ يمسح نتائج البحث تحت اللوحة. */
   const [result, setResult] = useState<Result | null>(null);
+  const [panelResult, setPanelResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
+  const [panelLoading, setPanelLoading] = useState(false);
   const [error, setError] = useState("");
+  const [panelError, setPanelError] = useState("");
 
   /** النصّ الذي جرى به البحث فعلاً — لا ما هو مكتوب الآن في الحقل. */
   const [appliedSearch, setAppliedSearch] = useState("");
 
-  /** حالة زرّ النسخ: `""` لا شيء · `"done"` نُسخ · وإلا فهي نصّ الفشل. */
+  /**
+   * ⚠️ عيّنة تواريخ **تبقى بعد فتح مستند**، لتشخيص التواريخ المتطابقة.
+   *
+   * التشخيص يحتاج قائمة المستندات كاملة، والقائمة تُستبدل بمقاطع المستند
+   * عند فتحه (لأن المستند الواحد لا يحمل صفّه إن كان خارج أول ٢٠٠). فآخر
+   * قائمة مستندات **بلا تصفية بحث** تُحفظ هنا، ومنها يُقرأ التشخيص. وهو
+   * محفوظٌ لا معروض، فلا يوهم أحداً بأنه نتائج البحث الحالية.
+   */
+  const [dateSample, setDateSample] = useState<ArchiveDocument[]>([]);
+
+  /** حالة زرّ النسخ في اللوحة: `""` لا شيء · `"done"` نُسخ · وإلا نصّ الفشل. */
   const [copyState, setCopyState] = useState("");
   const copyTimer = useRef<number | null>(null);
 
-  /* العائلات تُجلب مرة واحدة لبناء قائمة التصفية — فلا تُكتب في الواجهة. */
+  /* العائلات تُجلب مرة واحدة لبناء شرائح التصفية — فلا تُكتب في الواجهة. */
   useEffect(() => {
     let alive = true;
     fetch(`${API_URL}/archive/overview`)
@@ -537,36 +740,76 @@ export default function Library() {
     };
   }, []);
 
-  /** إلغاء مؤقّت «نُسخ» عند مغادرة الصفحة — فلا يوقظ مكوّناً ذهب. */
+  /**
+   * ⚠️ تصفير إقرار النسخ عند تبديل المستند، وإلغاء مؤقّته.
+   *
+   * بلا هذا يبقى «نُسخ» معلّقاً على مستندٍ آخر بعد التبديل — وهو كذبٌ صغير
+   * لكنه في المكان الوحيد الذي يثق فيه المستخدم بأن نصّاً صار في حافظته.
+   * والتنظيف عند مغادرة الصفحة داخل المؤثّر نفسه فلا يُكرَّر.
+   */
   useEffect(() => {
     return () => {
       if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+      setCopyState("");
     };
+  }, [documentName]);
+
+  /**
+   * قراءة تفضيل العرض — **بعد التركيب**.
+   *
+   * ⚠️ ولو قُرئ في `useState` الأولي لنشأ اختلافٌ بين ما رسمه الخادم
+   *    («قائمة») وما يرسمه المتصفّح («شبكة») — وهو خطأ الترطيب (hydration)
+   *    الذي يُسقط الشجرة كلها. فالقراءة في مؤثّر، والوميض ثمنٌ أرخص بكثير.
+   */
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(VIEW_KEY);
+      if (stored === "grid" || stored === "list") setView(stored);
+    } catch {
+      /* التخزين قد يكون معطّلاً (وضع خاص/سياسة) — الافتراضي «قائمة» يكفي */
+    }
+  }, []);
+
+  const changeView = useCallback((next: "list" | "grid") => {
+    setView(next);
+    try {
+      window.localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      /* ⚠️ الفشل في الحفظ **لا يُترجم** إلى فشل في التبديل: العرض تبدّل فعلاً
+         في هذه الجلسة، وإظهار خطأ هنا يقول للمستخدم إن شيئاً لم يحدث. */
+    }
   }, []);
 
   /**
-   * الجلب.
+   * جلب القائمة المعروضة (مستندات أو مقاطع).
    *
-   * - وضع «المستندات» ← `/archive/documents`.
-   * - وضع «المقاطع» ← `/archive/chunks`، و`document` **يسبق** `search` لأن
-   *   الخادم يتجاهل البحث عند وجود اسم مستند (سلوك موصوف). فنُرسل الاسم وحده
-   *   بدل إرسال بحث لن يُقرأ — الطلب الأوضح أسهل في التشخيص.
-   * - ويُؤجَّل ٣٥٠ مللي ثانية: البحث الآن في قاعدة البيانات، فكل حرف طلبٌ إلى
-   *   الخادم، والتأجيل يمنع عشرة طلبات عند كتابة كلمة.
-   * - و`AbortController`: نتيجة بحث قديم تصل بعد بحث أحدث كانت تطمس الأحدث.
+   * - `document` في وضع المقاطع يسبق `search`: الخادم يتجاهل البحث عند وجود
+   *   اسم مستند، فنرسل الاسم وحده بدل بحثٍ لن يُقرأ.
+   * - ويُؤجَّل ٣٥٠ مللي ثانية: البحث في قاعدة البيانات، فكل حرف طلب.
+   * - و`AbortController`: نتيجة بحث قديم تصل بعد أحدث كانت تطمس الأحدث.
    *
-   * ⚠️ و`view` **ليس في التبعيات ولا في الطلب**: تبديل الوجه بين «النصّ
-   *    الكامل» و«المقاطع» يقرأ الردّ نفسه، فلا نداء ثانياً ولا وميض تحميل.
+   * ⚠️ والوجه المستهدف `mode` هنا **مشتقٌّ من المستند المفتوح** لا من حالة
+   *    `mode`: فتحُ مستند يعني مقاطعه، حتى لو كان الوضع المعروض في شريط
+   *    الأدوات «مستندات» (لأن زرّ «مستندات» يمسح المستند المفتوح أولاً).
+   *    ولو أُخذ من الحالة لطُلب المستند من نقطة المستندات — وهي لا تعرف
+   *    `document` أصلاً، فيُعرض الأرشيف كله تحت لوحة مستندٍ واحد.
    */
-  const load = useCallback(
-    async (signal: AbortSignal) => {
+  useEffect(() => {
+    const target: Mode = documentName ? "chunks" : mode;
+    const endpoint = target === "documents" ? "archive/documents" : "archive/chunks";
+    const term = search.trim();
+    const controller = new AbortController();
+
+    const timer = setTimeout(async () => {
       setLoading(true);
       setError("");
 
-      const term = search.trim();
-      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        sort: sortQuery(target, sort),
+      });
       if (family) params.set("family", family);
-      if (mode === "documents") {
+      if (target === "documents") {
         if (term) params.set("search", term);
       } else if (documentName) {
         params.set("document", documentName);
@@ -574,69 +817,148 @@ export default function Library() {
         params.set("search", term);
       }
 
-      const endpoint =
-        mode === "documents" ? "archive/documents" : "archive/chunks";
-
       try {
         const response = await fetch(`${API_URL}/${endpoint}?${params}`, {
-          signal,
+          signal: controller.signal,
           cache: "no-store",
         });
         if (!response.ok) throw new Error(await readError(response));
-        const normalized = normalizeResult(mode, await response.json());
-        setResult(normalized);
-        setAppliedSearch(mode === "chunks" && !documentName ? term : "");
+        const raw = await response.json();
+
+        if (target === "documents") {
+          const next = readDocuments(raw);
+          setResult(next);
+          setAppliedSearch("");
+          if (!term) {
+            setDateSample(next.key === "documents" ? next.documents : []);
+          }
+        } else {
+          setResult(readChunks(raw));
+          setAppliedSearch(documentName ? "" : term);
+        }
       } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (isAbort(e)) return;
         setError(e instanceof Error ? e.message : "تعذّر قراءة الأرشيف.");
         setResult(null);
         setAppliedSearch("");
       } finally {
-        if (!signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
-    },
-    [mode, search, family, documentName]
-  );
+    }, DEBOUNCE_MS);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => void load(controller.signal), 350);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [load]);
+  }, [search, family, documentName, mode, sort]);
 
   /**
-   * فتح مستند بعينه.
+   * جلب مقاطع المستند المفتوح — للّوحة وحدها.
    *
-   * ⚠️ ولماذا يُمسح البحث هنا؟ لأن المقاطع تُعرض **بلا** ظلّ البحث في هذا
-   *    الوضع (الخادم يتجاهل البحث عند وجود المستند) — فحقلٌ مكتوب فيه كلمة
-   *    بلا ظلّ يوهم أن الكلمة طُبّقت. والمسح يجعل المرئي هو الحقيقة. ومن أراد
-   *    البحث داخل المستند نفسه فليكتبه ثانية: سيُرسَل حينها بحثاً فعلياً.
+   * ⚠️ ولماذا نداءٌ ثانٍ لا مشاركةُ نتيجة القائمة؟ لأن القائمة في وضع
+   *    «المستندات» لا تحمل مقاطع بحكم شكل ردّها، واللوحة تُفتح من الشبكة
+   *    ومن القائمة على السواء. والنداء الثاني صغير (مقاطع مستند واحد) وأصدق
+   *    من تمرير حالةٍ عبر وضعين.
+   */
+  useEffect(() => {
+    if (!documentName) {
+      setPanelResult(null);
+      setPanelError("");
+      setPanelLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setPanelLoading(true);
+    setPanelError("");
+
+    const params = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      document: documentName,
+      /* ⚠️ و`sort` لا يُرسل هنا: مقاطع المستند الواحد يعيدها الخادم بترتيب
+         فقراته دائماً، و`orderChunks` تحترم ذلك. فإرسال ترتيب لا يُقرأ يوهم
+         أنه طُبّق. */
+    });
+
+    fetch(`${API_URL}/archive/chunks?${params}`, {
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await readError(response));
+        setPanelResult(readChunks(await response.json()));
+      })
+      .catch((e: unknown) => {
+        if (isAbort(e)) return;
+        setPanelError(e instanceof Error ? e.message : "تعذّر قراءة المستند.");
+        setPanelResult(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPanelLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [documentName]);
+
+  /** قفل تمرير الخلفية والاستماع لـ`Escape` — ما دامت اللوحة مفتوحة.
+   *  ⚠️ والقفل لا يُخفى على المستخدم: اللوحة تغطّي الشاشة على الجوّال،
+   *  فتمريرُ خلفها يوهم أن شيئاً آخر قابل للاستعمال. */
+  useEffect(() => {
+    if (!documentName) return;
+
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDocumentName("");
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [documentName]);
+
+  /**
+   * فتح مستند.
    *
-   * ⚠️ والوجه الافتراضي هو **النصّ الكامل** لا المقاطع: من ضغط صفّاً في
-   *    الجدول أراد أن **يقرأ المستند**، لا أن يرى أنه مُقطَّعٌ في عشرين بطاقة.
-   *    ومن أراد البطاقات فزرُّها على بعد نقرة — أما الافتراضي فيجب أن يكون
-   *    الغرض، لأن أكثر المستخدمين لا يبدّلون.
+   * ⚠️ ولماذا يُمسح البحث هنا؟ لأن اللوحة تُعرض **بلا** ظلّ بحث: الخادم يتجاهل
+   *    البحث عند وجود اسم مستند. فحقلٌ مكتوب فيه كلمة بلا ظلّ يوهم أن الكلمة
+   *    طُبّقت. والمسح يجعل المرئي هو الحقيقة — ومن أراد البحث داخل المستند
+   *    نفسه فليكتبه ثانية.
    */
   const openDocument = useCallback((name: string) => {
     setDocumentName(name);
-    setMode("chunks");
-    setView("text");
     setSearch("");
+    setAppliedSearch("");
+    setPanelTab("text");
   }, []);
 
-  /** الوجوه الثلاثة — لا معنى لاثنين منها بلا مستند مفتوح. */
-  const changeView = useCallback((next: View) => {
-    if (next === "documents") {
-      setMode("documents");
-      setDocumentName("");
-    } else {
-      setMode("chunks");
-    }
-    setView(next);
+  /** إغلاق اللوحة — والنتيجة تبقى مكانها، فالإغلاق ليس تصفيراً للبحث. */
+  const closePanel = useCallback(() => setDocumentName(""), []);
+
+  /** رمي تصفية المستند وحدها — زرُّ الرقاقة في آثار التنقّل. */
+  const clearDocumentScope = useCallback(() => {
+    setDocumentName("");
+    setPanelResult(null);
+    setPanelError("");
   }, []);
+
+  /** العودة إلى جذر الأرشيف: رمي العائلة **والمستند** معاً، والبحث يُبقى
+   *  لأن المستخدم لم يطلبه — إسقاطُه معه مفاجأة لا مساعدة. */
+  const clearToArchive = useCallback(() => {
+    setFamily("");
+    clearDocumentScope();
+  }, [clearDocumentScope]);
+
+  /** إزالة كل ما ضيّق النتيجة — وهو ما تعرضه حالةُ «لا نتائج». */
+  const clearAllFilters = useCallback(() => {
+    setSearch("");
+    setFamily("");
+    clearDocumentScope();
+    setMode("documents");
+  }, [clearDocumentScope]);
 
   const documents = result?.key === "documents" ? result.documents : [];
   const chunks = result?.key === "chunks" ? result.chunks : [];
@@ -644,24 +966,30 @@ export default function Library() {
   const truncated = result?.envelope.truncated === true;
   const hasFilter = Boolean(search.trim() || family || documentName);
   const hint = error ? schemaSectionHint(error) : undefined;
-  const busy = loading && !result;
+  const panelHint = panelError ? schemaSectionHint(panelError) : undefined;
 
-  /** مستندٌ مفتوح، والردّ الحاضر هو ردّ مقاطعه — وإلا فالمعروض ليس مستنداً. */
-  const documentOpen = Boolean(documentName) && mode === "chunks" && !error;
-  const paperView = documentOpen && view === "text";
+  /** ⚠️ أدوات الترتيب تظهر في وضع «المقاطع» العام فقط: عندما يكون مستندٌ
+   *  مفتوحاً فالمقاطع مرتّبةٌ بترتيب فقراتها بحكم الخادم، وترتيبٌ في الواجهة
+   *  لا يغيّر شيئاً. وإظهاره هناك وعدٌ لا يُوفى. */
+  const showSort = !documentName;
+  /** ⚠️ والحقيقة هنا عن **الطلب** لا عن `mode`: فتحُ مستند يذهب إلى نقطة
+   *  المقاطع وإن كان `mode` «مستندات» — والخادم لا يعرف `size` هناك. */
+  const listMode: Mode = documentName ? "chunks" : mode;
+  const sortDegraded = listMode === "chunks" && sort.key === "chunks";
 
   /**
-   * صفّ المستند المفتوح من الجدول — يملأ اسم العائلة وعدد المقاطع في رأس
-   * الورقة. وقد **لا يوجد**: فالمفتوح ليس بالضرورة داخل أول ٢٠٠ مستند
-   * (الجدول مقصوص)، أو أن الجدول مُصفّى بعائلةٍ أخرى. وحينها يُعرض «—» لا
-   * رقمٌ مخترع — وهذا عين ما يمنعه `data-notice`.
+   * صفّ المستند المفتوح من القائمة — يملأ اسم العائلة والتصنيف وعدد المقاطع
+   * في رأس اللوحة وتبويب البيانات. وقد **لا يوجد**: فالمفتوح قد لا يكون داخل
+   * أول ٢٠٠ مستند، أو أن القائمة مُصفّاة بعائلة أخرى. وحينها «—» لا رقمٌ
+   * مخترع — وهذا عين ما يمنعه `data-notice`.
    */
   const openDocumentMeta = documentName
     ? documents.find((doc) => doc.document_name === documentName)
     : undefined;
 
-  /** مقاطع المستند بترتيب فقراته — نسخة واحدة تخدم الورقة والنسخ معاً. */
-  const orderedChunks = useMemo(() => orderChunks(chunks), [chunks]);
+  /** مقاطع اللوحة بترتيب فقراتها — نسخة واحدة تخدم الورقة والمقاطع والنسخ. */
+  const panelChunks = panelResult?.key === "chunks" ? panelResult.chunks : [];
+  const orderedChunks = useMemo(() => orderChunks(panelChunks), [panelChunks]);
 
   /** النصّ المجموع للنسخ: فقرة، سطر خالٍ، فقرة. */
   const plainText = useMemo(
@@ -672,6 +1000,27 @@ export default function Library() {
         .join("\n\n"),
     [orderedChunks]
   );
+
+  const panelFamilyLabel =
+    openDocumentMeta?.family_label || orderedChunks[0]?.family_label || "—";
+  const panelDocumentType =
+    openDocumentMeta?.document_type || orderedChunks[0]?.document_type || "";
+  const panelSourceFile = useMemo(
+    () => orderedChunks.find((chunk) => chunk.source_file)?.source_file || "",
+    [orderedChunks]
+  );
+  /** ⚠️ «—» بلا رقم مخترع: عدد المقاطع معروفٌ من الفهرس أو لا يُقال. */
+  const panelDeclaredChunks = openDocumentMeta
+    ? openDocumentMeta.chunks.toLocaleString("ar-AE")
+    : "—";
+
+  /* ⚠️ التشخيص من العيّنة لا من القائمة المعروضة: فتح مستند يُفرغ القائمة من
+     صفوف المستندات، والتشخيص يجب أن يبقى صادقاً بعد الفتح. والعيّنة بلا
+     تصفية بحث فقط — فالعائلة لا تخلط عائلات، والبحث يعرض مجموعةً مختارة
+     تواريخُها تتطابق لأنها مختارة، لا لأن العمود أُضيف في لحظة واحدة.
+     ⚠️ ولا يُعرض التنبيه حين يكون البحث فعّالاً: الصفوف المعروضة حينها مجموعةٌ
+     منتقاة، والحكم على تواريخها بالتشابه حكمٌ على الانتقاء لا على الأرشيف. */
+  const identicalDates = !search.trim() && allDatesIdentical(dateSample);
 
   /**
    * النسخ إلى الحافظة.
@@ -689,6 +1038,11 @@ export default function Library() {
       copyTimer.current = window.setTimeout(() => setCopyState(""), COPIED_MS);
     };
 
+    if (!plainText) {
+      done("لا نصّ بعد لينسخ");
+      return;
+    }
+
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
       done("الحافظة غير متاحة في هذا المتصفّح");
       return;
@@ -697,140 +1051,240 @@ export default function Library() {
     navigator.clipboard
       .writeText(plainText)
       .then(() => done("done"))
-      .catch((e: unknown) =>
-        done(e instanceof Error ? e.message : "تعذّر النسخ")
-      );
+      .catch((e: unknown) => done(e instanceof Error ? e.message : "تعذّر النسخ"));
   }, [plainText]);
 
-  /** عائلة المستند: من الجدول إن وُجد، وإلا من أوّل مقطع — فالحقل مشترك. */
-  const familyLabel =
-    openDocumentMeta?.family_label || chunks[0]?.family_label || "—";
-  const documentType = openDocumentMeta?.document_type || chunks[0]?.document_type || "";
+  /**
+   * المعالج الواحد لرؤوس الأعمدة.
+   *
+   * ⚠️ والنقر على العمود الفعّال **يقلب الاتجاه فقط**، والنقر على غيره يبدأ
+   *    بـ`asc` — إلا التاريخ فيبدأ بالأنزل: من رتّب بالتاريخ يريد الأحدث
+   *    أولاً في تسعة أعشار المرات، وإرغامه على نقرة ثانية عبث. والقاعدة
+   *    صريحة لا مُستنتجة من نصّ العمود.
+   */
+  const onSortColumn = useCallback((key: SortKey) => {
+    setSort((current) =>
+      current.key === key
+        ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "recent" ? "desc" : "asc" }
+    );
+  }, []);
 
-  /** ⚠️ رأسٌ بلا رقم مخترع: عدد المقاطع «—» إن لم يُعرف المستند في الجدول. */
-  const declaredChunks = openDocumentMeta
-    ? openDocumentMeta.chunks.toLocaleString("ar-AE")
-    : "—";
+  /** اتجاه المؤشّر لعمودٍ ما — `null` يعني غير مرتَّب به. */
+  const sortDirFor = (key: SortKey | null): "asc" | "desc" | null =>
+    key !== null && sort.key === key ? sort.dir : null;
+
+  const skeleton = loading && !error;
+
+  /** آثار التنقّل — تُبنى من التصفية الفعلية، فلا تظهر خطوةٌ بلا مدلول. */
+  const crumbs: { label: string; action: (() => void) | null }[] = [
+    { label: "الأرشيف", action: family || documentName ? clearToArchive : null },
+  ];
+  if (family) {
+    const label = families.find((item) => item.key === family)?.label || "عائلة مقيَّدة";
+    crumbs.push({ label, action: documentName ? clearDocumentScope : null });
+  }
+  if (documentName) crumbs.push({ label: documentName, action: null });
 
   return (
     <div className="space-y-6">
-      {/* الترويسة وشريط البحث */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="font-heading text-3xl text-slate-100 tracking-tight">
-            الأرشيف والمكتبة
-          </h1>
-          <p className="text-slate-400 mt-1">
-            ابحث في المستندات المفهرسة، وافتح المستند لتقرأ مقاطعه كما هي في
-            المصدر.
-          </p>
-        </div>
+      {/* ── ١ · الترويسة والبحث ─────────────────────────────────────────── */}
+      <header>
+        <h1 className="font-heading text-3xl tracking-tight text-slate-100">
+          الأرشيف والمكتبة
+        </h1>
+        <p className="mt-1 text-sm leading-relaxed text-slate-400">
+          فهرس المستندات المفهرسة لكل عائلة: ابحث بالاسم أو بنصّ المقطع، ثم
+          افتح المستند لتقرأه كاملاً كما هو في المصدر.
+        </p>
 
-        <div className="flex w-full md:w-auto items-center gap-3">
-          <InputGroup className="w-full md:w-80">
-            <InputGroupAddon align="inline-start">
-              <InputGroupText>
-                <Search className="size-5" />
-              </InputGroupText>
-            </InputGroupAddon>
-            <InputGroupInput
-              type="text"
-              aria-label="ابحث في الأرشيف"
-              placeholder={
-                documentName
-                  ? "اكتب للبحث في كل المقاطع..."
-                  : "ابحث باسم المستند أو بنصّ المقطع..."
-              }
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </InputGroup>
+        <p className="mt-6 text-[11px] tracking-[0.2em] text-slate-500">
+          البحث في الأرشيف
+        </p>
+        {/* ⚠️ الحقل **بعرض الصفحة** لا في طرف سطر: هذا أوّل فعلٍ في الصفحة
+            وآخره معاً، وحقلٌ يشارك سطراً مع أدوات أخرى يُقرأ أداةً ثانوية. */}
+        <InputGroup className="mt-2 h-12 w-full">
+          <InputGroupAddon align="inline-start">
+            <InputGroupText>
+              <Search className="size-5" />
+            </InputGroupText>
+          </InputGroupAddon>
+          <InputGroupInput
+            type="text"
+            aria-label="ابحث في الأرشيف"
+            placeholder="ابحث باسم المستند أو بنصّ داخل المقاطع..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </InputGroup>
+      </header>
 
-          {/*
-            القائمة `<select>` أصليّة، على النمط نفسه المستخدم في
-            `app/workspace/page.tsx:636` — لا مكوّن `components/ui/select`.
+      {/* ── ٢ · آثار التنقّل — تبقى ظاهرة حتى في الجذر ──────────────────── */}
+      <nav aria-label="مسار التصفية" className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        {crumbs.map((crumb, index) => (
+          <span key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-2">
+            {index > 0 && (
+              <span aria-hidden="true" className="text-slate-700">
+                ‹
+              </span>
+            )}
+            {crumb.action ? (
+              <button
+                type="button"
+                onClick={crumb.action}
+                title="أزل هذا المستوى من التصفية"
+                className="max-w-[22rem] truncate text-start text-slate-400 underline-offset-4 transition-colors hover:text-amber-500 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+              >
+                {crumb.label}
+              </button>
+            ) : (
+              <span
+                aria-current="page"
+                title={crumb.label}
+                className="max-w-[22rem] truncate text-slate-200"
+              >
+                {crumb.label}
+              </span>
+            )}
+          </span>
+        ))}
+      </nav>
 
-            ⚠️ و`ui/select` **مبنيّ وغير مستخدَم في المشروع كله**. وتحويل
-            قائمة هنا وحدها يُنشئ inconsistency، وتحويلهما معاً يحتاج بناءً
-            حقيقياً للتأكّد من واجهة `@base-ui/react/select` (دلالة القيمة
-            الفارغة، وشكل `onValueChange`) — ولا سبيل للبناء هنا. والقرار:
-            يبقى النمط القائم حتى يُنقل الاثنان في خطوة واحدة مُتحقَّق منها.
-          */}
-          <div className="relative shrink-0">
-            <Filter className="pointer-events-none absolute end-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
-            <select
-              aria-label="تصفية بالعائلة"
-              value={family}
-              onChange={(event) => setFamily(event.target.value)}
-              className="h-10 appearance-none border border-slate-800 bg-slate-900 pe-9 ps-3 text-sm text-slate-300 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+      {/* ── ٣ · شريط الأدوات — صفٌّ واحد: الشرائح يميناً والأدوات يساراً ── */}
+      <div className="space-y-3 border-y border-slate-800 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* العائلات — شرائح لا قائمة منسدلة: التصفية ثاني أكثر فعل، ولا
+              يجوز أن تُخبَّأ خلف نقرة. وتلتفّ على الشاشات الضيّقة. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="text-[10px] tracking-[0.2em] text-slate-600">
+              <span className="me-2 font-mono tabular-nums text-slate-700">٠١</span>
+              العائلات
+            </span>
+            <button
+              type="button"
+              onClick={() => setFamily("")}
+              aria-pressed={family === ""}
+              className={`border px-3 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
+                family === ""
+                  ? "border-amber-500/40 text-amber-500"
+                  : "border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+              }`}
             >
-              <option value="">كل العائلات</option>
-              {families.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.label} ({item.documents.toLocaleString("ar-AE")})
-                </option>
-              ))}
-            </select>
+              كل العائلات
+            </button>
+            {families.map((item) => {
+              const active = family === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setFamily(item.key)}
+                  aria-pressed={active}
+                  title={`${item.label} — ${item.documents.toLocaleString("ar-AE")} مستنداً`}
+                  className={`border px-3 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
+                    active
+                      ? "border-amber-500/40 text-amber-500"
+                      : "border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                  }`}
+                >
+                  {item.label}
+                  <span className="ms-2 font-mono text-[10px] text-slate-600">
+                    {item.documents.toLocaleString("ar-AE")}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {showSort && (
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="archive-sort"
+                  className="text-[11px] tracking-[0.15em] text-slate-500"
+                >
+                  ترتيب:
+                </label>
+                {/*
+                  قائمة أصلية، على النمط المستخدم في `app/workspace/page.tsx:636`
+                  — لا مكوّن `components/ui/select`: ذاك **مبنيّ وغير مستعمل في
+                  المشروع كله**، وتحويل قائمةٍ هنا وحدها يُنشئ نمطين، وتحويل
+                  الاثنين معاً يحتاج بناءً للتحقّق من واجهة `@base-ui/react/select`
+                  — ولا سبيل للبناء هنا. فيبقى النمط القائم حتى يُنقل الاثنان
+                  في خطوة واحدة مُتحقَّق منها.
+                */}
+                <select
+                  id="archive-sort"
+                  value={sort.key}
+                  onChange={(event) => {
+                    const next = event.target.value as SortKey;
+                    setSort((current) => ({
+                      key: next,
+                      dir: next === "recent" ? "desc" : "asc",
+                    }));
+                  }}
+                  className="h-9 appearance-none border border-slate-800 bg-slate-900 px-3 text-xs text-slate-300 transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                >
+                  <option value="recent">الأحدث</option>
+                  <option value="name">الاسم</option>
+                  <option value="chunks">الأكثر مقاطع</option>
+                </select>
+              </div>
+            )}
+
+            {/* ما يبحث فيه الأرشيف: مستنداتٌ مفهرسة، أو مقاطعُ النصّ نفسها */}
+            <div className="flex items-center gap-2">
+              <ToggleButton
+                label="المستندات"
+                active={mode === "documents" && !documentName}
+                title="ابحث في أسماء المستندات"
+                onClick={() => {
+                  clearDocumentScope();
+                  setMode("documents");
+                }}
+              />
+              <ToggleButton
+                label="المقاطع"
+                active={mode === "chunks" && !documentName}
+                title="ابحث داخل نصوص المقاطع"
+                onClick={() => {
+                  clearDocumentScope();
+                  setMode("chunks");
+                }}
+              />
+            </div>
+
+            {/*
+              ⚠️ وفي وضع المقاطع يبدّل الزرّان **ترتيب البطاقات** لا شكلها:
+              عمودٌ واحد يُقرأ، أو عمودان تُمسح بهما العين. والمقاطع لا تصير
+              جدولاً — الجدولُ لسطور المستندات لا لِفقرات النصّ.
+            */}
+            <div className="flex items-center gap-1">
+              <IconToggle
+                icon={List}
+                label="عرض قائمة"
+                active={view === "list"}
+                onClick={() => changeView("list")}
+              />
+              <IconToggle
+                icon={LayoutGrid}
+                label="عرض شبكة"
+                active={view === "grid"}
+                onClick={() => changeView("grid")}
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* مبدّل الوجه — ثلاثة أزرار، واثنان لا معنى لهما بلا مستند مفتوح */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <ViewButton
-            label="المستندات"
-            active={view === "documents"}
-            onClick={() => changeView("documents")}
-          />
-          <ViewButton
-            label="المقاطع"
-            active={view === "chunks"}
-            disabled={!documentOpen}
-            title={documentOpen ? "مقاطع المستند المفتوح" : "افتح مستنداً من الجدول أولاً"}
-            onClick={() => changeView("chunks")}
-          />
-          <ViewButton
-            label="النصّ الكامل"
-            active={view === "text"}
-            disabled={!documentOpen}
-            title={documentOpen ? "المستند كاملاً على ورقة" : "افتح مستنداً من الجدول أولاً"}
-            onClick={() => changeView("text")}
-          />
-        </div>
-
-        {!documentOpen && (
-          <p className="text-xs text-slate-500">
-            «النصّ الكامل» و«المقاطع» يُتاحان عند فتح مستند من الجدول.
+        {/* ⚠️ الحقيقة عن الترتيب المطلوب: `size` غير مدعوم في نقطة المقاطع،
+            والاختيار يبقى معروضاً كما اختاره المستخدم. فالسطر يقول ما جرى
+            بدل أن يُبدَّل الاختيار تحت يده بلا سبب. */}
+        {sortDegraded && !error && (
+          <p className="text-[11px] text-slate-500">
+            «الأكثر مقاطع» ترتيبٌ للمستندات؛ وفي المقاطع تُعرض النتائج بالأحدث.
           </p>
         )}
       </div>
-
-      {/* شريحة المستند المفتوح — تبقى ظاهرة حتى تُمسح */}
-      {mode === "chunks" && documentName && (
-        <div className="flex items-center justify-between gap-3 border border-amber-500/25 bg-slate-900 px-4 py-2">
-          <span className="min-w-0 flex items-center gap-2 text-sm text-slate-300">
-            <EngravedIcon name="papers" className="size-4 text-amber-500" />
-            <span className="truncate">
-              المستند: <span className="text-slate-100">{documentName}</span>
-            </span>
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              // ⚠️ والمسح يعود إلى «المقاطع»: وجهٌ اسمه «النصّ الكامل» بلا
-              // مستندٍ هو تناقض في العنوان لا في الحالة، فيُصلح معها.
-              setDocumentName("");
-              setView("chunks");
-            }}
-            aria-label="إزالة تصفية المستند"
-            title="إزالة تصفية المستند"
-            className="shrink-0 text-slate-500 transition-colors hover:text-amber-500"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      )}
 
       {error && (
         <DataNotice
@@ -841,223 +1295,116 @@ export default function Library() {
         />
       )}
 
-      {!error && busy && <DataNotice tone="loading" title="جاري قراءة الأرشيف..." />}
-
-      {!error && result && shown === 0 && (
-        <DataNotice
-          tone="empty"
-          title={
-            hasFilter
-              ? mode === "documents"
-                ? "لا مستندات تطابق بحثك."
-                : "لا مقاطع تطابق بحثك."
-              : mode === "documents"
-                ? "الأرشيف فارغ."
-                : "لا مقاطع في الأرشيف."
-          }
-          detail={
-            hasFilter
-              ? "جرّب كلمة أخرى أو أزل التصفية."
-              : "ارفع مستنداتك عبر أدوات الاستيعاب (ingesters) لتظهر هنا ويستند إليها الفريق."
-          }
-        />
-      )}
-
-      {/* ── وجه النصّ الكامل: المستند على ورقة ── */}
-      {!error && paperView && (
-        <div className="space-y-4">
-          {/*
-            ما فوق الورقة: **على سطح المكتب الداكن لا على الورق**. فالاسم
-            والعائلة والعدد بياناتُ فهرسةٍ لا متنٌ قانوني — ولو طُبعت على
-            الورقة لاختلط كلام المكتب بكلام المستند، وهو الخلط الذي يمنعه
-            هذا الفصل.
-          */}
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="min-w-0">
-              <h2 className="font-heading text-xl break-words text-slate-100">
-                {documentName || "بلا اسم"}
-              </h2>
-              <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                <span className="inline-flex items-center border border-amber-500/25 px-2 py-0.5 tracking-[0.15em] text-amber-500">
-                  {familyLabel}
-                </span>
-                {documentType && <span>{documentType}</span>}
-                <span>·</span>
-                {/* ⚠️ الرقمان معاً لا رقم واحد: «المعروض» ما بين اليدين فعلاً،
-                    و«الفهرس» ما يقوله الجدول عن المستند. وإظهار المعروض وحده
-                    يجعل المستند المقصوص يبدو كاملاً — وهو أسوأ ما في معاينة. */}
-                <span dir="ltr" className="font-mono">
-                  {shown.toLocaleString("ar-AE")} / {declaredChunks}
-                </span>
-                <span>مقطعاً هنا من إجمالي المستند في الفهرس</span>
-              </p>
+      {!error && skeleton && (
+        <div className="space-y-3">
+          <p role="status" className="text-[11px] tracking-[0.2em] text-slate-500">
+            جاري قراءة الأرشيف...
+          </p>
+          {/* ⚠️ الهيكل يشبه ما سيأتي: مستنداتٌ في جدول أو بلاطات، ومقاطعٌ في
+              بطاقات. وهيكلٌ لا يشبه نتيجته يجعل الظهور قفزةً لا استقراراً. */}
+          {listMode === "chunks" ? (
+            <div
+              className={
+                view === "grid" ? "grid grid-cols-1 gap-3 lg:grid-cols-2" : "space-y-3"
+              }
+            >
+              <SkeletonRows rows={5} />
+              <SkeletonRows rows={5} />
             </div>
-
-            <div className="flex items-center gap-3">
-              {copyState && (
-                <span
-                  role="status"
-                  className={`text-xs ${
-                    copyState === "done" ? "text-amber-500" : "text-red-300"
-                  }`}
-                >
-                  {copyState === "done" ? "نُسخ" : copyState}
-                </span>
-              )}
-              {/*
-                ⚠️ والمعطَّل هنا **حماية لا زينة**: الورقة تُرسم قبل وصول
-                المقاطع بلحظة، وضغطةٌ في تلك اللحظة تنسخ **نصاً فارغاً** ثم
-                تقول «نُسخ» — وهذا أسوأ كذبة في الصفحة، لأنها تُقنع المستخدم
-                بأن المستند في حافظته وهو ليس فيها.
-              */}
-              <button
-                type="button"
-                onClick={copyDocument}
-                disabled={loading || !plainText}
-                title={
-                  plainText
-                    ? "انسخ نصّ المستند كاملاً"
-                    : "لا نصّ بعد لينسخ"
-                }
-                className="font-heading shrink-0 border border-slate-800 px-4 py-2 text-sm text-slate-300 transition-colors hover:border-amber-500/40 hover:text-amber-500 disabled:cursor-not-allowed disabled:border-slate-800/60 disabled:text-slate-600 disabled:hover:border-slate-800/60 disabled:hover:text-slate-600"
-              >
-                نسخ النصّ
-              </button>
-            </div>
-          </div>
-
-          {/*
-            ⚠️ والقَصّ يُعلَن **قبل** الورقة لا بعدها: معاينةٌ تعرض جزءاً من
-            مستند وتصمت أسوأ من ألّا تعرض شيئاً — لأنها تُقرأ كاملةً. ومن
-            رأى «بقيّة المستند غير معروضة» قبل أن يبدأ القراءة لا يُبنى على
-            نصٍّ ناقص، بخلاف من يقرأ ثلاثين فقرة ثم يكتشف أن هناك ثلاثين غيرها.
-          */}
-          {truncated && (
-            <DataNotice
-              tone="empty"
-              title={`تُعرض أول ${shown.toLocaleString("ar-AE")} مقطعاً من هذا المستند — وبقيتها غير معروضة.`}
-              detail="المعاينة مقصوصة عند سقف الطلب (٢٠٠ مقطع)، وما تراه هنا ليس المستند كاملاً."
-            />
+          ) : view === "list" ? (
+            <SkeletonRows rows={7} />
+          ) : (
+            <SkeletonTiles tiles={8} />
           )}
-
-          {/*
-            ⚠️ وظلٌّ واحد في الصفحة كلها — وهو **مبرَّر فيزيائياً**: الورقة
-            موضوعة **على** سطحٍ داكن، ولا تقع ورقة على مكتب بلا ظلّ. وكل ظلٍّ
-            آخر في الواجهة يُحذف، لأن الظلّ حيث لا سطح تحته زينةٌ لا ضوء.
-          */}
-          <article className="relative border border-slate-700 bg-[#F2EADA] p-10 text-[#16130F] shadow-2xl sm:p-14">
-            {/*
-              هامش الورقة المسطّرة — خطّ رأسي يفصل الحاشية عن المتن، كما في
-              `app/page.tsx` وبلون الختم نفسه (`seal`): حدُّ ورقةٍ لا تنبيه.
-              وهو داخل الورقة وخارج المتن، فلا يُحسب من عرض المتن.
-            */}
-            <span
-              className="absolute inset-y-8 start-6 w-px bg-seal/25"
-              aria-hidden="true"
-            />
-
-            <div className="ps-6">
-              <PaperLetterhead />
-
-              {orderedChunks.length > 0 ? (
-                /*
-                  المتن — كما في المطبوع: خطّ الوثيقة، وتباعد أسطر واسع، بلا
-                  أي عنوان لا وجود له في البيانات. كل مقطع فقرةٌ قائمة بذاتها
-                  **بلا سقف ولا طيّ**: هذا هو المستند، ويجب أن يُقرأ كاملاً.
-                */
-                <div className="mt-10">
-                  {orderedChunks.map((chunk) => (
-                    <p
-                      key={`${chunk.family}-${chunk.id}`}
-                      className="mt-5 whitespace-pre-line break-words font-heading text-[15px] leading-loose text-[#16130F]"
-                    >
-                      {chunk.content || "—"}
-                    </p>
-                  ))}
-                </div>
-              ) : (
-                /* الورقة تُعرض فارغةً بترويسةٍ لا بلا شيء: النقص يُقال في متنها */
-                <p className="mt-10 font-heading text-[15px] text-[#16130F]">
-                  لا مقاطع معروضة لهذا المستند — أو لم يُفهرس بعد.
-                </p>
-              )}
-            </div>
-          </article>
         </div>
       )}
 
-      {/* ── وضع المستندات ── */}
-      {!error && mode === "documents" && documents.length > 0 && (
-        <>
-          <Card className="bg-slate-900 border-slate-800 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-right border-collapse">
-                <thead>
-                  <tr className="bg-slate-950/50 border-b border-slate-800 text-slate-400">
-                    <th className="p-4 font-medium">اسم المستند</th>
-                    <th className="p-4 font-medium">التصنيف</th>
-                    <th className="p-4 font-medium">العائلة</th>
-                    <th className="p-4 font-medium">المقاطع</th>
-                    <th className="p-4 font-medium">أُضيف في</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {/*
-                    ⚠️ والصفّ كله **زرّ فتح**: المستخدم يرى اسم مستند فيريد
-                    أن يقرأه، ولا يبحث عن رابط صغير في آخر السطر. ومع ذلك
-                    يبقى داخل الخلية رابطٌ نصّي (`button`) لأن جمهور هذه
-                    الصفحة يستخدم لوحة المفاتيح وقارئ الشاشة، والصفّ وحده
-                    (`onClick` على `<tr>`) لا يقبل التركيز ولا يُقرأ كإجراء.
-                  */}
-                  {documents.map((doc) => (
-                    <tr
-                      key={`${doc.family}-${doc.document_name}`}
-                      onClick={() => openDocument(doc.document_name)}
-                      className="cursor-pointer transition-colors hover:bg-slate-800/50"
-                    >
-                      <td className="p-4">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openDocument(doc.document_name);
-                          }}
-                          title="اعرض هذا المستند كاملاً"
-                          className="flex items-center gap-3 text-start transition-colors hover:text-amber-500"
-                        >
-                          <EngravedIcon name="papers" className="size-4 text-amber-500" />
-                          <span className="font-medium text-slate-200 break-words">
-                            {doc.document_name || "بلا اسم"}
-                          </span>
-                        </button>
-                      </td>
-                      <td className="p-4 text-slate-400">{doc.document_type || "—"}</td>
-                      <td className="p-4">
-                        <span className="inline-flex items-center border border-amber-500/25 px-2 py-0.5 text-[10px] tracking-[0.15em] text-amber-500">
-                          {doc.family_label || "—"}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-400 font-mono text-sm">
-                        <span className="inline-flex items-center gap-1.5">
-                          <EngravedIcon name="papers" className="size-3.5 text-slate-600" />
-                          {doc.chunks.toLocaleString("ar-AE")}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-400 font-mono text-sm" dir="ltr">
-                        {doc.added_at ? doc.added_at.slice(0, 10) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+      {/* ── ٧ · الفراغ: «الأرشيف فارغ» ليست «لا نتائج لبحثك» ─────────────── */}
+      {!error && !loading && result && shown === 0 && (
+        <div className="space-y-3">
+          <DataNotice
+            tone="empty"
+            title={
+              hasFilter
+                ? "لا شيء يطابق ما ضيّقت به."
+                : mode === "chunks"
+                  ? "لا مقاطع في الأرشيف."
+                  : "الأرشيف فارغ."
+            }
+            detail={
+              hasFilter
+                ? "جرّب كلمة أخرى، أو أزل التصفية لتعود إلى الأرشيف كله."
+                : "ارفع مستنداتك عبر أدوات الاستيعاب (ingesters) لتظهر هنا ويستند إليها الفريق."
+            }
+          />
+          {hasFilter && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="border border-slate-800 px-4 py-2 text-xs text-slate-300 transition-colors hover:border-amber-500/40 hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+            >
+              {search.trim()
+                ? `امسح البحث${family || documentName ? " والتصفية" : ""}`
+                : "امسح التصفية"}
+            </button>
+          )}
+        </div>
+      )}
 
-          {/* ⚠️ القَصّ يُعلَن: بلا هذا السطر تُوهم الصفحة أن ما تراه هو الأرشيف كله */}
+      {/* ── ٤ · القائمة: مستندات أو مقاطع ───────────────────────────────── */}
+      {!error && !skeleton && result && shown > 0 && (
+        <section className="space-y-4">
+          {result.key === "documents" &&
+            (view === "list" ? (
+              <DocumentTable
+                documents={documents}
+                sort={sort}
+                sortDirFor={sortDirFor}
+                onSortColumn={onSortColumn}
+                selectedName={documentName}
+                onOpen={openDocument}
+              />
+            ) : (
+              <DocumentGrid
+                documents={documents}
+                selectedName={documentName}
+                onOpen={openDocument}
+              />
+            ))}
+
+          {result.key === "chunks" && (
+            /* ⚠️ والشبكة هنا **عمودان لا أربعة**: بطاقة المقطع نصٌّ يُقرأ لا
+               بلاطة تُمسح، وعمودٌ ضيّق يجعل `line-clamp-6` يقصّ ما لا يقصّه
+               في العرض العريض — فيتبدّل المعنى بتبدّل العرض. */
+            <div
+              className={
+                view === "grid" ? "grid grid-cols-1 gap-3 lg:grid-cols-2" : "space-y-3"
+              }
+            >
+              {chunks.map((chunk) => (
+                <ChunkCard
+                  key={chunkKey(chunk)}
+                  chunk={chunk}
+                  term={appliedSearch}
+                  selected={documentName === chunk.document_name}
+                  onOpen={() => openDocument(chunk.document_name)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* ⚠️ القَصّ يُعلَن: بلا هذا السطر تُوهم الصفحة أن ما تراه هو الأرشيف
+              كله. ولا يُذكر «من N» هنا: `count` في الردّ **عددُ الصفوف المُعادة**
+              عند السقف لا الإجمالي، فذكرُه كإجمالي رقمٌ مُخترع — وهو أسوأ من
+              الصمت. فيُقال المعروض، وأنّ غيره موجود. */}
           <p className="text-xs text-slate-500">
-            {truncated
-              ? `تُعرض أول ${shown.toLocaleString("ar-AE")} مستنداً — يوجد غيرها. استخدم البحث أو التصفية.`
-              : `${shown.toLocaleString("ar-AE")} مستنداً — الأرشيف كاملاً.`}
+            {result.key === "documents"
+              ? truncated
+                ? `تُعرض أول ${shown.toLocaleString("ar-AE")} مستنداً — ويوجد غيرها. استخدم البحث أو التصفية.`
+                : `${shown.toLocaleString("ar-AE")} مستنداً — الأرشيف كاملاً.`
+              : truncated
+                ? `تُعرض أول ${shown.toLocaleString("ar-AE")} مقطعاً — ويوجد غيرها. ضيّق البحث أو اختر عائلة.`
+                : `${shown.toLocaleString("ar-AE")} مقطعاً — كل النتائج.`}
           </p>
 
           {/*
@@ -1071,36 +1418,469 @@ export default function Library() {
             والعمود يبقى لأن **يصير دقيقاً للمستندات المرفوعة من الآن**، ويُقال
             ذلك صراحةً بدل ترك تاريخ واحد يوهم بأن كل شيء أُضيف في يوم واحد.
           */}
-          {allDatesIdentical(documents) && (
+          {identicalDates && (
             <p className="text-xs text-amber-500/80">
               كل التواريخ متطابقة لأنها وقت إضافة عمود التاريخ نفسه، لا وقت رفع
               المستند. وتصبح دقيقة للمستندات المرفوعة من الآن فصاعداً.
             </p>
           )}
-        </>
+        </section>
       )}
 
-      {/* ── وجه المقاطع: بطاقات المستند الواحد، أو نتائج البحث ── */}
-      {!error && mode === "chunks" && view === "chunks" && chunks.length > 0 && (
+      {/* ── ٥ · لوحة المستند ────────────────────────────────────────────── */}
+      {documentName && (
         <>
-          <div className="space-y-3">
-            {chunks.map((chunk) => (
-              <ChunkCard
-                key={`${chunk.family}-${chunk.id}`}
-                chunk={chunk}
-                term={appliedSearch}
-                onOpenDocument={openDocument}
-              />
-            ))}
-          </div>
+          {/* ⚠️ الحجاب بلا ضبابٍ ولا حركة: وظيفته أن يقول «ما تحته ليس الآن»,
+              وأن يُرجع النقر إلى الإغلاق. */}
+          <div
+            className="fixed inset-0 z-40 bg-slate-950/70"
+            onClick={closePanel}
+            aria-hidden="true"
+          />
 
-          <p className="text-xs text-slate-500">
-            {truncated
-              ? `تُعرض أول ${shown.toLocaleString("ar-AE")} مقطعاً — يوجد غيرها. ضيّق البحث أو اختر مستنداً بعينه أو عائلة.`
-              : `${shown.toLocaleString("ar-AE")} مقطعاً — كل النتائج.`}
-          </p>
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label={`المستند: ${documentName}`}
+            className="fixed inset-y-0 end-0 z-50 flex w-full max-w-[520px] flex-col border-s border-slate-800 bg-slate-950"
+          >
+            <header className="shrink-0 border-b border-slate-800 px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-[10px] tracking-[0.2em] text-slate-600">
+                    المستند
+                  </p>
+                  <h2
+                    title={documentName}
+                    className="mt-1 truncate font-heading text-lg text-slate-100"
+                  >
+                    {documentName || "بلا اسم"}
+                  </h2>
+                  <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                    <span className="inline-flex items-center border border-amber-500/25 px-2 py-0.5 tracking-[0.15em] text-amber-500">
+                      {panelFamilyLabel}
+                    </span>
+                    {panelDocumentType && <span>{panelDocumentType}</span>}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closePanel}
+                  aria-label="أغلق اللوحة"
+                  title="أغلق (Escape)"
+                  className="shrink-0 border border-slate-800 p-1.5 text-slate-400 transition-colors hover:border-slate-700 hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={copyDocument}
+                disabled={panelLoading || !plainText}
+                title={plainText ? "انسخ نصّ المستند كاملاً" : "لا نصّ بعد لينسخ"}
+                className="mt-3 flex items-center gap-2 border border-slate-800 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-amber-500/40 hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 disabled:cursor-not-allowed disabled:border-slate-800/60 disabled:text-slate-600 disabled:hover:border-slate-800/60 disabled:hover:text-slate-600"
+              >
+                <Copy className="size-3.5" aria-hidden="true" />
+                نسخ النصّ
+                {/* ⚠️ والمعطَّل **حماية لا زينة**: الورقة تُرسم قبل وصول
+                    المقاطع بلحظة، وضغطةٌ في تلك اللحظة تنسخ **نصاً فارغاً** ثم
+                    تقول «نُسخ» — وهذا أسوأ كذبة في الصفحة، لأنها تُقنع
+                    المستخدم بأن المستند في حافظته وهو ليس فيها. */}
+                {copyState && (
+                  <span
+                    role="status"
+                    className={
+                      copyState === "done" ? "text-amber-500" : "text-red-300"
+                    }
+                  >
+                    {copyState === "done" ? "نُسخ" : copyState}
+                  </span>
+                )}
+              </button>
+            </header>
+
+            {/* التبويبات — ثلاثة وجوه لمستند واحد، ولا نداء جديد عند تبديلها */}
+            <div
+              role="tablist"
+              aria-label="أوجه المستند"
+              className="flex shrink-0 border-b border-slate-800"
+            >
+              {TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={panelTab === tab.key}
+                  onClick={() => setPanelTab(tab.key)}
+                  className={`border-b-2 px-4 py-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
+                    panelTab === tab.key
+                      ? "border-amber-500 text-amber-500"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+              {panelError && (
+                <div className="space-y-4">
+                  <DataNotice
+                    tone="error"
+                    title="تعذّر قراءة المستند"
+                    detail={panelError}
+                    action={panelHint}
+                  />
+                  <button
+                    type="button"
+                    onClick={clearDocumentScope}
+                    className="border border-slate-800 px-4 py-2 text-xs text-slate-300 transition-colors hover:border-amber-500/40 hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+                  >
+                    أزل تصفية المستند
+                  </button>
+                </div>
+              )}
+
+              {!panelError && panelLoading && (
+                <div className="space-y-3">
+                  <p role="status" className="text-[11px] tracking-[0.2em] text-slate-500">
+                    جاري قراءة المستند...
+                  </p>
+                  <SkeletonTiles tiles={3} />
+                </div>
+              )}
+
+              {/* ── النصّ الكامل: الورقة ── */}
+              {!panelError && !panelLoading && panelTab === "text" && (
+                <div className="space-y-4">
+                  {/*
+                    ⚠️ والقَصّ يُعلَن **قبل** الورقة لا بعدها: معاينةٌ تعرض
+                    جزءاً من مستند وتصمت أسوأ من ألّا تعرض شيئاً — لأنها تُقرأ
+                    كاملةً.
+                  */}
+                  {panelResult?.key === "chunks" && panelResult.envelope.truncated && (
+                    <DataNotice
+                      tone="empty"
+                      title={`تُعرض أول ${orderedChunks.length.toLocaleString("ar-AE")} مقطعاً من هذا المستند — وبقيتها غير معروضة.`}
+                      detail="المعاينة مقصوصة عند سقف الطلب (٢٠٠ مقطع)، وما تراه هنا ليس المستند كاملاً."
+                    />
+                  )}
+
+                  {/*
+                    ⚠️ وظلٌّ واحد في الصفحة كلها — وهو **مبرَّر فيزيائياً**:
+                    الورقة موضوعة **على** سطحٍ داكن، ولا تقع ورقة على مكتب
+                    بلا ظلّ. والظلّ حيث لا سطح تحته زينةٌ لا ضوء. ولا ظلّ على
+                    اللوحة نفسها: هي حدٌّ لا ورقة.
+                  */}
+                  <article className="relative border border-slate-700 bg-[#F2EADA] p-8 text-[#16130F] shadow-2xl">
+                    <span
+                      className="absolute inset-y-6 start-5 w-px bg-seal/25"
+                      aria-hidden="true"
+                    />
+
+                    <div className="ps-5">
+                      <PaperLetterhead />
+
+                      {orderedChunks.length > 0 ? (
+                        /*
+                          المتن — كما في المطبوع: خطّ الوثيقة، وتباعد أسطر
+                          واسع، بلا أي عنوان لا وجود له في البيانات. كل مقطع
+                          فقرةٌ قائمة بذاتها **بلا سقف ولا طيّ**.
+                        */
+                        <div className="mt-10">
+                          {orderedChunks.map((chunk) => (
+                            <p
+                              key={chunkKey(chunk)}
+                              className="mt-5 whitespace-pre-line break-words font-heading text-[15px] leading-loose text-[#16130F]"
+                            >
+                              {chunk.content || "—"}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        /* الورقة تُعرض فارغةً بترويسةٍ لا بلا شيء: النقص يُقال في متنها */
+                        <p className="mt-10 font-heading text-[15px] text-[#16130F]">
+                          لا مقاطع معروضة لهذا المستند — أو لم يُفهرس بعد.
+                        </p>
+                      )}
+                    </div>
+                  </article>
+                </div>
+              )}
+
+              {/* ── المقاطع: البطاقات وظلّ البحث ── */}
+              {!panelError && !panelLoading && panelTab === "chunks" && (
+                <div className="space-y-3">
+                  {orderedChunks.length > 0 ? (
+                    orderedChunks.map((chunk) => (
+                      <ChunkCard
+                        key={chunkKey(chunk)}
+                        chunk={chunk}
+                        /* ⚠️ بلا ظلّ بحث هنا: المستند يُفتح بلا كلمة بحث
+                           (والخادم يتجاهلها عند وجود اسم المستند)، فتمرير
+                           كلمةٍ للظلّ يوهم أنها طُبّقت داخل المستند. */
+                        term=""
+                        selected={false}
+                        onOpen={() => setPanelTab("text")}
+                      />
+                    ))
+                  ) : (
+                    <DataNotice
+                      tone="empty"
+                      title="لا مقاطع لهذا المستند."
+                      detail="إمّا أنه لم يُفهرس بعد، أو أن استيعابه لم يُنتج مقاطع."
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* ── بيانات المستند: قائمة تعريف ── */}
+              {!panelError && !panelLoading && panelTab === "meta" && (
+                <dl className="divide-y divide-slate-800 border-y border-slate-800 text-sm">
+                  <MetaRow label="اسم المستند" value={documentName} mono={false} />
+                  <MetaRow label="التصنيف" value={panelDocumentType} mono={false} />
+                  <MetaRow label="العائلة" value={panelFamilyLabel} mono={false} />
+                  <MetaRow
+                    label="عدد المقاطع"
+                    value={panelDeclaredChunks}
+                    mono
+                  />
+                  <MetaRow
+                    label="أُضيف في"
+                    value={
+                      openDocumentMeta?.added_at
+                        ? openDocumentMeta.added_at.slice(0, 10)
+                        : ""
+                    }
+                    mono
+                  />
+                  <MetaRow
+                    label="ملفّ المصدر"
+                    value={panelSourceFile}
+                    mono
+                    ltr
+                  />
+                </dl>
+              )}
+            </div>
+          </aside>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * جدول المستندات — «قائمة Drive».
+ *
+ * ⚠️ والصفّ كله **منطقة نقر** لأن المستخدم يرى اسماً فيريد فتحه، ولا يبحث عن
+ *    رابط صغير في آخر السطر. والتركيز ولوحة المفاتيح على **زرّ داخل خلية
+ *    الاسم** لا على `<tr>`: الصفّ في HTML ليس إجراءً، ولا يقبل التركيز ولا
+ *    يُقرأ كذلك لقارئ الشاشة. والزرّ مرسوم **فوق الخليّة** (`after:inset-0`)
+ *    فيبقى تركيزه صحيحاً ويصير الصفّ كله هدفاً بلا `<tr onClick>`.
+ */
+function DocumentTable({
+  documents,
+  sort,
+  sortDirFor,
+  onSortColumn,
+  selectedName,
+  onOpen,
+}: {
+  documents: ArchiveDocument[];
+  sort: { key: SortKey; dir: "asc" | "desc" };
+  sortDirFor: (key: SortKey | null) => "asc" | "desc" | null;
+  onSortColumn: (key: SortKey) => void;
+  selectedName: string;
+  onOpen: (name: string) => void;
+}) {
+  return (
+    <Card className="overflow-hidden border-slate-800 bg-slate-900 ring-0">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-start">
+          <caption className="sr-only">
+            مستندات الأرشيف — الأعمدة القابلة للترتيب: الاسم والمقاطع والتاريخ
+          </caption>
+          <thead>
+            <tr className="border-b border-slate-800 text-slate-500">
+              {COLUMNS.map((column) => {
+                const dir = sortDirFor(column.sort);
+                const active = column.sort !== null && sort.key === column.sort;
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    aria-sort={
+                      column.sort === null
+                        ? undefined
+                        : active
+                          ? sort.dir === "asc"
+                            ? "ascending"
+                            : "descending"
+                          : "none"
+                    }
+                    className="px-4 py-2 text-start align-middle"
+                  >
+                    {column.sort === null ? (
+                      <span className="flex items-center gap-2 text-[10px] font-normal tracking-[0.2em]">
+                        <span className="font-mono tabular-nums text-slate-700">
+                          {column.index}
+                        </span>
+                        {column.label}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onSortColumn(column.sort as SortKey)}
+                        aria-label={`رتّب حسب ${column.label}`}
+                        className={`flex items-center gap-2 text-[10px] tracking-[0.2em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
+                          active ? "text-amber-500" : "hover:text-slate-200"
+                        }`}
+                      >
+                        <span className="font-mono tabular-nums text-slate-700">
+                          {column.index}
+                        </span>
+                        {column.label}
+                        <SortIndicator dir={dir} />
+                      </button>
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {documents.map((doc) => {
+              const selected = doc.document_name === selectedName;
+              return (
+                <tr
+                  key={`${doc.family}-${doc.document_name}`}
+                  className={`relative h-11 transition-colors hover:bg-slate-800/50 ${
+                    selected ? "bg-slate-800/70" : ""
+                  }`}
+                >
+                  <td className="px-4 py-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpen(doc.document_name)}
+                      title={doc.document_name || "بلا اسم"}
+                      className="flex items-center gap-2 text-start text-sm text-slate-200 transition-colors after:absolute after:inset-0 after:content-[''] hover:text-amber-500 focus-visible:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+                    >
+                      <EngravedIcon name="papers" className="size-4 text-amber-500" />
+                      <span className="min-w-0 max-w-[26rem] truncate">
+                        {doc.document_name || "بلا اسم"}
+                      </span>
+                      {selected && (
+                        <span className="sr-only">المستند المفتوح الآن</span>
+                      )}
+                    </button>
+                  </td>
+                  <td className="px-4 py-1 text-sm text-slate-400">
+                    {doc.document_type || "—"}
+                  </td>
+                  <td className="px-4 py-1">
+                    <span className="inline-flex items-center border border-amber-500/25 px-2 py-0.5 text-[10px] tracking-[0.15em] text-amber-500">
+                      {doc.family_label || "—"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-1 font-mono text-sm tabular-nums text-slate-400">
+                    {doc.chunks.toLocaleString("ar-AE")}
+                  </td>
+                  <td
+                    dir="ltr"
+                    className="px-4 py-1 text-start font-mono text-sm tabular-nums text-slate-400"
+                  >
+                    {doc.added_at ? doc.added_at.slice(0, 10) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * شبكة المستندات — «بلاطات Scribd».
+ *
+ * ⚠️ والبلاطة **ورقةٌ لا بطاقة**: مستطيلٌ فاتح قليلًا (برفع `slate-900` درجة)
+ *    لأن المستند في هذا الأرشيف ورقة، والبلاطة تُمثّله. ولا ظلّ عليها — الظلّ
+ *    واحد على الورقة المقروءة وحدها.
+ */
+function DocumentGrid({
+  documents,
+  selectedName,
+  onOpen,
+}: {
+  documents: ArchiveDocument[];
+  selectedName: string;
+  onOpen: (name: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {documents.map((doc) => {
+        const selected = doc.document_name === selectedName;
+        return (
+          <button
+            key={`${doc.family}-${doc.document_name}`}
+            type="button"
+            onClick={() => onOpen(doc.document_name)}
+            title={doc.document_name || "بلا اسم"}
+            className={`flex flex-col items-center gap-3 border px-4 py-6 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
+              selected
+                ? "border-amber-500/40 bg-slate-800"
+                : "border-slate-800 bg-slate-900 hover:bg-slate-800/60"
+            }`}
+          >
+            <span className="flex w-full justify-center border-b border-slate-800 pb-4">
+              <EngravedIcon name="papers" className="size-9 text-slate-600" />
+            </span>
+            <span className="line-clamp-2 min-h-[2.5rem] w-full break-words text-sm text-slate-200">
+              {doc.document_name || "بلا اسم"}
+            </span>
+            <span className="mt-auto flex w-full flex-wrap items-center justify-between gap-2 text-[10px] tracking-[0.15em] text-amber-500">
+              <span className="truncate">{doc.family_label || "—"}</span>
+              <span className="shrink-0 font-mono tabular-nums text-slate-500">
+                {doc.chunks.toLocaleString("ar-AE")} مقطعاً
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** سطر في قائمة تعريف بيانات المستند — والقيمة الغائبة «—» لا فراغ. */
+function MetaRow({
+  label,
+  value,
+  mono = false,
+  ltr = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  ltr?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-3">
+      <dt className="shrink-0 text-[11px] tracking-[0.15em] text-slate-500">
+        {label}
+      </dt>
+      <dd
+        dir={ltr ? "ltr" : undefined}
+        className={`min-w-0 break-words text-start text-slate-200 ${
+          mono ? "font-mono text-xs" : "text-sm"
+        }`}
+      >
+        {value || "—"}
+      </dd>
     </div>
   );
 }

@@ -306,12 +306,32 @@ ARCHIVE_SORTS: dict[str, str] = {
 
 
 def _archive_sort(value: str) -> str:
-    """يتحقّق من أمر الفرز — ويرفض المجهول بدل تجاهله."""
-    key = (value or "recent").strip().lower()
+    """
+    يتحقّق من أمر الفرز — ويرفض المجهول بدل تجاهله.
+
+    ⚠️ ويقبل صيغة key:dir مثل 
+ame:asc التي تُرسلها الواجهة عند النقر على
+    رأس عمود. **والاتجاه يُتحقَّق منه ولا يُطبَّق** — فدالّة SQL تطبّق اتجاهاً
+    ثابتاً لكل مفتاح (الاسم تصاعدياً، والحجم والأحدث تنازلياً). فالنقر على رأس
+    العمود **يرتّب به** ✅ لكن لا يقلبه.
+
+    ⚠️ **وكان رفضُ key:dir بـ400 عطباً حقيقياً**: الواجهة تُرسلها، فيظهر خطأ
+    عند النقر على أي رأس عمود. والقبول مع تجاهل الاتجاه **أسوأ** — يُظهر الزرّ
+    كأنه يعمل. فأُقبل الآن، **ويُقال الحدّ صراحةً** في سطر تحت شريط الأدوات،
+    ويُطبَّق الاتجاه حين تُضاف لاحقته إلى دالّة SQL.
+    """
+    raw = (value or "recent").strip().lower()
+    key, _, direction = raw.partition(":")
+    key = key or "recent"
     if key not in ARCHIVE_SORTS:
         raise HTTPException(
             status_code=400,
             detail=f"ترتيب غير معروف: {value!r} — المتاح: {sorted(ARCHIVE_SORTS)}",
+        )
+    if direction and direction not in ("asc", "desc"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"اتجاه غير معروف: {direction!r} — المتاح: ['asc', 'desc']",
         )
     return ARCHIVE_SORTS[key]
 
