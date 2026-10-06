@@ -21,11 +21,21 @@
  *    ولذلك **وضعان** لا صفحتان: «المستندات» للعرض والتصفية، و«المقاطع»
  *    للقراءة. والصفّ في الجدول **يُضغط** فينقل إلى مقاطع ذلك المستند — فلا
  *    يبقى الانتقال بين الوضعين إجراءً يبحث عنه المستخدم في مكان آخر.
+ *
+ * ⚠️ ثم بقي نقصٌ ثالث، وهو أخفى الثلاثة: **المقطع ليس المستند**. من يفتح
+ *    «اتفاقية كذا» يقرأ عشرين بطاقة منفصلة، كلٌّ منها بحدّها وعنوانها، وعليه
+ *    أن يجمعها في ذهنه ليعرف **ما تقوله الاتفاقية**. والوثيقة القانونية
+ *    تُقرأ **متّصلة** — فقرة ثم فقرة — كما تُقرأ على الورق.
+ *
+ *    ولهذا صار لفتح المستند **ثلاثة أوجه**: «النصّ الكامل» (وهو الافتراضي،
+ *    لأن فتح المستند طلبُ قراءةٍ لا طلبُ تصفّح) · «المقاطع» للبطاقات
+ *    المفردة وظلّ البحث · «المستندات» للجدول.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, Filter, X } from "lucide-react";
 import { EngravedIcon } from "@/components/engraved-icon";
+import { Letterhead, Najma } from "@/components/letterhead";
 import { Card } from "@/components/ui/card";
 import {
   InputGroup,
@@ -54,7 +64,21 @@ const PAGE_SIZE = 200;
  *  الصفحة عادةً، وما زاد عليها قد يبلغها — فالزر يظهر ولا يضرّ ظهوره. */
 const CLAMP_HINT_CHARS = 240;
 
+/** مدة «نُسخ» الظاهرة بعد النسخ. قصيرة لأنها إقرار بفعل وقع، لا حالة تُراقب. */
+const COPIED_MS = 2000;
+
 type Mode = "documents" | "chunks";
+
+/**
+ * وجه العرض — **منفصل عن `mode` عن قصد**.
+ *
+ * ⚠️ `mode` يقرّر **أي نداء يُطلق**، وله نوعان لأن الخادم له نقطتان.
+ *    أما الأوجه فثلاثة، واثنان منها («النصّ الكامل» و«المقاطع») يقرآن
+ *    **الردّ نفسه**: مقاطع المستند الواحد. فلو حُشرت الثلاثة في `mode`
+ *    لصار تبديل الوجه **نداءً جديداً إلى الخادم** — وهو إبطاء بلا سبب وإبطال
+ *    للبيانات التي بين اليدين.
+ */
+type View = "documents" | "chunks" | "text";
 
 type Family = {
   key: string;
@@ -277,6 +301,85 @@ function allDatesIdentical(documents: ArchiveDocument[]): boolean {
   return days.size === 1 && !days.has("");
 }
 
+/**
+ * ترتيب مقاطع المستند الواحد — **فقرةً فقرة**.
+ *
+ * ⚠️ والقاعدة التي تحميها هذه الدالّة: **لا يُعاد ترتيب ما لا ترتيب له.**
+ *
+ * الخادم يُعيد مقاطع المستند مرتّبةً أصلاً (`chunk_index` تصاعدياً ثم
+ * `created_at` ثم المعرّف). فإن كانت **كل** الفهارس غائبة (`null`) فالترتيب
+ * القادم هو ترتيب الملفّ نفسه، وإعادة الترتيب حينها **تُفسد المستند**:
+ * مقارنةُ `null` بـ`null` بلا حاكم تُبقي الترتيب في V8، لكنها **ضمانٌ
+ * لتنفيذٍ لا لقاعدة** — والقاعدة أن نُبقي ما جاءنا إذا لم يكن لنا ما نُرتّب به.
+ *
+ * ⚠️ وإذا وُجد فهرسٌ ولو واحد، صار للترتيب معنى: تُقدَّم المفهرسة بـ
+ *    `chunk_index`، وترتيب الخادم يفصل بين المتساويات (مقطعين بنفس الرقم
+ *    ازدواجٌ واقعي في الأرشيف)، والغائبةُ فهرساً **أخيراً** — لأن `null` ليس
+ *    صفراً: تركه في المقدّمة يُقدّم مقطعاً لا نعرف موضعه على مقطعٍ نعرفه.
+ */
+function orderChunks(chunks: ArchiveChunk[]): ArchiveChunk[] {
+  if (!chunks.some((chunk) => chunk.chunk_index !== null)) return chunks;
+
+  return chunks
+    .map((chunk, position) => ({ chunk, position }))
+    .sort((a, b) => {
+      const left = a.chunk.chunk_index;
+      const right = b.chunk.chunk_index;
+      if (left === null && right === null) return a.position - b.position;
+      if (left === null) return 1;
+      if (right === null) return -1;
+      if (left !== right) return left - right;
+      return a.position - b.position;
+    })
+    .map((entry) => entry.chunk);
+}
+
+/**
+ * ترويسة الورقة المطبوعة — **نسخة فاتحة من `Letterhead`**.
+ *
+ * ⚠️ ولماذا نسخةٌ هنا لا خاصية `tone` في `letterhead.tsx`؟
+ *
+ * لأن ذلك الملف **مستعمل في ثلاثة مواضع على خلفية داكنة** (الغلاف، ومساحة
+ * الصياغة، والقائمة الجانبية). وإضافة بديلٍ فاتح إليه تُدخل على كل مستدعٍ
+ * سؤالاً لم يكن له، وتجعل مكوّناً واحداً يعرف لون سطحين. والنسخة هنا
+ * **تُتركّب من الأجزاء المُصدَّرة نفسها** (`Najma`)، فلا يتفرّع الرمز ولا
+ * يُرسم مرّتين.
+ *
+ * ⚠️ والبنية مطابقة لبنية الأصل حرفياً (نجمة · اسم · خطّ بنجمة · القب ·
+ *    السطر اللاتيني) ومقاساتها كذلك — فلو غُيّر الأصل بقي الفرق **مقروءاً**
+ *    لا مكتشفاً بالعين. وألوان الحبر هنا هي وحدها المختلفة، وهذا هو المقصود.
+ */
+function PaperLetterhead() {
+  return (
+    <div className="text-center">
+      <Najma className="mx-auto size-7 text-seal" />
+
+      <p className="mt-2.5 font-heading text-3xl leading-none text-[#16130F]">
+        أحمد عيد
+      </p>
+
+      {/*
+        ⚠️ والخطّ بـ`bg` لا بـ`border-t` — اتباعاً للأصل في `letterhead.tsx`
+        (`bg-slate-700`). فالاثنان يرسمان السطر نفسه، والاختلاف بينهما اختلاف
+        سمك الحدّ بين المتصفّحات، وهو ما لا يُخاطر به في عنصر بارتفاع بكسل.
+      */}
+      <div className="mt-3 flex items-center gap-2" aria-hidden="true">
+        <span className="h-px flex-1 bg-seal/30" />
+        <Najma className="size-2.5 text-seal" />
+        <span className="h-px flex-1 bg-seal/30" />
+      </div>
+
+      <p className="mt-2.5 text-[10px] tracking-[0.25em] text-seal">
+        المستشار القانوني
+      </p>
+
+      <p dir="ltr" className="mt-1.5 text-[9px] tracking-[0.3em] text-seal">
+        AHMED EID
+      </p>
+    </div>
+  );
+}
+
 /** بطاقة مقطع — مكوّن مستقلّ حتى لا يختلط الطيّ ببعضه عند كل إعادة رسم. */
 function ChunkCard({
   chunk,
@@ -358,8 +461,48 @@ function ChunkCard({
   );
 }
 
+/**
+ * زرّ وجه — نفس صنف زرّ الوضع القائم حرفياً (حدّ رفيع، والفعّال نحاسي).
+ *
+ * ⚠️ و`aria-pressed` أُبقي كما كان، وأُضيف `disabled` **وشرحُه**: الوجهان
+ *    «النصّ الكامل» و«المقاطع» لا معنى لهما بلا مستند. وزرٌّ يبدو فعّالاً ثم
+ *    لا يفعل شيئاً هو الخطأ الذي وُجد هذا الملف لتلافيه — فالمعطَّل يبقى
+ *    ظاهراً (فيُعرف أنه ممكن) لكنه **يقول لماذا لا يعمل الآن**.
+ */
+function ViewButton({
+  label,
+  active,
+  disabled,
+  title,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      disabled={disabled}
+      title={title}
+      className={`font-heading border px-4 py-2 text-sm transition-colors ${
+        active
+          ? "border-amber-500/40 bg-slate-900 text-amber-500"
+          : "border-slate-800 text-slate-400 hover:bg-slate-900"
+      } disabled:cursor-not-allowed disabled:border-slate-800/60 disabled:text-slate-600 disabled:hover:bg-transparent`}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function Library() {
   const [mode, setMode] = useState<Mode>("documents");
+  const [view, setView] = useState<View>("documents");
   const [search, setSearch] = useState("");
   const [family, setFamily] = useState("");
   /** تصفية مستند بعينه — تُملأ من ضغط صفّ أو من ضغط اسم مستند داخل مقطع. */
@@ -372,6 +515,10 @@ export default function Library() {
 
   /** النصّ الذي جرى به البحث فعلاً — لا ما هو مكتوب الآن في الحقل. */
   const [appliedSearch, setAppliedSearch] = useState("");
+
+  /** حالة زرّ النسخ: `""` لا شيء · `"done"` نُسخ · وإلا فهي نصّ الفشل. */
+  const [copyState, setCopyState] = useState("");
+  const copyTimer = useRef<number | null>(null);
 
   /* العائلات تُجلب مرة واحدة لبناء قائمة التصفية — فلا تُكتب في الواجهة. */
   useEffect(() => {
@@ -390,6 +537,13 @@ export default function Library() {
     };
   }, []);
 
+  /** إلغاء مؤقّت «نُسخ» عند مغادرة الصفحة — فلا يوقظ مكوّناً ذهب. */
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+    };
+  }, []);
+
   /**
    * الجلب.
    *
@@ -400,6 +554,9 @@ export default function Library() {
    * - ويُؤجَّل ٣٥٠ مللي ثانية: البحث الآن في قاعدة البيانات، فكل حرف طلبٌ إلى
    *   الخادم، والتأجيل يمنع عشرة طلبات عند كتابة كلمة.
    * - و`AbortController`: نتيجة بحث قديم تصل بعد بحث أحدث كانت تطمس الأحدث.
+   *
+   * ⚠️ و`view` **ليس في التبعيات ولا في الطلب**: تبديل الوجه بين «النصّ
+   *    الكامل» و«المقاطع» يقرأ الردّ نفسه، فلا نداء ثانياً ولا وميض تحميل.
    */
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -457,18 +614,28 @@ export default function Library() {
    *    الوضع (الخادم يتجاهل البحث عند وجود المستند) — فحقلٌ مكتوب فيه كلمة
    *    بلا ظلّ يوهم أن الكلمة طُبّقت. والمسح يجعل المرئي هو الحقيقة. ومن أراد
    *    البحث داخل المستند نفسه فليكتبه ثانية: سيُرسَل حينها بحثاً فعلياً.
+   *
+   * ⚠️ والوجه الافتراضي هو **النصّ الكامل** لا المقاطع: من ضغط صفّاً في
+   *    الجدول أراد أن **يقرأ المستند**، لا أن يرى أنه مُقطَّعٌ في عشرين بطاقة.
+   *    ومن أراد البطاقات فزرُّها على بعد نقرة — أما الافتراضي فيجب أن يكون
+   *    الغرض، لأن أكثر المستخدمين لا يبدّلون.
    */
   const openDocument = useCallback((name: string) => {
     setDocumentName(name);
     setMode("chunks");
+    setView("text");
     setSearch("");
   }, []);
 
-  const changeMode = useCallback((next: Mode) => {
-    setMode(next);
-    // الخروج من «المقاطع» يمسح تصفية المستند، وإلا عاد الوضع الجديد مقيّداً
-    // بمستند اختاره المستخدم في وضع آخر.
-    if (next === "documents") setDocumentName("");
+  /** الوجوه الثلاثة — لا معنى لاثنين منها بلا مستند مفتوح. */
+  const changeView = useCallback((next: View) => {
+    if (next === "documents") {
+      setMode("documents");
+      setDocumentName("");
+    } else {
+      setMode("chunks");
+    }
+    setView(next);
   }, []);
 
   const documents = result?.key === "documents" ? result.documents : [];
@@ -478,6 +645,72 @@ export default function Library() {
   const hasFilter = Boolean(search.trim() || family || documentName);
   const hint = error ? schemaSectionHint(error) : undefined;
   const busy = loading && !result;
+
+  /** مستندٌ مفتوح، والردّ الحاضر هو ردّ مقاطعه — وإلا فالمعروض ليس مستنداً. */
+  const documentOpen = Boolean(documentName) && mode === "chunks" && !error;
+  const paperView = documentOpen && view === "text";
+
+  /**
+   * صفّ المستند المفتوح من الجدول — يملأ اسم العائلة وعدد المقاطع في رأس
+   * الورقة. وقد **لا يوجد**: فالمفتوح ليس بالضرورة داخل أول ٢٠٠ مستند
+   * (الجدول مقصوص)، أو أن الجدول مُصفّى بعائلةٍ أخرى. وحينها يُعرض «—» لا
+   * رقمٌ مخترع — وهذا عين ما يمنعه `data-notice`.
+   */
+  const openDocumentMeta = documentName
+    ? documents.find((doc) => doc.document_name === documentName)
+    : undefined;
+
+  /** مقاطع المستند بترتيب فقراته — نسخة واحدة تخدم الورقة والنسخ معاً. */
+  const orderedChunks = useMemo(() => orderChunks(chunks), [chunks]);
+
+  /** النصّ المجموع للنسخ: فقرة، سطر خالٍ، فقرة. */
+  const plainText = useMemo(
+    () =>
+      orderedChunks
+        .map((chunk) => chunk.content.trim())
+        .filter(Boolean)
+        .join("\n\n"),
+    [orderedChunks]
+  );
+
+  /**
+   * النسخ إلى الحافظة.
+   *
+   * ⚠️ والحافظة **قد لا تكون متاحة**: تحتاج سياقاً آمناً (`https` أو
+   *    `localhost`) وإذناً من المستخدم. والفشل هنا لا يجوز أن **يرمي** —
+   *    فمستخدم على `http` داخلي سيضغط الزرّ فلا يحدث شيء وتبقى الصفحة سليمة،
+   *    وهو أسوأ من رسالة. ولذلك يُفحص وجود الواجهة أولاً، ويُقال الخطأ نصّاً.
+   */
+  const copyDocument = useCallback(() => {
+    if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
+
+    const done = (message: string) => {
+      setCopyState(message);
+      copyTimer.current = window.setTimeout(() => setCopyState(""), COPIED_MS);
+    };
+
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      done("الحافظة غير متاحة في هذا المتصفّح");
+      return;
+    }
+
+    navigator.clipboard
+      .writeText(plainText)
+      .then(() => done("done"))
+      .catch((e: unknown) =>
+        done(e instanceof Error ? e.message : "تعذّر النسخ")
+      );
+  }, [plainText]);
+
+  /** عائلة المستند: من الجدول إن وُجد، وإلا من أوّل مقطع — فالحقل مشترك. */
+  const familyLabel =
+    openDocumentMeta?.family_label || chunks[0]?.family_label || "—";
+  const documentType = openDocumentMeta?.document_type || chunks[0]?.document_type || "";
+
+  /** ⚠️ رأسٌ بلا رقم مخترع: عدد المقاطع «—» إن لم يُعرف المستند في الجدول. */
+  const declaredChunks = openDocumentMeta
+    ? openDocumentMeta.chunks.toLocaleString("ar-AE")
+    : "—";
 
   return (
     <div className="space-y-6">
@@ -542,32 +775,35 @@ export default function Library() {
         </div>
       </div>
 
-      {/* مبدّل الوضع */}
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => changeMode("documents")}
-          aria-pressed={mode === "documents"}
-          className={`font-heading border px-4 py-2 text-sm transition-colors ${
-            mode === "documents"
-              ? "border-amber-500/40 bg-slate-900 text-amber-500"
-              : "border-slate-800 text-slate-400 hover:bg-slate-900"
-          }`}
-        >
-          المستندات
-        </button>
-        <button
-          type="button"
-          onClick={() => changeMode("chunks")}
-          aria-pressed={mode === "chunks"}
-          className={`font-heading border px-4 py-2 text-sm transition-colors ${
-            mode === "chunks"
-              ? "border-amber-500/40 bg-slate-900 text-amber-500"
-              : "border-slate-800 text-slate-400 hover:bg-slate-900"
-          }`}
-        >
-          المقاطع
-        </button>
+      {/* مبدّل الوجه — ثلاثة أزرار، واثنان لا معنى لهما بلا مستند مفتوح */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <ViewButton
+            label="المستندات"
+            active={view === "documents"}
+            onClick={() => changeView("documents")}
+          />
+          <ViewButton
+            label="المقاطع"
+            active={view === "chunks"}
+            disabled={!documentOpen}
+            title={documentOpen ? "مقاطع المستند المفتوح" : "افتح مستنداً من الجدول أولاً"}
+            onClick={() => changeView("chunks")}
+          />
+          <ViewButton
+            label="النصّ الكامل"
+            active={view === "text"}
+            disabled={!documentOpen}
+            title={documentOpen ? "المستند كاملاً على ورقة" : "افتح مستنداً من الجدول أولاً"}
+            onClick={() => changeView("text")}
+          />
+        </div>
+
+        {!documentOpen && (
+          <p className="text-xs text-slate-500">
+            «النصّ الكامل» و«المقاطع» يُتاحان عند فتح مستند من الجدول.
+          </p>
+        )}
       </div>
 
       {/* شريحة المستند المفتوح — تبقى ظاهرة حتى تُمسح */}
@@ -581,7 +817,12 @@ export default function Library() {
           </span>
           <button
             type="button"
-            onClick={() => setDocumentName("")}
+            onClick={() => {
+              // ⚠️ والمسح يعود إلى «المقاطع»: وجهٌ اسمه «النصّ الكامل» بلا
+              // مستندٍ هو تناقض في العنوان لا في الحالة، فيُصلح معها.
+              setDocumentName("");
+              setView("chunks");
+            }}
             aria-label="إزالة تصفية المستند"
             title="إزالة تصفية المستند"
             className="shrink-0 text-slate-500 transition-colors hover:text-amber-500"
@@ -622,6 +863,129 @@ export default function Library() {
         />
       )}
 
+      {/* ── وجه النصّ الكامل: المستند على ورقة ── */}
+      {!error && paperView && (
+        <div className="space-y-4">
+          {/*
+            ما فوق الورقة: **على سطح المكتب الداكن لا على الورق**. فالاسم
+            والعائلة والعدد بياناتُ فهرسةٍ لا متنٌ قانوني — ولو طُبعت على
+            الورقة لاختلط كلام المكتب بكلام المستند، وهو الخلط الذي يمنعه
+            هذا الفصل.
+          */}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <h2 className="font-heading text-xl break-words text-slate-100">
+                {documentName || "بلا اسم"}
+              </h2>
+              <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                <span className="inline-flex items-center border border-amber-500/25 px-2 py-0.5 tracking-[0.15em] text-amber-500">
+                  {familyLabel}
+                </span>
+                {documentType && <span>{documentType}</span>}
+                <span>·</span>
+                {/* ⚠️ الرقمان معاً لا رقم واحد: «المعروض» ما بين اليدين فعلاً،
+                    و«الفهرس» ما يقوله الجدول عن المستند. وإظهار المعروض وحده
+                    يجعل المستند المقصوص يبدو كاملاً — وهو أسوأ ما في معاينة. */}
+                <span dir="ltr" className="font-mono">
+                  {shown.toLocaleString("ar-AE")} / {declaredChunks}
+                </span>
+                <span>مقطعاً هنا من إجمالي المستند في الفهرس</span>
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {copyState && (
+                <span
+                  role="status"
+                  className={`text-xs ${
+                    copyState === "done" ? "text-amber-500" : "text-red-300"
+                  }`}
+                >
+                  {copyState === "done" ? "نُسخ" : copyState}
+                </span>
+              )}
+              {/*
+                ⚠️ والمعطَّل هنا **حماية لا زينة**: الورقة تُرسم قبل وصول
+                المقاطع بلحظة، وضغطةٌ في تلك اللحظة تنسخ **نصاً فارغاً** ثم
+                تقول «نُسخ» — وهذا أسوأ كذبة في الصفحة، لأنها تُقنع المستخدم
+                بأن المستند في حافظته وهو ليس فيها.
+              */}
+              <button
+                type="button"
+                onClick={copyDocument}
+                disabled={loading || !plainText}
+                title={
+                  plainText
+                    ? "انسخ نصّ المستند كاملاً"
+                    : "لا نصّ بعد لينسخ"
+                }
+                className="font-heading shrink-0 border border-slate-800 px-4 py-2 text-sm text-slate-300 transition-colors hover:border-amber-500/40 hover:text-amber-500 disabled:cursor-not-allowed disabled:border-slate-800/60 disabled:text-slate-600 disabled:hover:border-slate-800/60 disabled:hover:text-slate-600"
+              >
+                نسخ النصّ
+              </button>
+            </div>
+          </div>
+
+          {/*
+            ⚠️ والقَصّ يُعلَن **قبل** الورقة لا بعدها: معاينةٌ تعرض جزءاً من
+            مستند وتصمت أسوأ من ألّا تعرض شيئاً — لأنها تُقرأ كاملةً. ومن
+            رأى «بقيّة المستند غير معروضة» قبل أن يبدأ القراءة لا يُبنى على
+            نصٍّ ناقص، بخلاف من يقرأ ثلاثين فقرة ثم يكتشف أن هناك ثلاثين غيرها.
+          */}
+          {truncated && (
+            <DataNotice
+              tone="empty"
+              title={`تُعرض أول ${shown.toLocaleString("ar-AE")} مقطعاً من هذا المستند — وبقيتها غير معروضة.`}
+              detail="المعاينة مقصوصة عند سقف الطلب (٢٠٠ مقطع)، وما تراه هنا ليس المستند كاملاً."
+            />
+          )}
+
+          {/*
+            ⚠️ وظلٌّ واحد في الصفحة كلها — وهو **مبرَّر فيزيائياً**: الورقة
+            موضوعة **على** سطحٍ داكن، ولا تقع ورقة على مكتب بلا ظلّ. وكل ظلٍّ
+            آخر في الواجهة يُحذف، لأن الظلّ حيث لا سطح تحته زينةٌ لا ضوء.
+          */}
+          <article className="relative border border-slate-700 bg-[#F2EADA] p-10 text-[#16130F] shadow-2xl sm:p-14">
+            {/*
+              هامش الورقة المسطّرة — خطّ رأسي يفصل الحاشية عن المتن، كما في
+              `app/page.tsx` وبلون الختم نفسه (`seal`): حدُّ ورقةٍ لا تنبيه.
+              وهو داخل الورقة وخارج المتن، فلا يُحسب من عرض المتن.
+            */}
+            <span
+              className="absolute inset-y-8 start-6 w-px bg-seal/25"
+              aria-hidden="true"
+            />
+
+            <div className="ps-6">
+              <PaperLetterhead />
+
+              {orderedChunks.length > 0 ? (
+                /*
+                  المتن — كما في المطبوع: خطّ الوثيقة، وتباعد أسطر واسع، بلا
+                  أي عنوان لا وجود له في البيانات. كل مقطع فقرةٌ قائمة بذاتها
+                  **بلا سقف ولا طيّ**: هذا هو المستند، ويجب أن يُقرأ كاملاً.
+                */
+                <div className="mt-10">
+                  {orderedChunks.map((chunk) => (
+                    <p
+                      key={chunk.id}
+                      className="mt-5 whitespace-pre-line break-words font-heading text-[15px] leading-loose text-[#16130F]"
+                    >
+                      {chunk.content || "—"}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                /* الورقة تُعرض فارغةً بترويسةٍ لا بلا شيء: النقص يُقال في متنها */
+                <p className="mt-10 font-heading text-[15px] text-[#16130F]">
+                  لا مقاطع معروضة لهذا المستند — أو لم يُفهرس بعد.
+                </p>
+              )}
+            </div>
+          </article>
+        </div>
+      )}
+
       {/* ── وضع المستندات ── */}
       {!error && mode === "documents" && documents.length > 0 && (
         <>
@@ -658,7 +1022,7 @@ export default function Library() {
                             event.stopPropagation();
                             openDocument(doc.document_name);
                           }}
-                          title="اعرض مقاطع هذا المستند"
+                          title="اعرض هذا المستند كاملاً"
                           className="flex items-center gap-3 text-start transition-colors hover:text-amber-500"
                         >
                           <EngravedIcon name="papers" className="size-4 text-amber-500" />
@@ -716,8 +1080,8 @@ export default function Library() {
         </>
       )}
 
-      {/* ── وضع المقاطع ── */}
-      {!error && mode === "chunks" && chunks.length > 0 && (
+      {/* ── وجه المقاطع: بطاقات المستند الواحد، أو نتائج البحث ── */}
+      {!error && mode === "chunks" && view === "chunks" && chunks.length > 0 && (
         <>
           <div className="space-y-3">
             {chunks.map((chunk) => (
