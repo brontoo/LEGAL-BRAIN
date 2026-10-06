@@ -1,11 +1,47 @@
 import type { Metadata } from "next";
-import { Tajawal } from "next/font/google";
+import { Amiri, Noto_Kufi_Arabic } from "next/font/google";
 import "./globals.css";
-import Link from "next/link";
-import { LayoutDashboard, FileSignature, LibrarySquare, Settings, Scale, Bell } from "lucide-react";
+import { SiteNav } from "@/components/site-nav";
 
-// استخدام خط تجوال للرصانة والفخامة
-const tajawal = Tajawal({ subsets: ["arabic"], weight: ["300", "400", "500", "700"] });
+/**
+ * الترويسة والإطار العام — هوية «المحفوظات».
+ * ============================================================================
+ * ⚠️ ما تغيّر عن التصميم السابق، ولماذا:
+ *
+ *   ١) **الخط.** كان `Tajawal` — وهو خطّ هندسي حديث يُقرأ كخطّ تطبيق تقني.
+ *      والبديل: **`Amiri`** للعناوين، وهو إحياء خطّ **مطبعة بولاق** التي طبعت
+ *      بها الحكومة المصرية — أي **خطّ الوثيقة القانونية المطبوعة نفسها**. و
+ *      **`Noto Kufi Arabic`** لواجهة الاستخدام: زواياه الهندسية تُقرأ كنقش لا
+ *      كتطبيق.
+ *
+ *   ٢) **الزجاجية.** كان في الشريط العلوي `backdrop-blur-md` — وهي من أوضح
+ *      بصمات واجهات SaaS. أُزيلت: الشريط مصمت ومفصول بخطّ.
+ *
+ *   ٣) **الزوايا الدائرية** في الشعار والصورة الرمزية والجرس → قائمة، كما في
+ *      الورقة والمصنّف.
+ *
+ *   ٤) **الشعار** صار أقرب إلى **ترويسة خطاب**: رمز نحاسي صغير، ثم الاسم بخطّ
+ *      العرض، ثم خطّ رفيع تحته — بدل أيقونة برتقالية داخل مربّع.
+ *
+ * وكل الألوان تأتي من `globals.css` وحده (تجاوز `slate` و`amber`)، فلا لون
+ * مكتوب في هذا الملف.
+ */
+
+// خطّ الوثيقة — مطبعة بولاق
+const amiri = Amiri({
+  subsets: ["arabic"],
+  weight: ["400", "700"],
+  variable: "--font-amiri",
+  display: "swap",
+});
+
+// خطّ الواجهة — كوفي هندسي
+const kufi = Noto_Kufi_Arabic({
+  subsets: ["arabic"],
+  weight: ["300", "400", "500", "700"],
+  variable: "--font-kufi",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "العقل القانوني | Legal Brain",
@@ -18,59 +54,60 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ar" dir="rtl" className="dark">
-      <body className={`${tajawal.className} bg-slate-950 text-slate-50 antialiased flex h-screen overflow-hidden`}>
-        
-        {/* القائمة الجانبية (Sidebar) */}
-        <aside className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col">
-          <div className="h-20 flex items-center px-6 border-b border-slate-800">
-            <Scale className="w-8 h-8 text-amber-500 ml-3" />
-            <span className="text-2xl font-bold tracking-wide text-white">العقل القانوني</span>
+    <html
+      lang="ar"
+      dir="rtl"
+      className={`dark ${amiri.variable} ${kufi.variable}`}
+    >
+      <body
+        className={`${kufi.className} bg-slate-950 text-slate-50 antialiased flex h-screen overflow-hidden`}
+      >
+        {/* القائمة الجانبية — مصنّف الملفات */}
+        <aside className="flex w-72 flex-col border-s border-slate-800 bg-slate-900">
+          {/* ترويسة المكتب — كترويسة خطاب: رمز، ثم اسم، ثم خطّ */}
+          <div className="border-b border-slate-800 px-5 py-5">
+            <div className="flex items-center gap-2.5">
+              <span className="h-6 w-1 bg-amber-500" aria-hidden="true" />
+              <span className="font-heading text-2xl leading-none text-slate-50">
+                العقل القانوني
+              </span>
+            </div>
+            {/* الخطّ المزدوج الرفيع — من ترويسات الخطابات الرسمية */}
+            <div className="mt-3 space-y-[3px]" aria-hidden="true">
+              <div className="h-px bg-slate-700" />
+              <div className="h-px bg-slate-800" />
+            </div>
+            <p className="mt-2 text-[10px] tracking-[0.2em] text-slate-600">
+              مكتب المحاماة والاستشارات
+            </p>
           </div>
-          
-          <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            <Link href="/" className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-amber-500 transition-colors">
-              <LayoutDashboard className="w-5 h-5" />
-              <span className="font-medium text-lg">لوحة القيادة</span>
-            </Link>
-            <Link href="/workspace" className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-amber-500 transition-colors">
-              <FileSignature className="w-5 h-5" />
-              <span className="font-medium text-lg">مساحة الصياغة</span>
-            </Link>
-            <Link href="/library" className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-amber-500 transition-colors">
-              <LibrarySquare className="w-5 h-5" />
-              <span className="font-medium text-lg">الأرشيف والمكتبة</span>
-            </Link>
-          </nav>
 
-          <div className="p-4 border-t border-slate-800">
-            <Link href="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:bg-slate-800 transition-colors">
-              <Settings className="w-5 h-5" />
-              <span className="font-medium">الإعدادات</span>
-            </Link>
-          </div>
+          <SiteNav />
         </aside>
 
-        {/* المساحة الرئيسية (Main Content) */}
-        <main className="flex-1 flex flex-col h-screen overflow-hidden">
-          {/* الشريط العلوي (Topbar) */}
-          <header className="h-20 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-8 z-10">
-            <div className="text-slate-400 font-medium">مرحباً بك في مكتبك الذكي</div>
+        {/* المساحة الرئيسية */}
+        <main className="flex h-screen flex-1 flex-col overflow-hidden">
+          <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950 ps-8 pe-8">
+            <div className="font-heading text-sm text-slate-500">
+              مرحباً بك في مكتبك الذكي
+            </div>
             <div className="flex items-center gap-4">
-              <button className="p-2 rounded-full hover:bg-slate-800 text-slate-400 transition-colors relative">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full"></span>
+              <button
+                type="button"
+                aria-label="التنبيهات"
+                className="relative border border-slate-800 px-2.5 py-1.5 text-slate-500 transition-colors hover:border-slate-700 hover:text-slate-300"
+              >
+                <span className="text-[11px] tracking-wider">تنبيهات</span>
+                <span className="absolute -top-1 -end-1 h-1.5 w-1.5 bg-amber-500" />
               </button>
-              <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-500 font-bold">
+              {/* الصورة الرمزية — مربّع بزوايا قائمة، كختم على مستند */}
+              <div className="flex h-9 w-9 items-center justify-center border border-slate-700 bg-slate-900 font-heading text-sm text-amber-500">
                 أ.ع
               </div>
             </div>
           </header>
-          
-          {/* محتوى الصفحات الديناميكي */}
-          <div className="flex-1 overflow-y-auto p-8">
-            {children}
-          </div>
+
+          <div className="flex-1 overflow-y-auto p-8">{children}</div>
         </main>
       </body>
     </html>

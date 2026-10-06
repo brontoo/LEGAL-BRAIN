@@ -131,7 +131,7 @@ export default function Library() {
   const documents = payload?.documents ?? [];
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 ease-out">
+    <div className="space-y-6">
       {/* الترويسة وشريط البحث */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
