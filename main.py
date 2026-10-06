@@ -286,9 +286,14 @@ ARCHIVE_FAMILIES: tuple[tuple[str, str], ...] = (
 
 ARCHIVE_OVERVIEW_RPC = "archive_overview"
 ARCHIVE_DOCUMENTS_RPC = "archive_documents"
+ARCHIVE_CHUNKS_RPC = "archive_chunks"
 
 #: سقف صفوف قائمة المستندات — مطابق لسقف دالة SQL نفسها (دفاعٌ مزدوج).
 ARCHIVE_MAX_ROWS = 500
+
+#: وسقف المقاطع أقلّ: نصّ المقطع أطول بكثير من اسم مستند، فـ٢٠٠ مقطع تعني
+#: حمولة قد تبلغ ميغابايتات. والسقف في القاعدة أيضاً.
+ARCHIVE_MAX_CHUNK_ROWS = 200
 
 
 def _archive_storage_error(exc: Exception) -> str:
@@ -296,19 +301,25 @@ def _archive_storage_error(exc: Exception) -> str:
     رسالة مفهومة عند غياب دوالّ الأرشيف.
 
     و«function does not exist» وحدها لا تدلّ على المطلوب، فنسمّي القسم الدقيق.
+
+    ⚠️ **والقسم يختلف بحسب الدالّة**: `archive_overview` و`archive_documents`
+    في القسم ١١، و`archive_chunks` في **١٢**. ولو قيل «١١» دائماً لبحث
+    المستخدم في القسم الخطأ. (وهو خطأ وقع فعلاً حين أُضيفت المقاطع.)
     """
     message = str(exc)
+    section = "١٢" if "archive_chunks" in message else "١١"
     if (
         "archive_overview" in message
         or "archive_documents" in message
+        or "archive_chunks" in message
         or "PGRST202" in message  # PostgREST: الدالة غير موجودة في المخطّط
         or "42P01" in message     # Postgres: العلاقة غير موجودة
         or "does not exist" in message
         or "Could not find the function" in message
     ):
         return (
-            "دوالّ الأرشيف غير موجودة في قاعدة البيانات. "
-            "نفّذ القسم ١١ من schema.sql في Supabase SQL Editor مرة واحدة."
+            f"دوالّ الأرشيف غير موجودة في قاعدة البيانات. "
+            f"نفّذ القسم {section} من schema.sql في Supabase SQL Editor مرة واحدة."
         )
     return f"تعذّر قراءة الأرشيف: {message}"
 
@@ -808,6 +819,78 @@ async def archive_documents(
         # أن تُوهم أن هذا الأرشيف كله.
         "truncated": len(documents) >= bounded,
         "documents": documents,
+    }
+
+
+@app.get("/archive/chunks", dependencies=[Depends(require_token)])
+async def archive_chunks(
+    search: str = "",
+    family: str = "",
+    document: str = "",
+    limit: int = 50,
+):
+    """
+    المقاطع نفسها — لفتح مستند بفقراته، أو للبحث النصّي في المتن.
+
+    ⚠️ وثلاث حالات في نداء واحد، والفصل مقصود:
+
+      • `document` مُعطى  → **كل مقاطع ذلك المستند**، بترتيب فقراته.
+        وهو «فتح المستند» الذي يطلبه المحامي ليقرأ ما يستند إليه الفريق.
+      • `search` مُعطى    → بحث نصّي في المتن وفي اسم المستند.
+      • لا هذا ولا ذاك    → أحدث المقاطع.
+
+    ⚠️ **والبحث نصّي لا دلالي، وهو اختيار لا نقص.** البحث الدلالي يحتاج تحميل
+    نموذج التضمين (٢.٢ غ.ب) وتشفير السؤال، وهو متاح في أدوات الوكيل الخمس حيث
+    يُحتاج فعلاً. أما هنا فالمحامي يبحث عن **نصّ بعينه** — «أين وردت المادة
+    ٤٨؟» — والبحث النصّي أدقّ في ذلك وأسرع: بلا نموذج وبلا انتظار.
+    """
+    known = {key for key, _ in ARCHIVE_FAMILIES}
+    if family and family not in known:
+        raise HTTPException(
+            status_code=400,
+            detail=f"عائلة غير معروفة: {family!r} — المتاح: {sorted(known)}",
+        )
+
+    bounded = max(1, min(limit, ARCHIVE_MAX_CHUNK_ROWS))
+
+    try:
+        response = await asyncio.to_thread(
+            lambda: get_supabase()
+            .rpc(
+                ARCHIVE_CHUNKS_RPC,
+                {
+                    "search_term": search.strip() or None,
+                    "family_filter": family or None,
+                    "document_filter": document.strip() or None,
+                    "max_rows": bounded,
+                },
+            )
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=_archive_storage_error(exc))
+
+    labels = dict(ARCHIVE_FAMILIES)
+    chunks = [
+        {
+            "id": row.get("id"),
+            "document_name": row.get("document_name") or "",
+            "document_type": row.get("document_type") or "",
+            "family": row.get("family_key") or "",
+            "family_label": labels.get(row.get("family_key") or "", ""),
+            "content": row.get("chunk_content") or "",
+            "source_file": row.get("source_file") or "",
+            "chunk_index": row.get("chunk_index"),
+            "created_at": row.get("created_at"),
+        }
+        for row in (response.data or [])
+    ]
+
+    return {
+        "count": len(chunks),
+        "limit": bounded,
+        "truncated": len(chunks) >= bounded,
+        "chunks": chunks,
     }
 
 

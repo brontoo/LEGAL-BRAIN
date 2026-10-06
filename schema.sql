@@ -564,3 +564,137 @@ comment on function archive_documents(text, text, int) is
 --   select * from archive_documents(search_term => 'إيجار');
 --   select * from archive_documents(family_filter => 'legislation');
 -- ------------------------------------------------------------------------------
+
+
+-- ==============================================================================
+-- ١٢. البحث في المقاطع — يقرأها `GET /archive/chunks`
+-- ==============================================================================
+-- ⚠️ لماذا دالّة جديدة وقد وُجدت `archive_documents`؟
+--
+-- لأن تلك تجمع **بالاسم** فتُعيد صفّاً واحداً لكل مستند (`group by
+-- document_name`). وهذه تُعيد **المقاطع نفسها** — وهو ما يفتحه المحامي لقراءته.
+--
+-- ⚠️ وثلاث حالات في دالّة واحدة، والفصل بينها مقصود:
+--
+--   ① `document_filter` مُعطى  → **كل مقاطع مستند واحد**، مرتّبة بترتيب فقراته.
+--      وهذا «فتح المستند» الذي طلبه المستخدم.
+--   ② `search_term` مُعطى      → بحث نصّي في المتن وفي اسم المستند.
+--   ③ لا هذا ولا ذاك           → أحدث المقاطع.
+--
+-- ⚠️ **والبحث نصّي لا دلالي، وهو اختيار لا نقص.**
+--    البحث الدلالي يحتاج تحميل نموذج التضمين (٢.٢ غ.ب) وتشفير السؤال — وهو
+--    متاح في **أدوات الوكيل الخمس** حيث يُحتاج فعلاً. أما هنا فالمحامي يبحث عن
+--    **نصّ بعينه**: «أين وردت المادة ٤٨؟» — والبحث النصّي أدقّ في هذا وأسرع
+--    (بلا نموذج، بلا انتظار). وإضافة الدلالي هنا تحتاج دالّة سادسة وتمثيلاً
+--    لكل جدول — وتُترك لخطوة تالية إن احتيجت.
+--
+-- ⚠️ و`chunk_index` يُقرأ من `metadata` بـ**تحويل آمن**: لو كانت القيمة غير
+--    رقمية لانهارت الدالّة كلها عند أول صفّ مخالف. والقيد `~` يمنع ذلك.
+-- ------------------------------------------------------------------------------
+
+create or replace function archive_chunks(
+    search_term     text default null,
+    family_filter   text default null,
+    document_filter text default null,
+    max_rows        int  default 50
+)
+returns table (
+    id            bigint,
+    document_name text,
+    document_type text,
+    family_key    text,
+    chunk_content text,
+    source_file   text,
+    chunk_index   int,
+    created_at    timestamptz
+)
+language sql
+stable
+as $$
+    with combined as (
+        select id, document_name, document_type, 'legislation'::text as family_key,
+               chunk_content, source_file, created_at,
+               case when metadata->>'chunk_index' ~ '^[0-9]+$'
+                    then (metadata->>'chunk_index')::int end as chunk_index
+          from legal_documents
+        union all
+        select id, document_name, document_type, 'drafts'::text,
+               chunk_content, source_file, created_at,
+               case when metadata->>'chunk_index' ~ '^[0-9]+$'
+                    then (metadata->>'chunk_index')::int end
+          from legal_drafts
+        union all
+        select id, document_name, document_type, 'contracts'::text,
+               chunk_content, source_file, created_at,
+               case when metadata->>'chunk_index' ~ '^[0-9]+$'
+                    then (metadata->>'chunk_index')::int end
+          from legal_contracts
+        union all
+        select id, document_name, document_type, 'notices'::text,
+               chunk_content, source_file, created_at,
+               case when metadata->>'chunk_index' ~ '^[0-9]+$'
+                    then (metadata->>'chunk_index')::int end
+          from legal_notices
+        union all
+        select id, document_name, document_type, 'poa'::text,
+               chunk_content, source_file, created_at,
+               case when metadata->>'chunk_index' ~ '^[0-9]+$'
+                    then (metadata->>'chunk_index')::int end
+          from legal_poa
+    )
+    select combined.id, combined.document_name, combined.document_type,
+           combined.family_key, combined.chunk_content, combined.source_file,
+           combined.chunk_index, combined.created_at
+    from combined
+    where (
+            coalesce(document_filter, '') = ''
+            or combined.document_name = document_filter
+          )
+      and (
+            coalesce(family_filter, '') = ''
+            or combined.family_key = family_filter
+          )
+      and (
+            coalesce(search_term, '') = ''
+            -- ⚠️ وعند «فتح مستند» **يُلغى البحث النصّي**: فالمستخدم يريد
+            --    المستند كاملاً بفقراته، لا فقراته التي فيها الكلمة فقط.
+            or coalesce(document_filter, '') <> ''
+            or combined.chunk_content ilike '%' || search_term || '%'
+            or combined.document_name ilike '%' || search_term || '%'
+          )
+    order by
+        -- داخل المستند: بترتيب الفقرات. وفي البحث: هذا التعبير `null` للجميع
+        -- فلا يؤثّر في الترتيب، ويبقى الترتيب بالأحدث.
+        case when coalesce(document_filter, '') <> '' then combined.chunk_index end
+            nulls last,
+        combined.created_at desc nulls last,
+        combined.document_name,
+        combined.id
+    limit least(greatest(coalesce(max_rows, 50), 1), 200);
+$$;
+
+comment on function archive_chunks(text, text, text, int) is
+    'المقاطع نفسها: فتح مستند بفقراته، أو بحث نصّي في المتن — لصفحة الأرشيف';
+
+
+-- ------------------------------------------------------------------------------
+-- التحقّق بعد التنفيذ
+-- ------------------------------------------------------------------------------
+-- المادة ٤٨ في التشريعات (أو أي نصّ تعرفه):
+--
+--   select document_name, chunk_content
+--     from archive_chunks(search_term => 'المادة', max_rows => 5);
+--
+-- وفتح مستند بعينه — يجب أن تعود فقراته **مرتّبة**:
+--
+--   select chunk_index, left(chunk_content, 60)
+--     from archive_chunks(document_filter => 'اسم المستند كما يظهر في الجدول');
+--
+-- ⚠️ وإن كان البحث النصّي بطيئاً على أرشيفك، فهذا متوقّع: **مسح كامل بلا
+--    فهرس**. والعلاج فهرس ثلاثي الحروف (يُضيف مساحة على القرص):
+--
+--      create extension if not exists pg_trgm;
+--      create index if not exists legal_documents_content_trgm
+--          on legal_documents using gin (chunk_content gin_trgm_ops);
+--      -- ويتكرّر لكل جدول من الخمسة
+-- ------------------------------------------------------------------------------

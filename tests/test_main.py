@@ -116,6 +116,7 @@ class TestRoutes(MainTestBase):
                 ("GET", "/revisions/stats"),
                 ("GET", "/archive/overview"),
                 ("GET", "/archive/documents"),
+                ("GET", "/archive/chunks"),
             },
             "تغيّرت قائمة المسارات — أضِف الجديد هنا عن قصد",
         )
@@ -951,6 +952,128 @@ class TestArchiveEndpoints(MainTestBase):
         with self.assertRaises(main.HTTPException) as caught:
             asyncio.run(main.archive_documents())
         self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("القسم ١١", caught.exception.detail)
+
+
+class TestArchiveChunks(MainTestBase):
+    """
+    نقطة المقاطع — «فتح مستند» و«البحث النصّي».
+    ========================================================================
+    وهي التي تجعل الأرشيف أداة عمل لا جدولاً: يبحث المحامي عن نصّ، **ويفتح
+    المستند** ليقرأ ما يستند إليه الفريق فعلاً.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.supabase = fake_deps.FAKE_SUPABASE
+
+    def test_passes_all_four_filters_trimmed(self):
+        asyncio.run(
+            main.archive_chunks(
+                search="  إيجار  ", family="contracts", document="  عقد أ  ", limit=10
+            )
+        )
+        _name, params = self.supabase.last_call()
+        self.assertEqual(
+            params,
+            {
+                "search_term": "إيجار",
+                "family_filter": "contracts",
+                "document_filter": "عقد أ",
+                "max_rows": 10,
+            },
+        )
+
+    def test_empty_filters_become_null(self):
+        """الفراغ يُحوَّل إلى `null` لا `''` — وإلا طابق `ilike '%%'` كل شيء."""
+        asyncio.run(main.archive_chunks())
+        _name, params = self.supabase.last_call()
+        for key in ("search_term", "family_filter", "document_filter"):
+            self.assertIsNone(params[key], key)
+
+    def test_clamps_the_row_limit(self):
+        for requested, expected in (
+            (0, 1),
+            (-3, 1),
+            (50, 50),
+            (9999, main.ARCHIVE_MAX_CHUNK_ROWS),
+        ):
+            with self.subTest(requested=requested):
+                self.supabase.reset()
+                asyncio.run(main.archive_chunks(limit=requested))
+                self.assertEqual(self.supabase.last_call()[1]["max_rows"], expected)
+
+    def test_chunk_ceiling_is_lower_than_the_document_ceiling(self):
+        """
+        ⚠️ وسقف المقاطع **أقلّ** من سقف المستندات عن قصد: نصّ المقطع أطول بكثير
+        من اسم مستند، فـ٢٠٠ مقطع حمولة قد تبلغ ميغابايتات.
+        """
+        self.assertLess(main.ARCHIVE_MAX_CHUNK_ROWS, main.ARCHIVE_MAX_ROWS)
+
+    def test_rejects_an_unknown_family_loudly(self):
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(main.archive_chunks(family="legislationn"))
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("legislationn", caught.exception.detail)
+        self.assertEqual(self.supabase.calls, [], "لم يكن ينبغي نداء قاعدة البيانات")
+
+    def test_maps_the_family_to_its_arabic_label(self):
+        self.supabase.set_rows(
+            "archive_chunks",
+            [
+                {
+                    "id": 7,
+                    "document_name": "عقد إيجار",
+                    "family_key": "contracts",
+                    "chunk_content": "البند الأول: يلتزم الطرف الثاني.",
+                    "chunk_index": 3,
+                }
+            ],
+        )
+        item = asyncio.run(main.archive_chunks())["chunks"][0]
+        self.assertEqual(item["family_label"], "العقود والاتفاقيات")
+        self.assertEqual(item["content"], "البند الأول: يلتزم الطرف الثاني.")
+        self.assertEqual(item["chunk_index"], 3)
+        self.assertEqual(item["id"], 7)
+
+    def test_tolerates_null_columns_from_the_database(self):
+        self.supabase.set_rows("archive_chunks", [{}])
+        item = asyncio.run(main.archive_chunks())["chunks"][0]
+        self.assertEqual(item["content"], "")
+        self.assertEqual(item["document_name"], "")
+        self.assertEqual(item["family_label"], "")
+        self.assertIsNone(item["chunk_index"])
+
+    def test_reports_truncation(self):
+        self.supabase.set_rows(
+            "archive_chunks", [{"id": i, "chunk_content": "x"} for i in range(5)]
+        )
+        payload = asyncio.run(main.archive_chunks(limit=5))
+        self.assertTrue(payload["truncated"])
+        self.assertEqual(payload["count"], 5)
+
+    def test_not_truncated_below_the_limit(self):
+        self.supabase.set_rows("archive_chunks", [{"id": 1, "chunk_content": "x"}])
+        self.assertFalse(asyncio.run(main.archive_chunks(limit=50))["truncated"])
+
+    def test_missing_function_names_section_twelve(self):
+        """
+        🔑 **والقسم ١٢ لا ١١.**
+
+        المقاطع أُضيفت في قسم ثانٍ، ولو قيل «١١» لبحث المستخدم في القسم الخطأ
+        ولم يجد الدالّة. (وهو خطأ ارتُكب فعلاً حين أُضيفت هذه النقطة.)
+        """
+        self.supabase.raise_on_rpc.add("archive_chunks")
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(main.archive_chunks())
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("القسم ١٢", caught.exception.detail)
+
+    def test_overview_still_names_section_eleven(self):
+        """وفي المقابل: دوالّ القسم ١١ ما زالت تسمّي قسمها هي."""
+        self.supabase.raise_on_rpc.add("archive_overview")
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(main.archive_overview())
         self.assertIn("القسم ١١", caught.exception.detail)
 
 
