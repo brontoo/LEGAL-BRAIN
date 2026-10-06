@@ -1077,6 +1077,81 @@ class TestArchiveChunks(MainTestBase):
         self.assertIn("القسم ١١", caught.exception.detail)
 
 
+class TestProxyContract(MainTestBase):
+    """
+    الوسيط يمرّر **معاملات العنوان** إلى الخادم.
+    ========================================================================
+    ⚠️ وهذا فحص يعبر من بايثون إلى ملف TypeScript، كما يفعل عقد مشهد المكتب.
+
+    والسبب أن العطب الذي يمنعه **صامت تماماً**: الوسيط كان يبني العنوان بلا
+    `request.nextUrl.search`، فتُرمى `?search=` و`?document=` و`?family=` —
+    **ومع ذلك ينجح الطلب ويُعيد `200` ببيانات خاطئة**.
+
+    وقد وقع فعلاً: **البحث في الأرشيف لم يعمل، والنقر على مستند جلب كل
+    المقاطع، والتصفية بالعائلة لم تفعل شيئاً** — عطبٌ واحد أخفى ثلاث ميزات،
+    ولم يُكشف إلا باختبار حقيقي على أرشيف حقيقي.
+    """
+
+    ROUTE = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "frontend"
+        / "app"
+        / "api"
+        / "[...path]"
+        / "route.ts"
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = self.ROUTE.read_text(encoding="utf-8")
+
+    def test_route_file_exists(self):
+        self.assertTrue(self.ROUTE.exists(), f"مفقود: {self.ROUTE}")
+
+    def test_forwards_the_query_string(self):
+        """🔑 **العطب الذي وقع فعلاً** — معاملات العنوان يجب أن تُمرَّر."""
+        self.assertIn(
+            "request.nextUrl.search",
+            self.source,
+            "الوسيط يُسقط معاملات العنوان (?search= · ?document= · ?family=)",
+        )
+
+    def test_query_string_is_appended_to_the_target(self):
+        """
+        ولا يكفي أن يُقرأ — بل يجب أن يُلحَق بالعنوان المقصود.
+
+        ⚠️ وفحصٌ نصّي بسيط لا regex: الأول تشوّه في التمرير ففشل **وهو محقّ**،
+        والدرس أن الفحص الهشّ يُشغِل وقتاً في نفسه لا في العطب.
+        """
+        self.assertIn(
+            '${request.nextUrl.search}',
+            self.source,
+            "العنوان المقصود لا يحمل معاملات العنوان",
+        )
+
+    def test_still_forwards_the_body_for_writes(self):
+        """وبه لا يُكسر ما يعمل: الجسم والبثّ كما كانا."""
+        self.assertIn("request.text()", self.source)
+        self.assertIn("upstream.body", self.source)
+
+    def test_token_is_still_added_on_the_server(self):
+        """
+        والرمز يُضاف على الخادم ولا يعبر إلى المتصفح.
+
+        ⚠️ والفحص على **أسطر الكود وحدها**: `NEXT_PUBLIC_` مذكورة في تعليق
+        يحذّر من استخدامها، فلو فُحص الملف كله لفشل الاختبار **وهو محقّ**.
+        """
+        self.assertIn("API_TOKEN", self.source)
+        self.assertIn("authorization", self.source)
+
+        code = "\n".join(
+            line
+            for line in self.source.splitlines()
+            if not line.lstrip().startswith(("*", "//", "/*"))
+        )
+        self.assertNotIn("NEXT_PUBLIC_", code, "بادئة حسّاسة في كود المتصفح")
+
+
 class TestOfficeSceneContract(MainTestBase):
     """
     مفاتيح مشهد المكتب في الواجهة تطابق مفاتيح الخادم.

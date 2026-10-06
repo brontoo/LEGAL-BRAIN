@@ -36,7 +36,28 @@ type Context = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, context: Context): Promise<Response> {
   const { path } = await context.params;
-  const target = `${BACKEND_URL}/${path.join("/")}`;
+
+  /*
+   * ⚠️⚠️ **ولا يجوز حذف `search` من هنا — وهذا أهمّ سطر في الملف.**
+   *
+   * كان الوسيط يبني العنوان هكذا:
+   *     const target = `${BACKEND_URL}/${path.join("/")}`;
+   *
+   * **بلا `request.nextUrl.search`** — فكانت **كل معاملات العنوان تُرمى في
+   * الطريق**: `?search=` و`?document=` و`?family=` و`?limit=`.
+   *
+   * ⚠️ **والنتيجة عطب واحد أخفى أربع ميزات، وبصمت:**
+   *   • البحث في الأرشيف **لا يعمل** — الدالّة تستقبل الفراغ فتُعيد كل شيء
+   *   • النقر على مستند **يجلب كل المقاطع** لا مقاطعه
+   *   • التصفية بالعائلة **لا تفعل شيئاً**
+   *   • و`?limit=5` في لوحة القيادة كان يجلب ٥٠
+   *
+   * و**لم يكن يُنتج خطأً واحداً**: الطلب ينجح، والحالة `200`، والبيانات تُعرض
+   * — لكنها **البيانات الخاطئة**. وهو أسوأ أنواع العطب: صامت ويبدو سليماً.
+   *
+   * ⚠️ ولم يُكشف إلا باختبار حقيقي: بحثٌ لا يُصفّي، ونقرةٌ تُظهر الكل.
+   */
+  const target = `${BACKEND_URL}/${path.join("/")}${request.nextUrl.search}`;
 
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
