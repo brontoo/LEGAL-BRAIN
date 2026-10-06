@@ -968,7 +968,7 @@ export default function Library() {
                 <div className="mt-10">
                   {orderedChunks.map((chunk) => (
                     <p
-                      key={chunk.id}
+                      key={`${chunk.family}-${chunk.id}`}
                       className="mt-5 whitespace-pre-line break-words font-heading text-[15px] leading-loose text-[#16130F]"
                     >
                       {chunk.content || "—"}
@@ -1086,7 +1086,7 @@ export default function Library() {
           <div className="space-y-3">
             {chunks.map((chunk) => (
               <ChunkCard
-                key={chunk.id}
+                key={`${chunk.family}-${chunk.id}`}
                 chunk={chunk}
                 term={appliedSearch}
                 onOpenDocument={openDocument}
