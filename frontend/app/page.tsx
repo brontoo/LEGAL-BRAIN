@@ -1,386 +1,161 @@
-"use client";
+import Link from "next/link";
+import { Letterhead } from "@/components/letterhead";
 
 /**
- * لوحة القيادة — أرقام حقيقية من قاعدة البيانات.
+ * الصفحة الرئيسية — «غلاف الملف».
  * ============================================================================
- * ⚠️ ما كان هنا قبل هذا التغيير:
+ * ⚠️ وما كان هنا قبل هذا التغيير، ولماذا حُذف:
  *
- *   «إجمالي المستندات ١٢٤٨»        ← رقم مكتوب بخط اليد
- *   «الأسانيد المستخرجة ٨٥٣٠»      ← رقم مكتوب بخط اليد، **ووصفه خطأ واقعي**:
- *                                    «من أرشيف Qdrant» والأرشيف في Supabase/pgvector
- *   «متوسط وقت الصياغة ١٤ ثانية»   ← **لا يمكن حسابه**: لا شيء في المشروع يقيس الزمن
- *   «حالة السرب — Gemini 3.8 Flash» ← «السرب» مكتبة `smart_office.py` **غير مستخدَمة
- *                                    في المنتج**، واسم النموذج غير صحيح
- *   الرسم البياني وقائمة المستندات  ← مصفوفتان مكتوبتان في الملف
+ *   • **أربع بطاقات إحصاء** (مستندات · مقاطع · تصحيحات · حالة الخادم)
+ *   • **رسم بياني** (Recharts) لتوزيع الأرشيف على العائلات
  *
- * فالأرقام كلها لا أصل لها. وهذه الصفحة تعرض الآن:
- *   • مستندات الأرشيف ومقاطعه — من `archive_overview()`
- *   • التصحيحات المحفوظة       — من `GET /revisions/stats` (المادة الخام للأسلوب)
- *   • حالة الخادم              — من `GET /health` فعلاً
+ * وكلها **أرقام**. والرقم في لوحة قيادة يقول «هذا نظام يُقاس» — وهو **منطق
+ * مُشغِّل خدمة لا مكتب محامٍ**. والمحامي لا يفتح مكتبه ليقرأ عدّادات؛ يفتحه
+ * **ليبدأ عملاً**.
  *
- * ⚠️ و«متوسط وقت الصياغة» **حُذف ولم يُستبدل برقم مثله**: لا يوجد ما يقيسه.
- *    فإبقاؤه بقيمة مخترعة أسوأ من حذفه.
+ * ⚠️ والبديل مأخوذ من الشيء نفسه: **الصفحة الأولى في ملف القضية**.
+ *    ترويسة، ثم تاريخ، ثم سطر يبدأ منه العمل، ثم فهرس. **بلا رقم واحد.**
+ *
+ * ⚠️ ولهذا صار `recharts` **غير مستخدم في المشروع كله**. ولم أحذفه من
+ *    `package.json` عن قصد: حذفه من الملف وحده **يُبقي ملف القفل غير متوافق**
+ *    فيفشل `npm ci`. والصواب أن تنفّذ أنت:
+ *
+ *        cd frontend && npm uninstall recharts
+ *
+ *    فيتولّى npm تحديث الاثنين معاً، **ويوفّر مساحة** — وهي حاجة قائمة عندك.
+ *
+ * ⚠️ وهي **مكوّنة خادم** (بلا `"use client"`): لا حالة ولا تفاعل. و
+ *    `force-dynamic` يجعل التاريخ يُحسب **عند كل طلب** لا عند البناء، فلا
+ *    يتجمّد على يوم النشر.
  */
 
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { EngravedIcon } from "@/components/engraved-icon";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  LabelList,
-  ResponsiveContainer,
-} from "recharts";
-import { DataNotice, MetricValue } from "@/components/data-notice";
+export const dynamic = "force-dynamic";
 
-const API_URL = "/api";
+/** المداخل الثلاثة — كفهرس ملف، لا كأزرار. */
+const PLACES = [
+  {
+    index: "٠١",
+    href: "/workspace",
+    title: "مساحة الصياغة",
+    note: "اكتب الوقائع، ويصوغ الفريق المستند",
+  },
+  {
+    index: "٠٢",
+    href: "/library",
+    title: "الأرشيف والمكتبة",
+    note: "ما يستند إليه الفريق في الصياغة",
+  },
+  {
+    index: "٠٣",
+    href: "/credits",
+    title: "الإسناد والرخص",
+    note: "ما نستخدمه من أعمال غيرنا",
+  },
+];
 
-/**
- * ما يُعرض حين تكون دوالّ الأرشيف غير منشأة بعد.
- *
- * ولا نُدرج الدوالّ كاملة هنا: هي نحو ثمانين سطراً في `schema.sql`، ونسخة
- * ثانية منها في الواجهة **تنحرف عن الأصل** — وهو العطب الذي تكرّر في هذا
- * المشروع أكثر من غيره. فنُحيل إلى المصدر الواحد.
- */
-const SELECT_ARCHIVE_SQL = `-- افتح schema.sql وانسخ القسم ١١ كاملاً
---   archive_overview()  ·  archive_documents(...)
--- ثم نفّذه في Supabase ← SQL Editor
-
--- وللتحقّق بعد التنفيذ (يجب أن يعيد خمسة صفوف):
-select * from archive_overview();`;
-
-/** عائلة واحدة من الأرشيف — مفتاح آلي ووسم عربي معاً. */
-type Family = {
-  key: string;
-  label: string;
-  documents: number;
-  chunks: number;
-  latest_added: string | null;
-};
-
-type Overview = { documents: number; chunks: number; families: Family[] };
-
-type RevisionStats = {
-  count: number;
-  median_edit_ratio: number;
-  target: number;
-  progress_percent: number;
-};
-
-type Health = {
-  status: string;
-  version: string;
-  tools: string[];
-  auth_required: boolean;
-  citation_verification: boolean;
-  revision_capture: boolean;
-};
-
-/** رسالة خطأ موحّدة من ردّ الخادم — تُعرض كما هي لأنها تحمل الخطوة المطلوبة. */
-async function failureOf(response: Response): Promise<string> {
-  const text = await response.text();
-  try {
-    const parsed = JSON.parse(text) as { detail?: string };
-    return parsed.detail || `HTTP ${response.status}`;
-  } catch {
-    return text.slice(0, 300) || `HTTP ${response.status}`;
-  }
+/** التاريخ بالعربية — يُحسب عند الطلب، ولا يُخترع ولا يُخزَّن. */
+function todayInArabic(): string {
+  return new Intl.DateTimeFormat("ar-AE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
 }
 
-export default function Dashboard() {
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [revisions, setRevisions] = useState<RevisionStats | null>(null);
-  const [health, setHealth] = useState<Health | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [archiveError, setArchiveError] = useState("");
-  const [revisionsError, setRevisionsError] = useState("");
-  const [healthError, setHealthError] = useState("");
-
-  useEffect(() => {
-    let alive = true;
-
-    const load = async () => {
-      /*
-       * `allSettled` لا `all`: فلو كان جدول التصحيحات غير منشأ (القسم ١٠)، لا
-       * يجوز أن تُفرغ الصفحة كلها. كل بطاقة تُخطئ وحدها.
-       *
-       * ⚠️ ولم يبقَ نداء `/archive/documents`: كان يجلب «أحدث ما أُضيف»،
-       *    وترتيبه بالتاريخ. وبعد أن صارت تواريخ أربع عائلات **متطابقة**
-       *    (وقت إضافة العمود) لم يعد «الأحدث» يعني شيئاً — فالصفوف الخمسة
-       *    عشوائية والصفحة تقول «منذ ٣ دقائق» عن مستندات قديمة. فاستُبدلت
-       *    البطاقة بتفصيل العائلات، وهو من `/archive/overview` نفسه.
-       */
-      const [overviewResult, revisionsResult, healthResult] =
-        await Promise.allSettled([
-          fetch(`${API_URL}/archive/overview`),
-          fetch(`${API_URL}/revisions/stats`),
-          fetch(`${API_URL}/health`),
-        ]);
-
-      if (!alive) return;
-
-      if (overviewResult.status === "fulfilled" && overviewResult.value.ok) {
-        setOverview((await overviewResult.value.json()) as Overview);
-      } else if (overviewResult.status === "fulfilled") {
-        setArchiveError(await failureOf(overviewResult.value));
-      } else {
-        setArchiveError("تعذّر الوصول إلى الخادم.");
-      }
-
-      if (revisionsResult.status === "fulfilled" && revisionsResult.value.ok) {
-        setRevisions((await revisionsResult.value.json()) as RevisionStats);
-      } else if (revisionsResult.status === "fulfilled") {
-        setRevisionsError(await failureOf(revisionsResult.value));
-      } else {
-        setRevisionsError("تعذّر الوصول إلى الخادم.");
-      }
-
-      if (healthResult.status === "fulfilled" && healthResult.value.ok) {
-        setHealth((await healthResult.value.json()) as Health);
-      } else {
-        setHealthError("الخادم لا يستجيب.");
-      }
-
-      setLoading(false);
-    };
-
-    void load();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const families = overview?.families ?? [];
-  const total = overview?.chunks ?? 0;
-  const chartData = families.map((item) => ({ name: item.label, المقاطع: item.chunks }));
-  const archiveIsEmpty = !loading && !archiveError && total === 0;
-
-  /*
-   * ⚠️ وأصغر عائلتين تُحسبان هنا لا في الرسم.
-   *
-   * السبب أن الرسم **لا يستطيع إظهارهما**: التشريعات ٩٤٪ من الأرشيف، فعمود
-   * المذكرات يصير خطّاً لا يُرى. والرسم حينها يقول «التشريعات أكبر» — وهي
-   * معلومة يعطيها رقم واحد — **ويُخفي السؤال النافع: أين نقص أرشيفي؟**
-   *
-   * فالنقص يُقال بكلام صريح، لا بعمود لا يُرى.
-   */
-  const smallest = [...families]
-    .filter((item) => item.chunks > 0)
-    .sort((a, b) => a.chunks - b.chunks)
-    .slice(0, 2);
-  const smallShare = smallest.map((item) =>
-    ((item.chunks / Math.max(total, 1)) * 100).toFixed(1)
-  );
-
+export default function Home() {
   return (
-    <div className="space-y-8">
-      {archiveError && (
-        <DataNotice
-          tone="error"
-          title="تعذّر قراءة الأرشيف"
-          detail={archiveError}
-          action={archiveError.includes("القسم ١١") ? SELECT_ARCHIVE_SQL : undefined}
-        />
-      )}
+    <div className="mx-auto max-w-3xl">
+      {/*
+        الورقة — سطح واحد بحدّ رفيع، لا بطاقات متجاورة.
 
-      {/* البطاقات العلوية — كلها من بيانات حقيقية */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="bg-slate-900 border-slate-800 text-white">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg font-medium text-slate-300">مستندات الأرشيف</CardTitle>
-            <EngravedIcon name="papers" className="size-5 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <MetricValue value={overview?.documents ?? 0} loading={loading} failed={!!archiveError} />
-            <p className="text-sm text-slate-400 mt-2">
-              {archiveError ? "غير متاح" : `في ${families.length || 5} عائلات قانونية`}
-            </p>
-          </CardContent>
-        </Card>
+        ⚠️ وهو الفرق بين «صفحة» و«لوحة»: اللوحة تُقسَّم إلى مربّعات متجاورة،
+        والصفحة **سطح متّصل** يُقرأ من أعلى إلى أسفل.
+      */}
+      <article className="border border-slate-800 bg-slate-900">
+        {/* ── الترويسة ── */}
+        <header className="border-b border-slate-800 px-10 py-9">
+          <Letterhead />
+        </header>
 
-        <Card className="bg-slate-900 border-slate-800 text-white">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg font-medium text-slate-300">المقاطع المفهرسة</CardTitle>
-            <EngravedIcon name="book-cover" className="size-5 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <MetricValue value={overview?.chunks ?? 0} loading={loading} failed={!!archiveError} />
-            <p className="text-sm text-slate-400 mt-2">Supabase · pgvector · ١٠٢٤ بُعداً</p>
-          </CardContent>
-        </Card>
+        {/* ── ما يُبدأ منه العمل ── */}
+        <section className="relative border-b border-slate-800 py-10 pe-10 ps-14">
+          {/*
+            ⚠️ الهامش — وهو من **الورق المسطّر القانوني**، حيث يفصل خطّ رأسي
+            الحاشية عن متن الورقة.
 
-        <Card className="bg-slate-900 border-slate-800 text-white">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg font-medium text-slate-300">التصحيحات المحفوظة</CardTitle>
-            <EngravedIcon name="stamper" className="size-5 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <MetricValue
-              value={revisions?.count ?? 0}
-              loading={loading}
-              failed={!!revisionsError}
-            />
-            <p className="text-sm text-slate-400 mt-2">
-              {revisionsError
-                ? revisionsError.slice(0, 60)
-                : revisions
-                  ? `${revisions.progress_percent}٪ من هدف ${revisions.target} زوجاً`
-                  : "—"}
-            </p>
-          </CardContent>
-        </Card>
+            وبلون الختم `seal` لا بالأحمر الدلالي: فهو **حدّ ورقة** لا تنبيه.
+            وبشفافية عالية لأن الهامش **يُحسّ ولا يُقرأ** — ولو ظهر لصار زينة.
+          */}
+          <span
+            className="absolute inset-y-6 start-7 w-px bg-seal/25"
+            aria-hidden="true"
+          />
 
-        <Card className="bg-slate-900 border-slate-800 text-white">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg font-medium text-slate-300">حالة الخادم</CardTitle>
-            <EngravedIcon
-              name="checked-shield"
-              className={`size-5 ${healthError ? "text-red-500" : "text-emerald-500"}`}
-            />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${healthError ? "text-red-400" : "text-emerald-500"}`}>
-              {loading ? "—" : healthError ? "غير متصل" : "متصل وجاهز"}
-            </div>
-            <p className="text-sm text-slate-400 mt-2">
-              {health
-                ? [
-                    `${health.tools.length} أدوات`,
-                    health.citation_verification ? "تحقّق الأسانيد مُفعَّل" : "التحقّق معطّل",
-                    health.auth_required ? "المصادقة مُفعَّلة" : "⚠️ بلا مصادقة",
-                  ].join(" · ")
-                : "—"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+          <p className="font-heading text-sm text-slate-500">{todayInArabic()}</p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* الرسم البياني — توزيع الأرشيف الحقيقي على العائلات */}
-        <Card className="col-span-2 bg-slate-900 border-slate-800 text-white">
-          <CardHeader>
-            <CardTitle className="text-xl">توزيع الأرشيف على العائلات</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[350px]">
-            {archiveIsEmpty ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  الأرشيف فارغ — ارفع مستنداتك عبر أدوات الاستيعاب ليظهر توزيعها هنا.
-                </p>
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                {/* أعمدة أفقية: أوصاف العائلات عربية طويلة، والمحور الرأسي يقرؤها */}
-                <BarChart
-                  data={chartData}
-                  layout="vertical"
-                  margin={{ top: 10, right: 70, left: 10, bottom: 10 }}
+          <h1 className="mt-6 font-heading text-2xl leading-relaxed text-slate-100">
+            ابدأ الصياغة
+          </h1>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-400">
+            اكتب الوقائع، ويصوغ الفريق المستند كاملاً مسنداً إلى أرشيفك — مع
+            التحقّق من كل سند قبل التسليم.
+          </p>
+
+          <Link
+            href="/workspace"
+            className="mt-7 inline-flex items-center gap-2 border border-amber-500/40 px-5 py-2.5 text-sm text-amber-500 transition-colors hover:border-amber-500 hover:bg-amber-500/10"
+          >
+            ابدأ الصياغة
+            {/* السهم في اتجاه القراءة — RTL */}
+            <span aria-hidden="true">←</span>
+          </Link>
+        </section>
+
+        {/* ── الفهرس ── */}
+        <nav className="relative py-2 pe-10 ps-14">
+          <span
+            className="absolute inset-y-4 start-7 w-px bg-seal/25"
+            aria-hidden="true"
+          />
+
+          <ul>
+            {PLACES.map((place) => (
+              <li key={place.href}>
+                <Link
+                  href={place.href}
+                  className="group flex items-baseline gap-4 border-b border-slate-800/60 py-4 last:border-0"
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                  <XAxis type="number" stroke="#64748b" tick={{ fill: "#64748b" }} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={150}
-                    stroke="#64748b"
-                    tick={{ fill: "#94a3b8", fontSize: 13 }}
-                  />
-                  <Tooltip
-                    cursor={{ fill: "#1e293b" }}
-                    contentStyle={{
-                      backgroundColor: "#0f172a",
-                      borderColor: "#1e293b",
-                      borderRadius: "8px",
-                      color: "#fff",
-                    }}
-                  />
-                  {/*
-                    الرقم عند نهاية كل عمود — وبلا هذا لا تُقرأ أربع عائلات.
-                    التشريعات ٩٤٪ من الأرشيف، فعمود «المذكرات» يصير خطّاً لا
-                    يُرى. والرقم المكتوب يُقرأ ولو كان العمود نفسه غير مرئي.
-                  */}
-                  <Bar dataKey="المقاطع" fill="#f59e0b" radius={[0, 4, 4, 0]} barSize={26}>
-                    <LabelList
-                      dataKey="المقاطع"
-                      position="right"
-                      fill="#94a3b8"
-                      fontSize={12}
-                      formatter={(value: number) => value.toLocaleString("ar-AE")}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-
-            {/* والنقص يُقال بكلام صريح لا بعمود لا يُرى */}
-            {!archiveIsEmpty && smallest.length > 0 && (
-              <p className="mt-3 text-xs text-slate-500">
-                أصغر عائلتين:{" "}
-                {smallest.map((item, index) => (
-                  <span key={item.key}>
-                    {index > 0 && " · "}
-                    <span className="text-slate-400">{item.label}</span>{" "}
-                    ({item.chunks.toLocaleString("ar-AE")} مقطعاً = {smallShare[index]}٪)
+                  <span className="font-mono text-[11px] tabular-nums text-slate-600">
+                    {place.index}
                   </span>
-                ))}
-                {" — "}وهما أولى ما يحتاج الرفع، فالأسلوب يُقلَّد من الصياغات لا من
-                التشريعات.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/*
-          تفصيل العائلات — بديل «أحدث ما أُضيف».
-
-          ⚠️ ولماذا استُبدلت تلك البطاقة؟ لأن تواريخ أربع عائلات من خمس صارت
-          **متطابقة** (وقت إضافة العمود بـ`alter table`)، والترتيب بالتاريخ
-          صار **عشوائياً**: تعرض خمسة مستندات عشوائية وتقول عنها «منذ ٣ دقائق».
-
-          وهذه البطاقة تعرض ما هو **حقيقي دائماً**: عدد كل عائلة ونصيبها. ولا
-          تعتمد على عمود تاريخ أصلاً.
-        */}
-        <Card className="bg-slate-900 border-slate-800 text-white">
-          <CardHeader>
-            <CardTitle className="text-xl">تفصيل العائلات</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <p className="text-sm text-slate-500">…</p>
-            ) : archiveError ? (
-              <p className="text-sm text-slate-500">غير متاح.</p>
-            ) : families.length === 0 ? (
-              <p className="text-sm text-slate-500">لا عائلات.</p>
-            ) : (
-              <div className="space-y-4">
-                {families.map((item) => (
-                  <div
-                    key={item.key}
-                    className="border-b border-slate-800 pb-3 last:border-0 last:pb-0"
+                  <span className="flex-1">
+                    <span className="block text-base text-slate-200 transition-colors group-hover:text-amber-500">
+                      {place.title}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      {place.note}
+                    </span>
+                  </span>
+                  <span
+                    className="text-slate-700 transition-colors group-hover:text-amber-500"
+                    aria-hidden="true"
                   >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-sm font-medium text-slate-200">
-                        {item.label}
-                      </span>
-                      <span className="shrink-0 font-mono text-xs text-slate-400">
-                        {((item.chunks / Math.max(total, 1)) * 100).toFixed(1)}٪
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {item.documents.toLocaleString("ar-AE")} مستنداً ·{" "}
-                      {item.chunks.toLocaleString("ar-AE")} مقطعاً
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                    ←
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        {/* ── ذيل الورقة — بلا رقم واحد ── */}
+        <footer className="border-t border-slate-800 px-10 py-5">
+          <p className="text-[11px] tracking-[0.15em] text-slate-600">
+            الأرشيف جاهز · الفريق في مقاعده
+          </p>
+        </footer>
+      </article>
     </div>
   );
 }
