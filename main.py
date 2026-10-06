@@ -49,9 +49,11 @@ from citations import (
     unbacked_article_refs,
     verify_citations,
 )
-from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence, get_supabase
+from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence, get_supabase, llm
 from language_audit import audit_language
 from language_audit import summarize as summarize_language_audit
+from review import build_review_prompt, parse_review
+from review import summarize as summarize_review
 from revisions import RevisionRejected, build_revision, summarize
 
 load_dotenv()
@@ -144,6 +146,7 @@ STAGE_DRAFTING = "الفريق القانوني يصوغ المستند الآن
 STAGE_VERIFYING = "المفتش ثُغرة يراجع كل سند قبل التسليم..."
 STAGE_POLISHING = "سيبويه المُكشّر يضبط الصياغة..."
 STAGE_SEALING = "المعلم أبو الختم يعتمد المستند ويختمه..."
+STAGE_REVIEWING = "المفتش ثُغرة يقرأ المسودّة كخصم قبل التسليم..."
 
 
 # ------------------------------------------------------------------------------
@@ -164,6 +167,7 @@ KEY_DRAFTING = "drafting"
 KEY_VERIFYING = "verifying"
 KEY_POLISH = "polish"
 KEY_SEAL = "seal"
+KEY_REVIEW = "review"
 
 #: من اسم الأداة إلى مفتاح الشخصية التي تشتغل.
 TOOL_STAGE_KEYS = {
@@ -547,11 +551,110 @@ def _stream_agent(messages: list):
         yield ("stage", StageEvent(KEY_POLISH, STAGE_POLISHING))
         yield ("language", summarize_language_audit(audit_language(clean)))
 
+        # المفتش ثُغرة — القراءة الثانية. وقبل الختم، فلا يُختم إلا بعد مراجعة.
+        yield ("stage", StageEvent(KEY_REVIEW, STAGE_REVIEWING))
+        yield ("review", _review_round(_brief_from(messages), clean, _evidence_text(evidence)))
+
         # المعلم أبو الختم — لا عمل بعد الختم إلا التسليم
         yield ("stage", StageEvent(KEY_SEAL, STAGE_SEALING))
         yield ("final", clean)
     else:
         yield ("final", "")
+
+
+def _evidence_text(evidence: list) -> str:
+    """
+    نصّ المقاطع كاملاً — وهو **سند المُراجع**.
+
+    ⚠️ ولا يُرسَل مع حقل التشابه ولا المُعرّف: المُراجع يحتاج أن ينقل نصّاً
+    حرفياً من سند، **فلا يُعطى إلا النصّ**.
+    """
+    parts = []
+    for item in evidence:
+        text = getattr(item, "text", "") or ""
+        if text.strip():
+            parts.append(f"[{getattr(item, 'ref', '')}] {text}")
+    return "\n\n".join(parts)
+
+
+def _brief_from(messages: list) -> str:
+    """
+    موجز المحامي — آخر رسالة بشرية في المحاورة.
+
+    ⚠️ وهو **مرجع المُراجع**: به يحكم على المسودّة، وإليه يعود كل سند ينقله.
+    ⚠️ ويُقرأ من `messages` لا كمتغيّر منفصل، **لأن `/chat` يرسل المحاورة كلها
+    وتكون آخر رسالة هي السؤال الأحدث** — وهو الموجز في الحالتين.
+    """
+    for message in reversed(messages or []):
+        if isinstance(message, (tuple, list)) and len(message) == 2:
+            role, text = message
+            if str(role).lower() not in ("system",):
+                return str(text)
+            continue
+        # رسالة LangChain: نستبعد رسائل النظام وحدها
+        if type(message).__name__ in ("SystemMessage",):
+            continue
+        maybe = _message_text(message)
+        if maybe.strip():
+            return maybe
+    return ""
+
+
+def _message_text(message) -> str:
+    """يستخرج نصّ رسالة LangChain بصيغةٍ واحدة."""
+    content = getattr(message, "content", message)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks = []
+        for part in content:
+            if isinstance(part, str):
+                chunks.append(part)
+            elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                chunks.append(part["text"])
+        return "".join(chunks)
+    return str(content or "")
+
+
+def _review_round(brief: str, draft: str, evidence_text: str) -> dict:
+    """
+    المراجعة الثانية — «المفتش ثُغرة» يقرأ المسودّة **كخصم لا كصديق**.
+
+    ⚠️ وهذا الفريق الذي بُني في `smart_office.py` **ولم يكن مستخدماً**: مسوَدَّة
+    أفندي يكتب، ثم مُدقّق يقرأ. والكتابة بلا قارئ ثانٍ هي ما جعل مسودّة كريم
+    منصور تمرّ وفيها تاريخ خاطئ وأساس حساب خاطئ ومادة مُغفَلة.
+
+    ⚠️ **والأمانة التقنية كلها في `review.py`**: كل اعتراض يجب أن يحمل نصّاً
+    منقولاً حرفياً من المسودّة وسنداً منقولاً حرفياً من الموجز أو المقاطع،
+    **والخادم يتحقّق من الاثنين** (`quote_in_text`). فاعتراض لا يُثبت نصّه
+    **يُطرح ولا يُعرض على المحامي**.
+
+    ⚠️ **والفشل هنا لا يُسقط التوليد أبداً** — لكنه **يُعلَن** (`failed: True`)
+    ولا يُسكَت عنه. فمسودّة بلا مراجعة أفضل من توليد منقطع، **ومراجعة تُوهم
+    أنها جرت أسوأ من الاثنين**.
+    """
+    if not draft.strip():
+        return {}
+
+    try:
+        raw = _message_text(llm.invoke(build_review_prompt(brief, draft, evidence_text)))
+        outcome = parse_review(raw, draft, brief, evidence_text)
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n[Review] ⚠️ تعذّرت المراجعة الثانية: {type(exc).__name__}: {exc}")
+        return {
+            "summary": f"تعذّرت المراجعة الثانية: {type(exc).__name__}",
+            "clean": True,
+            "error_count": 0,
+            "notice_count": 0,
+            "dropped": 0,
+            "findings": [],
+            "failed": True,
+        }
+
+    report = summarize_review(outcome.findings, outcome.dropped)
+    report["failed"] = False
+    print(f"\n[Review] 🛡️ اعتراضات: {report['error_count']} · ملاحظات: {report['notice_count']}")
+    return report
 
 
 def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
@@ -623,6 +726,8 @@ async def _sse_generator(messages: list) -> AsyncIterator[str]:
                     emit({"type": "citations", "report": payload})
                 elif kind == "language":
                     emit({"type": "language", "report": payload})
+                elif kind == "review":
+                    emit({"type": "review", "report": payload})
                 elif kind == "final":
                     if payload:
                         emit({"type": "done", "document": payload})
