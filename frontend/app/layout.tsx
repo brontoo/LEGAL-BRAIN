@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Amiri, Noto_Kufi_Arabic } from "next/font/google";
 import "./globals.css";
 import { SiteNav } from "@/components/site-nav";
+import { Letterhead } from "@/components/letterhead";
 
 /**
  * الترويسة والإطار العام — هوية «المحفوظات».
@@ -65,30 +66,14 @@ export default function RootLayout({
         {/* القائمة الجانبية — مصنّف الملفات */}
         <aside className="flex w-72 flex-col border-s border-slate-800 bg-slate-900">
           {/*
-            ترويسة شخصية — **اسم صاحب المكتب لا اسم شركة**.
+            ⚠️ الترويسة صارت **مكوّناً** لا أسطراً مكتوبة هنا.
 
-            ⚠️ والفرق ليس تجميلاً: «مكتب المحاماة والاستشارات» عبارة تصلح لأي
-            جهة فلا تقول شيئاً. أما **اسمٌ واحد ولقبٌ واحد** فيقولان إن هذا
-            المكتب **لشخص بعينه** — وهو أول ما يميّز مساحة عمل عن قالب.
+            والسبب أن الترويسة ستُستعمل في موضعين: رأس القائمة الجانبية،
+            **و** رأس المستند المُصدَّر. ونسختان من نفس الترويسة **تنحرفان** —
+            وهو العطب الذي تكرّر في هذا المشروع أكثر من غيره.
           */}
-          <div className="border-b border-slate-800 px-5 py-5">
-            <div className="flex items-center gap-2.5">
-              <span className="h-6 w-1 bg-amber-500" aria-hidden="true" />
-              <span className="font-heading text-2xl leading-none text-slate-50">
-                أحمد عيد
-              </span>
-            </div>
-            {/* الخطّ المزدوج الرفيع — من ترويسات الخطابات الرسمية */}
-            <div className="mt-3 space-y-[3px]" aria-hidden="true">
-              <div className="h-px bg-slate-700" />
-              <div className="h-px bg-slate-800" />
-            </div>
-            <p className="mt-2 text-[10px] tracking-[0.25em] text-slate-500">
-              المستشار القانوني
-            </p>
-            <p className="mt-1 text-[10px] tracking-[0.25em] text-slate-700">
-              العقل القانوني
-            </p>
+          <div className="border-b border-slate-800 px-5 py-6">
+            <Letterhead compact />
           </div>
 
           <SiteNav />
