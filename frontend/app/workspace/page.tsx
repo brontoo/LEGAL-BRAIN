@@ -12,12 +12,44 @@ import {
   ShieldCheck,
   ShieldAlert,
   Unlink,
+  // مدخلات الفحوص الأربعة: طيّ المجموعات وإضافة البنود وحذفها.
+  ChevronDown,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { OfficeScene, TeamStrip } from "@/components/office-scene";
 import { ReviewPanel, type ReviewReport } from "@/components/review-panel";
+// مدخلات الفحوص الأربعة — الحساب هناك بلا JSX ليُقاس بالتشغيل، والعرض هنا.
+import {
+  AXIS_OPTIONS,
+  CASE_STAGE_OPTIONS,
+  CONVENTION_OPTIONS,
+  DISPUTE_TYPE_OPTIONS,
+  PARTY_OPTIONS,
+  RULE_FAMILY_OPTIONS,
+  SOURCE_KIND_OPTIONS,
+  STAGE_OPTIONS,
+  UNIT_OPTIONS,
+  buildGeneratePayload,
+  describeInputProblems,
+  emptyAuthority,
+  emptyDeadlineRule,
+  emptyDefence,
+  emptyGenerateInputs,
+  emptyMatrixItem,
+  emptyRule,
+  type AuthorityForm,
+  type DeadlineRuleForm,
+  type DefenceForm,
+  type EnumOption,
+  type GenerateInputsState,
+  type MatrixItemForm,
+  type RuleForm,
+} from "./generate-inputs";
 
 // كل النداءات تمر عبر وسيط Next.js على /api — انظر app/api/[...path]/route.ts
 //
@@ -517,22 +549,15 @@ type StreamEvent =
   | { type: "error"; message: string };
 
 /**
- * حمل الطلب لأربعة فحوص لا تُخترع مدخلاتها — **مفتاحاً بمفتاح كما تقرأه
- * بواني الخادم**.
+ * ⚠️ **وقد بُنيت المدخلات — فانتَقل الحمل وبناؤه إلى `./generate-inputs`.**
  *
- * الأسماء هي أسماء مُحوِّلات `main.py` حرفياً: `_matrix_from_payload`
- * (`claims` · `defences` · `stage` · `our_party`) و`_register_from_payload`
- * (`authorities`) و`_deadlines_from_payload` (`rules`) و`_rules_from_payload`
- * (`rules`). والتصنيفات (المحور · المرحلة · نوع السند) **نصوصٌ مطابقة لقيم
- * وحدات الخادم**، لأن الوحدة ترفض النصّ الحرّ.
+ * وسببُ نقله من هنا: أن **يُقاس بالتشغيل لا بالقراءة**. فالحساب هناك بلا JSX
+ * وبلا React، فيُشغَّل في Node مباشرة (`scripts/check-generate-inputs.mjs`)
+ * ويُقاس شكلُ الحمل: المفاتيح الأربعة بأسماء مُحوِّلات `main.py`، وقيمُ
+ * التعديد بأعضاء وحدات الخادم، **وغيابُ المفتاح عند الفراغ**.
  *
- * ⚠️ **والغياب هو الحال القائم اليوم**: هذا الكائن فارغ، فالإطارات الأربعة
- * تصل بـ`built: false` وبنصّ الخادم — وهو **«لم تُبنَ» لا «فُحصت فسلمت»**.
- * وبناء مدخلاتها واجهةً (نموذج طلبات ودفوع وسجلّ أسانيد وقواعد) خطوةٌ تالية،
- * ومتى بُنيت **يُملأ هذا الكائن وحده** ولا تُمسّ اللوحات.
- *
- * وحقول كل بند داخلها — من `_item` و`_authority_from` و`_deadline_from`
- * و`_rule_from` في main.py، وهي مرجع من يبني المدخلات لاحقاً:
+ * ⚠️ وحقول كل بند — من `_item` و`_authority_from` و`_deadline_from`
+ * و`_rule_from` في main.py، وهي مرجعٌ لا يُخالَف:
  *
  *  • الطلب/الدفاع: `key` · `label` · `claimed_by` · `elements` ·
  *    `supporting_facts` · `opposing_facts` · `evidence` · `axes_in_dispute` ·
@@ -546,35 +571,6 @@ type StreamEvent =
  *  • القاعدة: `key` · `statement` · `family` · `subject` · `applies_to` ·
  *    `stages` · `source` · `in_force_from` · `supersedes` · `note`.
  */
-type GeneratePayload = {
-  /** `_matrix_from_payload` — وإحدى القائمتين على الأقل لازمة وإلا رُدّ الطلب ٤٠٠. */
-  claims?: {
-    claims?: Record<string, unknown>[];
-    defences?: Record<string, unknown>[];
-    /** القيمة من `Stage` في claims.py — وغيابها يُعلَن «لم يُفحَص». */
-    stage?: string;
-    our_party?: string;
-  };
-  /** `_register_from_payload` — قائمة لازمة غير فارغة. */
-  authority?: { authorities?: Record<string, unknown>[] };
-  /** `_deadlines_from_payload` — القواعد يكتبها المحامي، والمنصّة تحسب ولا تخترع. */
-  deadlines?: { rules?: Record<string, unknown>[] };
-  /** `_rules_from_payload` — والسجلّ الفارغ يُعلَن فارغاً لا ناجحاً. */
-  rules?: { rules?: Record<string, unknown>[] };
-};
-
-/**
- * يبني حمل الطلب — **وموضعُه وُجد ليُملأ، لا ليُكتب فيه اليوم**.
- *
- * ⚠️ ولا يُستنتج من الإطارات المعروضة: استنتاجُ مدخلات فحصٍ من إطار عرضٍ يعني
- * **حاكمَين يفترقان**، والخادم هو موضع التحقّق. فالإطارات تُعرَض، والحمل يُدخَل.
- *
- * وبناء مدخلاتها واجهةً (نموذج طلبات ودفوع وسجلّ أسانيد وقواعد) خطوةٌ تالية،
- * ومتى بُنيت **يُملأ هذا الكائن وحده** ولا تُمسّ اللوحات ولا أنواعها.
- */
-function buildGeneratePayload(): GeneratePayload {
-  return {};
-}
 
 /** ما يُرجعه `POST /revisions` بعد حفظ التصحيح. */
 type RevisionSaveResult = {
@@ -2831,6 +2827,853 @@ function RulesPanel({ frame }: { frame: RulesFrame | null }) {
   );
 }
 
+/* ==============================================================================
+   مدخلات الفحوص الأربعة — **الطلبات والدفوع · الأسانيد · المواعيد · القواعد**.
+
+   ⚠️ **وهي طبقة إدخالٍ لا استنتاج.** ولا يُستنتج حملُ فحصٍ من إطار عرض: استنتاجُ
+   مدخلات فحصٍ من مخرجات مسودّة يعني **حاكمَين يفترقان**، والخادم هو موضع
+   التحقّق. فالإطارات تُعرَض، وهذه الحقول تُدخَل، و`buildGeneratePayload` تجمع.
+
+   ⚠️ **والفراغ يبقى غياباً لا كائناً فارغاً** (`generate-inputs.ts`): اللوحة
+   تقول «لم تُبنَ»، **وهو الصدق نفسه** — لا «فُحصت فسلمت».
+
+   ⚠️ **وكل قيمة تعديد هنا عضوٌ من وحدة الخادم** (`stage` · `claimed_by` ·
+   `kind` · `unit` · `convention_key` · `family`)، ويُرسَل المفتاح الآلي وحده.
+   والعربية تسميةٌ للعرض. فثلاثة أعطابٍ متتالية في هذا المشروع كانت من **إرسال
+   حقل تعديدٍ نصّاً حرّاً**، والخادم يردّه ٤٠٠.
+   ============================================================================== */
+
+/** حقل نصّي بعنوان — على نمط `label` + `Input` في نموذج الصياغة القائم. */
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  className,
+  dir,
+  type,
+  min,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  dir?: "rtl" | "ltr";
+  type?: string;
+  min?: number;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-slate-400">{label}</label>
+      <Input
+        className={`h-auto py-2 bg-slate-950 border-slate-800 text-white text-sm focus-visible:ring-amber-500 ${className ?? ""}`}
+        dir={dir}
+        type={type}
+        min={min}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+/** مساحة نصّية بعدّة أسطر — لحقول القوائم («سطر لكل عنصر»). */
+function LinesField({
+  label,
+  hint,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-slate-400">
+        {label}
+        {hint ? <span className="text-slate-600"> — {hint}</span> : null}
+      </label>
+      <Textarea
+        className="min-h-[64px] bg-slate-950 border-slate-800 focus-visible:ring-amber-500 text-white text-sm resize-y"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+/**
+ * قائمة تعديد — **والقيم أعضاء وحدات الخادم لا نصوص**.
+ *
+ * ⚠️ ونمط `<select>` هو نمط نموذج الصياغة القائم («نوع المستند») بعينه: لا
+ * مصدر خامس للمكوّنات، ولا قائمة تُبنى بغير ما هو موجود.
+ */
+function EnumField({
+  label,
+  value,
+  onChange,
+  options,
+  emptyLabel,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: EnumOption[];
+  /** نصّ الخيار الفارغ — **والغياب يعني «لم يُفحَص» لا «سليم»**. */
+  emptyLabel?: string;
+  className?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-slate-400">{label}</label>
+      <select
+        className={`w-full p-2 bg-slate-950 border border-slate-800 text-white text-sm focus:ring-amber-500 ${className ?? ""}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {/* ⚠️ الخيار الفارغ قيمته `""` لا عضواً مُخمَّناً: الاختيار الفارغ يعني
+            «لم يُدخَل»، وترجمتُه إلى عضوٍ افتراضيّ **تصنع حكماً لم يقله المحامي**
+            («نافذ» أو «ليس محلّ نزاع» — وكلاهما ادّعاء). */}
+        {emptyLabel !== undefined ? <option value="">{emptyLabel}</option> : null}
+        {options.map((option) => (
+          // ⚠️ `value` هو عضو التعديد، والنصّ المعروض عربي — ولا يُرسَل النصّ.
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/** اختيار متعدّد الأزرار — للمحاور (وهي **مجموعة**) وأنواع النزاع والمراحل. */
+function ToggleGroup({
+  label,
+  hint,
+  values,
+  onChange,
+  options,
+}: {
+  label: string;
+  hint?: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  options: EnumOption[];
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-xs font-medium text-slate-400">
+        {label}
+        {hint ? <span className="text-slate-600"> — {hint}</span> : null}
+      </label>
+      <div className="flex flex-wrap gap-1">
+        {options.map((option) => {
+          const chosen = values.includes(option.value);
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={chosen}
+              onClick={() =>
+                onChange(
+                  chosen
+                    ? values.filter((v) => v !== option.value)
+                    : [...values, option.value]
+                )
+              }
+              className={`border px-2 py-1 text-xs transition-colors ${
+                chosen
+                  ? "border-amber-600 bg-amber-600/20 text-amber-200"
+                  : "border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700"
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** ترقيم البنود في المدخلات — والتسمية عربية لأنها للقارئ لا للحقل. */
+const INPUT_ORDINALS = "الأول الثاني الثالث الرابع الخامس السادس السابع الثامن".split(" ");
+
+/**
+ * المجموعة المفتوحة في النموذج.
+ *
+ * ⚠️ **وهي القوائم الأربعة وحدها لا مفاتيح الحالة كلها**: `stage` و`ourParty`
+ * ليسا مجموعةً تُطوى، بل حقلان في رأس مجموعة الطلبات. فلو كُتب النوع
+ * `keyof GenerateInputsState` لَما طابق `"authorities"` (اسم القائمة) ولا
+ * `"claims"` بمعنى المجموعة — وهو فخّ يظهر في `tsc` لا في العين.
+ */
+type InputGroupKey = "claims" | "authority" | "deadlines" | "rules";
+
+function ordinal(index: number): string {
+  return INPUT_ORDINALS[index] ?? `رقم ${index + 1}`;
+}
+
+/** مجموعة قابلة للطيّ — لأن أربع مجموعات مفتوحة تُغرِق النموذج. */
+function InputGroupBox({
+  title,
+  note,
+  count,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  note: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border border-slate-800">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 bg-slate-950/60 px-3 py-2 text-right hover:bg-slate-950"
+      >
+        <span className="text-sm font-medium text-amber-300">{title}</span>
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          {count > 0 ? <span className="text-amber-400">{count} مُدخَل</span> : null}
+          <ChevronDown
+            className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </span>
+      </button>
+      {open ? (
+        <div className="space-y-3 border-t border-slate-800 p-3">
+          <p className="text-xs leading-relaxed text-slate-500">{note}</p>
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** زرّا الإضافة والحذف — بنمط `Button` القائم لا بزرٍّ جديد. */
+function AddRowButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={onClick}
+      className="w-full border-dashed border-slate-700 bg-transparent text-slate-300 hover:bg-slate-900"
+    >
+      <Plus className="ml-1 h-4 w-4" /> {label}
+    </Button>
+  );
+}
+
+function RemoveRowButton({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={title}
+      title={title}
+      className="shrink-0 border border-slate-800 p-1 text-slate-500 transition-colors hover:border-red-900 hover:text-red-400"
+    >
+      <Trash2 className="h-4 w-4" />
+    </button>
+  );
+}
+
+/** إطار بند واحد: رأسه رقمٌ وزرّ حذف، وجسمه الحقول. */
+function ItemBox({
+  title,
+  onRemove,
+  removeTitle,
+  children,
+}: {
+  title: string;
+  onRemove: () => void;
+  removeTitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2 border border-slate-800/70 bg-slate-950/40 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-slate-400">{title}</span>
+        <RemoveRowButton onClick={onRemove} title={removeTitle} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * حقول الطلب أو الدفع — **وهي حقول `_item` في main.py حرفياً**.
+ *
+ * ⚠️ و`is_procedural` يُعرَض على الدفع وحده، لأنه **حكمٌ على الترتيب** لا وصفٌ
+ * للشكل: الإجرائي يُقدَّم لأن ما بعده لا يُبحث قبل استقراره (claims.py).
+ * و`burden` **لا يُعرَض ولا يُرسَل** — يُبنى `UNKNOWN` في الخادم.
+ */
+function MatrixItemFields({
+  item,
+  onChange,
+  prefixes,
+}: {
+  item: MatrixItemForm;
+  onChange: (patch: Partial<MatrixItemForm>) => void;
+  prefixes: string[];
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <Field
+          label="المفتاح الآلي"
+          value={item.key}
+          onChange={(key) => onChange({ key })}
+          placeholder="notice_pay"
+          dir="ltr"
+        />
+        <EnumField
+          label="من يتمسّك به"
+          value={item.claimedBy}
+          onChange={(claimedBy) => onChange({ claimedBy })}
+          options={PARTY_OPTIONS}
+        />
+      </div>
+      <Field
+        label="النصّ كما يُكتب في المذكرة"
+        value={item.label}
+        onChange={(label) => onChange({ label })}
+        placeholder="مكافأة نهاية الخدمة عن مدّة الخدمة كاملة"
+      />
+      <ToggleGroup
+        label="محاور النزاع"
+        hint="مجموعة لا قيمة — والطلب الواحد قد يُنازَع فيه على أكثر من محور"
+        values={item.axes}
+        onChange={(axes) => onChange({ axes })}
+        options={AXIS_OPTIONS}
+      />
+      <LinesField
+        label="عناصر الاستحقاق / أركان الدفع"
+        hint="سطر لكل عنصر، وكل عنصر موضعُ دفعٍ مستقلّ"
+        value={item.elements}
+        onChange={(elements) => onChange({ elements })}
+        placeholder={prefixes[0]}
+      />
+      <div className="grid grid-cols-1 gap-2">
+        <LinesField
+          label="وقائع مؤيِّدة"
+          hint="مفاتيح وقائع من السجلّ، سطر لكل مفتاح"
+          value={item.supportingFacts}
+          onChange={(supportingFacts) => onChange({ supportingFacts })}
+          placeholder={prefixes[1]}
+        />
+        <LinesField
+          label="وقائع الخصم"
+          hint="تُذكر لأنّ ذكرها يمنع أن يُبنى عليها بلا وعي بها"
+          value={item.opposingFacts}
+          onChange={(opposingFacts) => onChange({ opposingFacts })}
+          placeholder={prefixes[2]}
+        />
+        <LinesField
+          label="المستندات بين أيدينا"
+          hint="سطر لكل مستند"
+          value={item.evidence}
+          onChange={(evidence) => onChange({ evidence })}
+          placeholder={prefixes[3]}
+        />
+        <LinesField
+          label="ما يلزم لإثبات ما تمسّكنا به"
+          hint="سطر لكل مطلوب"
+          value={item.documentsRequired}
+          onChange={(documentsRequired) => onChange({ documentsRequired })}
+          placeholder={prefixes[4]}
+        />
+      </div>
+      <Field
+        label="الردّ القانوني على هذا البند"
+        value={item.response}
+        onChange={(response) => onChange({ response })}
+      />
+      <Field
+        label="النتيجة المطلوبة"
+        value={item.outcomeSought}
+        onChange={(outcomeSought) => onChange({ outcomeSought })}
+        placeholder="إلزام المدّعى عليه بالمبلغ"
+      />
+    </>
+  );
+}
+
+/** مدخلات الفحوص الأربعة كاملةً — حالةٌ مرفوعة، وعرضٌ هنا فقط. */
+function GenerateInputsSection({
+  inputs,
+  setInputs,
+  openGroup,
+  setOpenGroup,
+}: {
+  inputs: GenerateInputsState;
+  setInputs: React.Dispatch<React.SetStateAction<GenerateInputsState>>;
+  openGroup: InputGroupKey | null;
+  setOpenGroup: (key: InputGroupKey | null) => void;
+}) {
+  const toggleGroup = (key: InputGroupKey) =>
+    setOpenGroup(openGroup === key ? null : key);
+
+  const setClaims = (claims: MatrixItemForm[]) =>
+    setInputs((state) => ({ ...state, claims }));
+  const setDefences = (defences: DefenceForm[]) =>
+    setInputs((state) => ({ ...state, defences }));
+  const setAuthorities = (authorities: AuthorityForm[]) =>
+    setInputs((state) => ({ ...state, authorities }));
+  const setDeadlines = (deadlines: DeadlineRuleForm[]) =>
+    setInputs((state) => ({ ...state, deadlines }));
+  const setRules = (rules: RuleForm[]) => setInputs((state) => ({ ...state, rules }));
+
+  const patchAt = <T,>(
+    list: T[],
+    index: number,
+    patch: Partial<T>
+  ): T[] => list.map((item, i) => (i === index ? { ...item, ...patch } : item));
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-slate-300">مدخلات الفحوص الأربعة</p>
+        <p className="text-xs leading-relaxed text-slate-500">
+          تُدخَل هنا لأن المنصّة **لا تخترعها**: لا طلبَ ولا سندَ ولا قاعدةَ موعدٍ
+          ولا قاعدةَ تُبنى من المسودّة. وما تُتركه فارغاً **يبقى غائباً**، فتقول
+          لوحته «لم تُبنَ» — وهو الصدق نفسه، لا «فُحصت فسلمت».
+        </p>
+      </div>
+
+      {/* ── الطلبات والدفوع — `_matrix_from_payload` ─────────────────────── */}
+      <InputGroupBox
+        title="الطلبات والدفوع"
+        note="مصفوفة الدعوى: كل طلب ودفع بمفتاحه ونصّه ومحاوره. ولا تُبنى من الوقائع بل تُدخَل — وإحدى القائمتين على الأقل لازمة، وتركُ المجموعة فارغةٍ يعني «لم تُفحَص»."
+        count={inputs.claims.length + inputs.defences.length}
+        open={openGroup === "claims"}
+        onToggle={() => toggleGroup("claims")}
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <EnumField
+            label="المرحلة"
+            value={inputs.stage}
+            onChange={(stage) => setInputs((state) => ({ ...state, stage }))}
+            options={STAGE_OPTIONS}
+            emptyLabel="لم تُحدَّد — يُعلَن أن فحص المرحلة لم يجرِ"
+          />
+          <EnumField
+            label="صفتنا في النزاع"
+            value={inputs.ourParty}
+            onChange={(ourParty) => setInputs((state) => ({ ...state, ourParty }))}
+            options={PARTY_OPTIONS}
+            emptyLabel="لم تُحدَّد"
+          />
+        </div>
+
+        {inputs.claims.map((item, index) => (
+          <ItemBox
+            key={index}
+            title={`طلب ${ordinal(index)}`}
+            onRemove={() => setClaims(inputs.claims.filter((_, i) => i !== index))}
+            removeTitle="حذف الطلب"
+          >
+            <MatrixItemFields
+              item={item}
+              onChange={(patch) => setClaims(patchAt(inputs.claims, index, patch))}
+              prefixes={[
+                "إثبات علاقة العمل",
+                "عقد العمل الموقَّع",
+                "إشعار إنهاء بلا سبب",
+                "كشف الرواتب",
+                "شهادة شاهد",
+              ]}
+            />
+          </ItemBox>
+        ))}
+        <AddRowButton
+          label="إضافة طلب"
+          onClick={() => setClaims([...inputs.claims, emptyMatrixItem()])}
+        />
+
+        {inputs.defences.map((item, index) => (
+          <ItemBox
+            key={index}
+            title={`دفع ${ordinal(index)}`}
+            onRemove={() => setDefences(inputs.defences.filter((_, i) => i !== index))}
+            removeTitle="حذف الدفع"
+          >
+            <MatrixItemFields
+              item={item}
+              onChange={(patch) =>
+                setDefences(patchAt<DefenceForm>(inputs.defences, index, patch))
+              }
+              prefixes={[
+                "ميعادٌ سارٍ ولم يتحقّق سببٌ يقطعه",
+                "كتاب المطالبة",
+                "إقرار بالاستلام",
+                "سند التمكين",
+                "صحيفة الدعوى السابقة",
+              ]}
+            />
+            <label className="flex items-center gap-2 text-xs text-slate-400">
+              <input
+                type="checkbox"
+                className="accent-amber-600"
+                checked={item.isProcedural}
+                onChange={(e) =>
+                  setDefences(
+                    patchAt<DefenceForm>(inputs.defences, index, {
+                      isProcedural: e.target.checked,
+                    })
+                  )
+                }
+              />
+              دفعٌ إجرائيّ (اختصاص · قبول · تقادم · صفة · إجراء) — ويُقدَّم في الترتيب
+            </label>
+          </ItemBox>
+        ))}
+        <AddRowButton
+          label="إضافة دفع"
+          onClick={() => setDefences([...inputs.defences, emptyDefence()])}
+        />
+      </InputGroupBox>
+
+      {/* ── سجلّ الأسانيد — `_register_from_payload` ─────────────────────── */}
+      <InputGroupBox
+        title="سجلّ الأسانيد"
+        note="كل سند بمفتاحه واسم نظامه ونوعه. وغيابُ تاريخ النفاذ يعني «لم يُفحَص النفاذ» — لا «نافذ». وتركُ المجموعة فارغةً يعني أن سجلّ الأسانيد لم يُبنَ."
+        count={inputs.authorities.length}
+        open={openGroup === "authority"}
+        onToggle={() => toggleGroup("authority")}
+      >
+        {inputs.authorities.map((item, index) => (
+          <ItemBox
+            key={index}
+            title={`سند ${ordinal(index)}`}
+            onRemove={() =>
+              setAuthorities(inputs.authorities.filter((_, i) => i !== index))
+            }
+            removeTitle="حذف السند"
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="المفتاح الآلي"
+                value={item.key}
+                onChange={(key) =>
+                  setAuthorities(patchAt(inputs.authorities, index, { key }))
+                }
+                placeholder="labour_law_33"
+                dir="ltr"
+              />
+              <Field
+                label="المادة"
+                value={item.article}
+                onChange={(article) =>
+                  setAuthorities(patchAt(inputs.authorities, index, { article }))
+                }
+                placeholder="المادة ٣٣"
+              />
+            </div>
+            <Field
+              label="اسم النظام"
+              value={item.instrument}
+              onChange={(instrument) =>
+                setAuthorities(patchAt(inputs.authorities, index, { instrument }))
+              }
+              placeholder="قانون تنظيم علاقات العمل"
+            />
+            <EnumField
+              label="نوع السند"
+              value={item.kind}
+              onChange={(kind) =>
+                setAuthorities(patchAt(inputs.authorities, index, { kind }))
+              }
+              options={SOURCE_KIND_OPTIONS}
+            />
+            <Field
+              label="المصدر الرسمي"
+              value={item.officialSource}
+              onChange={(officialSource) =>
+                setAuthorities(patchAt(inputs.authorities, index, { officialSource }))
+              }
+              placeholder="الجريدة الرسمية — العدد ٥٨٧"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="نافذ من"
+                value={item.inForceFrom}
+                onChange={(inForceFrom) =>
+                  setAuthorities(patchAt(inputs.authorities, index, { inForceFrom }))
+                }
+                dir="ltr"
+                type="date"
+              />
+              <Field
+                label="نافذ إلى"
+                value={item.inForceTo}
+                onChange={(inForceTo) =>
+                  setAuthorities(patchAt(inputs.authorities, index, { inForceTo }))
+                }
+                dir="ltr"
+                type="date"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="عُدِّل بـ"
+                value={item.amendedBy}
+                onChange={(amendedBy) =>
+                  setAuthorities(patchAt(inputs.authorities, index, { amendedBy }))
+                }
+              />
+              <Field
+                label="مصدر النقل"
+                value={item.retrievedFrom}
+                onChange={(retrievedFrom) =>
+                  setAuthorities(patchAt(inputs.authorities, index, { retrievedFrom }))
+                }
+              />
+            </div>
+            <LinesField
+              label="شروط الانطباق"
+              hint="سطر لكل شرط"
+              value={item.conditions}
+              onChange={(conditions) =>
+                setAuthorities(patchAt(inputs.authorities, index, { conditions }))
+              }
+            />
+            <LinesField
+              label="الاستثناءات"
+              hint="سطر لكل استثناء"
+              value={item.exceptions}
+              onChange={(exceptions) =>
+                setAuthorities(patchAt(inputs.authorities, index, { exceptions }))
+              }
+            />
+          </ItemBox>
+        ))}
+        <AddRowButton
+          label="إضافة سند"
+          onClick={() => setAuthorities([...inputs.authorities, emptyAuthority()])}
+        />
+      </InputGroupBox>
+
+      {/* ── قواعد المواعيد — `_deadlines_from_payload` ───────────────────── */}
+      <InputGroupBox
+        title="قواعد المواعيد"
+        note="القواعد يكتبها المحامي والمنصّة تحسب ولا تخترع. والعدّ **إلزاميّ**: العدّ قرارٌ قانونيّ في القاعدة، لا عرفٌ في الكود. وتاريخ البداية يأتي من ملف القضية لا من هنا."
+        count={inputs.deadlines.length}
+        open={openGroup === "deadlines"}
+        onToggle={() => toggleGroup("deadlines")}
+      >
+        {inputs.deadlines.map((item, index) => (
+          <ItemBox
+            key={index}
+            title={`قاعدة موعد ${ordinal(index)}`}
+            onRemove={() =>
+              setDeadlines(inputs.deadlines.filter((_, i) => i !== index))
+            }
+            removeTitle="حذف قاعدة الموعد"
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="المفتاح الآلي"
+                value={item.key}
+                onChange={(key) =>
+                  setDeadlines(patchAt(inputs.deadlines, index, { key }))
+                }
+                placeholder="appeal_window"
+                dir="ltr"
+              />
+              <Field
+                label="النصّ"
+                value={item.label}
+                onChange={(label) =>
+                  setDeadlines(patchAt(inputs.deadlines, index, { label }))
+                }
+                placeholder="ميعاد الاستئناف"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="المقدار"
+                value={item.amount}
+                onChange={(amount) =>
+                  setDeadlines(patchAt(inputs.deadlines, index, { amount }))
+                }
+                type="number"
+                min={1}
+                dir="ltr"
+                placeholder="30"
+              />
+              <EnumField
+                label="الوحدة"
+                value={item.unit}
+                onChange={(unit) =>
+                  setDeadlines(patchAt(inputs.deadlines, index, { unit }))
+                }
+                options={UNIT_OPTIONS}
+              />
+            </div>
+            <EnumField
+              label="العدّ (الاتفاقية)"
+              value={item.conventionKey}
+              onChange={(conventionKey) =>
+                setDeadlines(patchAt(inputs.deadlines, index, { conventionKey }))
+              }
+              options={CONVENTION_OPTIONS}
+              emptyLabel="لم يُختَر — والعدّ لا يُخترع"
+            />
+            <Field
+              label="المصدر"
+              value={item.source}
+              onChange={(source) =>
+                setDeadlines(patchAt(inputs.deadlines, index, { source }))
+              }
+              placeholder="المادة ١٥٩ من قانون الإجراءات المدنية"
+            />
+            <Field
+              label="ملاحظة"
+              value={item.note}
+              onChange={(note) => setDeadlines(patchAt(inputs.deadlines, index, { note }))}
+            />
+          </ItemBox>
+        ))}
+        <AddRowButton
+          label="إضافة قاعدة موعد"
+          onClick={() => setDeadlines([...inputs.deadlines, emptyDeadlineRule()])}
+        />
+      </InputGroupBox>
+
+      {/* ── القواعد — `_rules_from_payload` ──────────────────────────────── */}
+      <InputGroupBox
+        title="القواعد"
+        note="العائلة أوّل سؤال: فحصٌ ثابت لا تاريخ له، أو حكمٌ موضوعي **لا يوجد بلا تاريخ نفاذ** — والخادم يفرض الأمرين. وإرسال تاريخ على فحصٍ يرفعه كما يرفع حكماً بلا تاريخ."
+        count={inputs.rules.length}
+        open={openGroup === "rules"}
+        onToggle={() => toggleGroup("rules")}
+      >
+        {inputs.rules.map((item, index) => (
+          <ItemBox
+            key={index}
+            title={`قاعدة ${ordinal(index)}`}
+            onRemove={() => setRules(inputs.rules.filter((_, i) => i !== index))}
+            removeTitle="حذف القاعدة"
+          >
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label="المفتاح الآلي"
+                value={item.key}
+                onChange={(key) => setRules(patchAt(inputs.rules, index, { key }))}
+                placeholder="notice.basis"
+                dir="ltr"
+              />
+              <Field
+                label="الموضوع"
+                value={item.subject}
+                onChange={(subject) =>
+                  setRules(patchAt(inputs.rules, index, { subject }))
+                }
+                placeholder="notice"
+                dir="ltr"
+              />
+            </div>
+            <LinesField
+              label="نصّ القاعدة"
+              hint="سطر أو سطران بالعربية — وهو ما يُعرض ويُقارَن"
+              value={item.statement}
+              onChange={(statement) =>
+                setRules(patchAt(inputs.rules, index, { statement }))
+              }
+            />
+            <EnumField
+              label="العائلة"
+              value={item.family}
+              onChange={(family) =>
+                setRules(patchAt(inputs.rules, index, { family, inForceFrom: "" }))
+              }
+              options={RULE_FAMILY_OPTIONS}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              {/* ⚠️ والتاريخ يُعرَض للموضوعي وحده: عرضُه على الفحص يدعو إلى
+                  كتابته، وكتابتُه عليه ترفعه `rules.py` في البناء. */}
+              {item.family === "substantive" ? (
+                <Field
+                  label="نافذ من (YYYY-MM-DD)"
+                  value={item.inForceFrom}
+                  onChange={(inForceFrom) =>
+                    setRules(patchAt(inputs.rules, index, { inForceFrom }))
+                  }
+                  type="date"
+                  dir="ltr"
+                />
+              ) : (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-400">
+                    تاريخ النفاذ
+                  </label>
+                  <p className="border border-slate-800/70 bg-slate-950/60 px-2 py-2 text-xs text-slate-500">
+                    لا تاريخ لفحصٍ ثابت — وإرسالُ تاريخ عليه يوهم بأنه سيُراجَع.
+                  </p>
+                </div>
+              )}
+              <Field
+                label="السند"
+                value={item.source}
+                onChange={(source) => setRules(patchAt(inputs.rules, index, { source }))}
+                placeholder="المادة ٥ من قانون المعاملات المدنية"
+              />
+            </div>
+            <ToggleGroup
+              label="أنواع النزاع التي تخصّها"
+              hint="والفراغ يعني: لا تخصّ نوعاً بعينه فتسري على كل الأنواع"
+              values={item.appliesTo}
+              onChange={(appliesTo) =>
+                setRules(patchAt(inputs.rules, index, { appliesTo }))
+              }
+              options={DISPUTE_TYPE_OPTIONS}
+            />
+            <ToggleGroup
+              label="المراحل التي تسري فيها"
+              hint="والفراغ يعني: كل المراحل"
+              values={item.stages}
+              onChange={(stages) => setRules(patchAt(inputs.rules, index, { stages }))}
+              options={CASE_STAGE_OPTIONS}
+            />
+            <LinesField
+              label="نسخت القواعد"
+              hint="مفاتيح القواعد التي حلّت هذه محلّها — والاتّجاه لا يُعكس"
+              value={item.supersedes}
+              onChange={(supersedes) =>
+                setRules(patchAt(inputs.rules, index, { supersedes }))
+              }
+            />
+            <Field
+              label="ملاحظة"
+              value={item.note}
+              onChange={(note) => setRules(patchAt(inputs.rules, index, { note }))}
+            />
+          </ItemBox>
+        ))}
+        <AddRowButton
+          label="إضافة قاعدة"
+          onClick={() => setRules([...inputs.rules, emptyRule()])}
+        />
+      </InputGroupBox>
+    </div>
+  );
+}
+
 export default function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
@@ -2863,6 +3706,21 @@ export default function Workspace() {
   const [deadlinesFrame, setDeadlinesFrame] = useState<DeadlinesFrame | null>(null);
   const [rulesFrame, setRulesFrame] = useState<RulesFrame | null>(null);
 
+  // ⚠️ ومدخلات الفحوص الأربعة **حالةٌ مرفوعة هنا** لا داخل النموذج: يُقرأ منها
+  // `buildGeneratePayload` عند الإرسال، ويُعرض منها النموذج في العمود الأيمن.
+  // وموضعها في هذه الدالّة مقصود — فحالتها تعيش ما دامت الصفحة، ولا تُصفَّر مع
+  // كل جولة (المحامي يُصلح مسودّةً ويُعيد الإرسال بالمدخلات نفسها).
+  const [generateInputs, setGenerateInputs] = useState<GenerateInputsState>(
+    emptyGenerateInputs
+  );
+  // المجموعة المفتوحة في النموذج — واحدةٌ في الوقت (طيّ لا نموذجٌ مُغرِق).
+  const [openInputGroup, setOpenInputGroup] = useState<InputGroupKey | null>(null);
+  // ⚠️ **ونصّ المنع يُحسَب من المدخلات لا يُنتظر من الخادم**: ما يردّه الخادم
+  // ٤٠٠ (بندٌ بلا نصّ · عدٌّ غير مختار · حكمٌ موضوعي بلا تاريخ · فحصٌ بتاريخ)
+  // يُقال هنا قبل الإرسال. والحكم نفسه في `generate-inputs.ts`، وهي القراءة
+  // الوحيدة للحالة — فلا حاكمان يفترقان.
+  const inputProblem = describeInputProblems(generateInputs);
+
   // مراحل العمل — تُشغّل مشهد «فريق المكتب».
   // ⚠️ المفاتيح تأتي من الخادم (`stage` في إطار SSE) ولا تُخمَّن هنا. فالمشهد
   // يعكس ما جرى فعلاً: أي أداة استُدعيت، ومن لم يُستدعَ يبقى على قهوته.
@@ -2885,6 +3743,16 @@ export default function Workspace() {
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
+
+    // ⚠️ **والحمل يُبنى هنا لا عند العرض**، ونتيجته تُقرأ لا تُفترض: مدخلٌ
+    // ناقصٌ يردّه الخادم ٤٠٠ («طلبٌ بلا نصّ» · «حكمٌ موضوعي بلا تاريخ») — فلو
+    // أُرسل، كُتبت الوقائع ثم ضاع النداء. فيُوقف هنا بنصٍّ صريح.
+    const built = buildGeneratePayload(generateInputs);
+    if (!built.ok) {
+      setErrorMessage(`تعذّر إرسال المدخلات: ${built.message}`);
+      setStatus("error");
+      return;
+    }
 
     setStatus("processing");
     setLiveMessage("جاري إيقاظ فريق العقل القانوني...");
@@ -2936,9 +3804,11 @@ export default function Workspace() {
           prompt,
           doc_type: docType,
           // ⚠️ وحملُ الفحوص الأربعة يُضمّ إلى الطلب من موضعٍ واحد معلوم
-          // (`buildGeneratePayload`). وهو فارغ اليوم — فالإطارات الأربعة تعود
-          // بـ`built: false` وبنصّ الخادم، **وتُعرض «لم تُبنَ» ولا تُسقَط**.
-          ...buildGeneratePayload(),
+          // (`buildGeneratePayload` في `./generate-inputs`)، **والمفاتيح الأربعة
+          // تغيب إذا لم تُدخَل**: الغياب يعني «لم يُبنَ»، فتقول اللوحة «لم تُبنَ»
+          // بنصّ الخادم. ⚠️ ولا يُرسَل كائنٌ فارغ — `{}` في `claims` يعني «حملُ
+          // مصفوفة بلا طلبات»، وهو ٤٠٠ لا «لم يُفحَص».
+          ...built.payload,
         }),
         signal: controller.signal,
       });
@@ -3119,6 +3989,28 @@ export default function Workspace() {
                   onChange={(e) => setPrompt(e.target.value)}
                 />
               </div>
+
+              {/* ⚠️ **ومدخلات الفحوص الأربعة قبل زرّ الإرسال**، لأنها مدخلات
+                  الطلب لا ملحقٌ به: من كتب وقائعه ثم أرسل بلا مصفوفةٍ ولا سندٍ
+                  يقرأ في اللوحات «لم تُبنَ» — وهو صحيح، لكنه يُدخِلها الآن. */}
+              <GenerateInputsSection
+                inputs={generateInputs}
+                setInputs={setGenerateInputs}
+                openGroup={openInputGroup}
+                setOpenGroup={setOpenInputGroup}
+              />
+
+              {/* ⚠️ **والمنع معلنٌ قبل الإرسال لا بعده**: المدخل الذي يردّه
+                  الخادم ٤٠٠ يُقال هنا بنصّه («حكمٌ موضوعي بلا تاريخ نفاذ» ·
+                  «العدّ غير مختار») — فلا يكتب المحامي وقائعه ثم يضيع النداء. */}
+              {inputProblem ? (
+                <p
+                  className="border border-amber-900/60 bg-amber-950/30 p-3 text-xs leading-relaxed text-amber-300"
+                  dir="auto"
+                >
+                  {inputProblem}
+                </p>
+              ) : null}
 
               <Button 
                 onClick={handleGenerate} 
