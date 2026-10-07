@@ -102,6 +102,7 @@ from facts import summarize as summarize_facts
 # وهذه الوحدة مكتبة بايثون القياسية وحدها: لا شبكة ولا قرص ولا نموذج.
 import revision_loop
 
+import claims as claims_module
 load_dotenv()
 
 # ==============================================================================
@@ -1451,6 +1452,8 @@ def _stream_agent(
     messages: list,
     case_frame: Optional[dict] = None,
     ledger: Optional[FactLedger] = None,
+    claims_matrix=None,
+
 ):
     """
     يولّد أحداث الوكيل خطوة بخطوة.
@@ -1563,6 +1566,10 @@ def _stream_agent(
         # وإدخالها في المقابلة يرفع التغطية زوراً.
         facts_frame = _facts_frame(clean, ledger)
         yield ("facts", facts_frame)
+        yield (
+            "claims",
+            _claims_frame(clean, claims_matrix, ledger, case_frame),
+        )
 
         # ------------------------------------------------------------------
         # قائمة الأخطاء المُوحَّدة — **بعد `review` وقبل `briefing`**
@@ -1841,7 +1848,7 @@ async def _sse_generator(
             if case_frame is not None:
                 emit({"type": "case", "report": case_frame})
 
-            for kind, payload in _stream_agent(messages, case_frame, ledger):
+            for kind, payload in _stream_agent(messages, case_frame, ledger, None):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
                     emit(
@@ -1859,6 +1866,8 @@ async def _sse_generator(
                     emit({"type": "review", "report": payload})
                 elif kind == "facts":
                     emit({"type": "facts", "report": payload})
+                elif kind == "claims":
+                    emit({"type": "claims", "report": payload})
                 elif kind == "revision":
                     # ⚠️ **ولا كائن مُنمَّط في هذا الإطار**: قائمة الأخطاء تُبثّ
                     # حقولاً نصّية (المصدر والنوع والخطورة والنصّ والاقتباس)،
@@ -2403,3 +2412,277 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
+
+
+#: نصّ «لم تُبنَ المصفوفة» — **ولا يُحذف الإطار عند غيابه.**
+#: ⚠️ حذفُه يُقرأ سكوتاً، والسكوتُ في موضع فحصٍ يُقرأ سلامة.
+CLAIMS_NOT_BUILT = (
+    "لم تُبنَ مصفوفة الطلبات والدفوع: لا حملَ وارد في الطلب. "
+    "والطلبات والدفوع يُدخلها المحامي — والمنصّة لا تخترعها. "
+    "وغيابُ المصفوفة ليس سلامة: لم يُفحَص شيء."
+)
+
+
+def _claims_frame(
+    draft: str,
+    payload,
+    ledger,
+    case_frame,
+) -> dict:
+    """
+    إطار `claims`: مصفوفة الطلبات والدفوع، بأخطائها واقتراحاتها.
+
+    ⚠️ **ولا كائن مُنمَّط هنا.** الإطار يُسلسل إلى JSON للبثّ عبر SSE،
+    ووضع كائن في مفتاح أسقط أربعة اختبارات مرّة — أحدها اسمه
+    ``test_the_frame_is_json_serializable``. فالحقول نصّية محضة،
+    على نمط ``_revision_frame``.
+
+    ⚠️ **ومخالفة المرحلة خطأ لا ملاحظة.** `validate_for_stage` موجودة لأن
+    الاستئناف يطعن في الحكم أو الإجراء، والنقض في القانون، **والطعن في
+    تقدير الدليل غير مقبول في النقض.**
+
+    ⚠️ **والدفوع الجاهزة اقتراحٌ لا مصفوفة.** دفاعٌ بلا وقائع يسقط من أول
+    جولة **ويُسقط معه الدفوع السليمة**، فلا يدخل المصفوفة.
+    """
+    if payload is None:
+        return {
+            "built": False,
+            "message": CLAIMS_NOT_BUILT,
+            "summary": {},
+            "errors": [],
+            "notices": [],
+            "stage": None,
+            "checked_sources": [],
+        }
+
+    try:
+        matrix = _matrix_from_payload(payload)
+        stage = matrix.stage
+        if stage is None and case_frame:
+            stage = case_frame.get("stage")
+
+        findings = ()
+        checked = []
+        if ledger is not None:
+            findings = findings + tuple(
+                claims_module.cross_check_facts(matrix, ledger)
+            )
+            checked.append("facts")
+        if draft.strip():
+            findings = findings + tuple(
+                claims_module.unanswered(matrix, draft)
+            )
+            checked.append("draft")
+        if stage is not None:
+            violations = tuple(
+                v
+                for item in (tuple(matrix.claims) + tuple(matrix.defences))
+                for v in claims_module.validate_for_stage(item, stage)
+            )
+            # ⚠️ **والمخالفة تُرفع إلى «خطأ»** — وهي `Finding` بمعنى الوحدة،
+            # فتُحوَّل إلى حقول نصّية هنا لا كائن.
+            findings = findings + tuple(
+                claims_module.Finding(
+                    code=claims_module.CODE_STAGE_GROUND,
+                    severity=claims_module.SEVERITY_ERROR,
+                    message=v.message,
+                    item_key=v.item_key,
+                    kind=v.kind,
+                    note=v.note,
+                )
+                for v in violations
+            )
+            checked.append("stage")
+
+        suggestions = (
+            claims_module.suggested_only(matrix, stage) if stage else ()
+        )
+        summary = claims_module.summarize(
+            matrix,
+            findings,
+            ledger=ledger,
+            draft=draft.strip(),
+            stage=stage,
+            suggestions=suggestions,
+        )
+    except Exception as exc:  # noqa: BLE001 — الفشل يُعلَن ولا يُبتلع
+        print(f"\n[Claims] ⚠️ تعذّر بناء المصفوفة: {type(exc).__name__}: {exc}")
+        return {
+            "built": False,
+            "message": (
+                f"تعذّر بناء المصفوفة: {type(exc).__name__}. "
+                "وغيابُ المصفوفة ليس سلامة."
+            ),
+            "summary": {},
+            "errors": [],
+            "notices": [],
+            "stage": None,
+            "checked_sources": [],
+        }
+
+    def _flat(f):
+        return {
+            "code": f.code,
+            "severity": f.severity,
+            "message": f.message,
+            "item_key": f.item_key,
+            "kind": f.kind,
+            "note": f.note,
+        }
+
+    return {
+        "built": True,
+        "message": "",
+        "summary": summary,
+        "errors": [_flat(f) for f in findings
+                   if f.severity == claims_module.SEVERITY_ERROR],
+        "notices": [_flat(f) for f in findings
+                    if f.severity != claims_module.SEVERITY_ERROR],
+        "stage": stage.value if hasattr(stage, "value") else stage,
+        "checked_sources": checked,
+    }
+
+
+
+# ==============================================================================
+# حمل المصفوفة — يُبنى من الطلب، ويُرفض فاسدُه قبل أي نداء نموذج
+# ==============================================================================
+
+#: محاور النزاع المُعلَنة في الوحدة — وكلُّ محور خارجها يُردّ.
+_AXES = {a.value for a in claims_module.DisputeAxis}
+
+
+def _axis(name):
+    """يحوّل نصّاً إلى ``DisputeAxis``، أو يرفع برسالة الوحدة."""
+    key = claims_module.normalize(name or "")
+    for axis in claims_module.DisputeAxis:
+        if axis.value == key:
+            return axis
+    raise ValueError(
+        f"محور نزاع غير معروف: «{name}». والمقبول: "
+        + " · ".join(sorted(_AXES))
+    )
+
+
+def _item(raw, cls, label):
+    """
+    يبني ``Claim`` أو ``Defence`` من قاموس، **أو يرفع برسالة صريحة**.
+
+    ⚠️ **والحمل الفاسد يُردّ ٤٠٠ قبل أن يُدفع ثمن التوليد** — وحملٌ يُسكت
+    أسوأ من غيابه، **لأن المُتّصل يظنّه طُبِّق.**
+    """
+    if not isinstance(raw, dict):
+        raise ValueError(f"كل {label} يجب أن يكون قاموساً.")
+    key = claims_module.normalize(raw.get("key") or "")
+    if not key:
+        raise ValueError(f"{label} بلا مفتاح. والمفتاح هو ما يُربط به الدفع والطلب.")
+    statement = (raw.get("label") or "").strip()
+    if not statement:
+        raise ValueError(f"{label} «{key}» بلا نصّ. والنصّ هو ما يُقرأ في المصفوفة.")
+
+    def _tokens(field):
+        value = raw.get(field)
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            return (value.strip(),) if value.strip() else ()
+        if isinstance(value, (list, tuple)):
+            return tuple(str(v).strip() for v in value if str(v).strip())
+        raise ValueError(f"{label} «{key}»: الحقل «{field}» يجب أن يكون نصّاً أو قائمة.")
+
+    axes = tuple(_axis(a) for a in _tokens("axes_in_dispute"))
+
+    if cls is claims_module.Defence:
+        return cls(
+            key=key,
+            label=statement,
+            claimed_by=raw.get("claimed_by") or "",
+            elements=_tokens("elements"),
+            supporting_facts=_tokens("supporting_facts"),
+            opposing_facts=_tokens("opposing_facts"),
+            evidence=_tokens("evidence"),
+            axes_in_dispute=axes,
+            burden=raw.get("burden") or None,
+            response=raw.get("response") or "",
+            outcome_sought=raw.get("outcome_sought") or "",
+            documents_required=_tokens("documents_required"),
+            is_procedural=bool(raw.get("is_procedural")),
+        )
+    return cls(
+        key=key,
+        label=statement,
+        claimed_by=raw.get("claimed_by") or "",
+        elements=_tokens("elements"),
+        supporting_facts=_tokens("supporting_facts"),
+        opposing_facts=_tokens("opposing_facts"),
+        evidence=_tokens("evidence"),
+        axes_in_dispute=axes,
+        burden=raw.get("burden") or None,
+        response=raw.get("response") or "",
+        outcome_sought=raw.get("outcome_sought") or "",
+        documents_required=_tokens("documents_required"),
+    )
+
+
+def _matrix_from_payload(payload):
+    """
+    يبني ``ClaimMatrix`` من حمل الطلب.
+
+    ⚠️ **وتُنادى مرّة عند رأس النقطة قبل أي نداء نموذج**، فالفاسد يُردّ ٤٠٠
+    **قبل** أن يُدفع ثمن التوليد. وهذا هو موضع التحقّق، **لا داخل المولّد.**
+
+    ⚠️ **والمرحلة ``None`` مقبولة** — فمصفوفةٌ بلا مرحلة تُبنى، **ويُعلَن أن
+    فحص المرحلة لم يجرِ** — **وهو خير من ادّعاء انطباق بلا مرحلة.**
+    """
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("حمل المصفوفة يجب أن يكون كائناً.")
+
+    claims_raw = payload.get("claims") or ()
+    defences_raw = payload.get("defences") or ()
+    if not isinstance(claims_raw, (list, tuple)) or not isinstance(
+        defences_raw, (list, tuple)
+    ):
+        raise ValueError("«claims» و«defences» يجب أن يكونا قائمتَين.")
+
+    if not claims_raw and not defences_raw:
+        raise ValueError(
+            "حمل المصفوفة بلا طلبات ولا دفوع. والمنصّة لا تخترعها: "
+            "الطلبات والدفوع يُدخلها المحامي."
+        )
+
+    stage = None
+    if payload.get("stage"):
+        for candidate in claims_module.Stage:
+            if candidate.value == claims_module.normalize(payload["stage"]):
+                stage = candidate
+                break
+        if stage is None:
+            raise ValueError(
+                f"مرحلة غير معروفة: «{payload['stage']}». والمقبول: "
+                + " · ".join(s.value for s in claims_module.Stage)
+            )
+
+    our_party = None
+    if payload.get("our_party"):
+        for candidate in claims_module.Party:
+            if candidate.value == claims_module.normalize(payload["our_party"]):
+                our_party = candidate
+                break
+        if our_party is None:
+            raise ValueError(
+                f"صفة غير معروفة: «{payload['our_party']}». والمقبول: "
+                + " · ".join(p.value for p in claims_module.Party)
+            )
+
+    return claims_module.ClaimMatrix(
+        claims=tuple(
+            _item(raw, claims_module.Claim, "طلب") for raw in claims_raw
+        ),
+        defences=tuple(
+            _item(raw, claims_module.Defence, "دفاع") for raw in defences_raw
+        ),
+        stage=stage,
+        our_party=our_party,
+    )
