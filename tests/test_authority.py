@@ -101,7 +101,7 @@ FACTS_STILL_VALID_SENTINEL = "قام الطرف الثاني بإخطار كتا
 
 #: مسودّة تستشهد بمصدر ثانوي بتمهيد استشهاد — **العيب الثالث في سطر واحد**.
 DRAFT_CITING_A_SECONDARY = (
-    "وفقا لتعليق على قانون المعاملات المدنية فإن الإخطار واجب قبل الإنهاء."
+    "وفقا لتعليق على قانون المعاملات المدنية المدنية فإن الإخطار واجب قبل الإنهاء."
 )
 
 
@@ -155,7 +155,7 @@ def the_secondary_source() -> Authority:
     """
     return Authority(
         key="commentary-1",
-        instrument="تعليق على قانون المعاملات المدنية",
+        instrument="تعليق على قانون المعاملات المدنية المدنية",
         article="1",
         kind=SourceKind.SECONDARY,
         official_source="",
@@ -647,7 +647,7 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         """وأخطرها: التعليق **صدر جملةً تُنقل حرفياً** بين علامتَي تنصيص."""
         # ⚠️ والاسم مكتوبٌ في المتن **بنصّه الخام** لا برسم مطبّع: الشاهد يُبنى على
         # النصّ الذي يفتحه المحامي، فلا تُطبّع الأسماء في متن الاختبار.
-        draft = "ويقول تعليق على قانون المعاملات المدنية: «الإخطار واجب»."
+        draft = "ويقول تعليق على قانون المعاملات المدنية المدنية: «الإخطار واجب»."
         findings = secondary_as_primary((the_secondary_source(),), draft)
         self.assertEqual(len(findings), 1)
 
@@ -657,14 +657,14 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         «وفقاً لما ورد في التعليق…». ولو لم تُدرَج في القائمة لَمرّ التعليق
         مستشهداً به كأنه نصّ — **وهو العيب الثالث نفسه في ثوبه الأشيع**.
         """
-        draft = "وفقا لما ورد في تعليق على قانون المعاملات المدنية فإن الإخطار واجب."
+        draft = "وفقا لما ورد في تعليق على قانون المعاملات المدنية المدنية فإن الإخطار واجب."
         self.assertEqual(
             len(secondary_as_primary((the_secondary_source(),), draft)), 1
         )
 
     def test_a_secondary_source_used_as_a_document_reference_is_caught(self):
         """وإذا صار التعليق موضع الإحالة على القانون، فهو سندٌ في غير موضعه."""
-        draft = "المرجع: تعليق على قانون المعاملات المدنية رقم 5 لسنة 1985."
+        draft = "المرجع: تعليق على قانون المعاملات المدنية المدنية رقم 5 لسنة 1985."
         self.assertEqual(
             len(secondary_as_primary((the_secondary_source(),), draft)), 1
         )
@@ -681,7 +681,7 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         silent = "ولم نقف في هذا الموضع على نصّ يحكم الواقعة."
         self.assertEqual(secondary_as_primary((the_secondary_source(),), silent), ())
 
-        named = "وقد ناقش تعليق على قانون المعاملات المدنية هذه المسألة."
+        named = "وقد ناقش تعليق على قانون المعاملات المدنية المدنية هذه المسألة."
         self.assertEqual(secondary_as_primary((the_secondary_source(),), named), ())
 
     def test_a_primary_source_is_never_flagged_however_it_is_used(self):
@@ -708,7 +708,7 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         ولو طُوبق حرفياً لسقط الإعلان عند أول اختلاف رسم.
         """
         draft = (
-            "وفقا لتعليق على قانون المعاملات المدنية (طبعة ثانية) "
+            "وفقا لتعليق على قانون المعاملات المدنية المدنية (طبعة ثانية) "
             "فإن الإخطار واجب."
         )
         self.assertEqual(
@@ -887,6 +887,88 @@ class TestAssertedWithoutSource(unittest.TestCase):
         self.assertIsInstance(item, Assertion)
         self.assertEqual(draft[item.start : item.start + len(item.phrase)], item.phrase)
         self.assertTrue(item.context)
+
+    def test_a_reported_prefix_defect_stays_fixed(self):
+        """
+        🔑🔑 **عيبٌ رُصد بمراجعة مستقلّة، ويُثبّت هنا فلا يعود.**
+
+        كان النمط `(?:\u0648|\u0641)?` **يُجيز حرف عطف واحدًا**، والتعليق يَعِد بأن
+        «و»/«ف» البادئة مرنة. فصيغة «وفاستقرت» — **وهي أوّل ما يُكتب** — **لا تُطابق**،
+        لأن العربية تقدّم الحرفين معاً. **وهو أسوأ من غياب الصيغة**: صيغةٌ
+        مكتوبة في القائمة ولا تعمل = **فشلٌ صامت**.
+
+        ⚠️ **والأمثلة الثلاثة مُثبّتة معاً**، لأن إصلاح الحرفين كان يمكن أن يُسقِط
+        الحرف الواحد.
+        """
+        samples = {
+            "وفاستقرت المحكمة على ذلك.": "وفاستقرت المحكمة",
+            "واستقرت المحكمة على ذلك.": "واستقرت المحكمة",
+            "فاستقرت المحكمة على ذلك.": "فاستقرت المحكمة",
+        }
+        for draft, expected in samples.items():
+            with self.subTest(draft=draft):
+                found = asserted_without_source(draft)
+                self.assertTrue(found, f"لم يُعلن شيء في: {draft}")
+                self.assertEqual(found[0].phrase, expected)
+
+    def test_a_reported_match_defect_stays_fixed(self):
+        """
+        🔑🔑 **عيبٌ ثانٍ من المراجعة نفسها: صيغةٌ في التعليق ولا تُطابق.**
+
+        كان النمط `علي[هه]` — أي «عليه/عليها» — **فلا يُطابق «على»
+        المجرّدة**، وهي الصيغة المكتوبة في تعليق القائمة نفسه: «لا خلاف على أن».
+        وكانت «لا خلاف في أن» **تُعلَن** و«لا خلاف على أن» **لا تُعلَن**
+        — والفرق بينهما حرفٌ لا معنى، **وهو علامةُ أن النمط لا يفعل ما وُعد به**.
+        """
+        samples = {
+            "لا خلاف على أن الإخطار شرط للإنهاء.": "لا خلاف على أن",
+            "لا خلاف في أن الإخطار شرط للإنهاء.": "لا خلاف في أن",
+            "ولا خلاف على أن الإخطار شرط للإنهاء.": "ولا خلاف على أن",
+            "لا جدال على أن الإخطار شرط للإنهاء.": "لا جدال على أن",
+            "لا نزاع في أن الإخطار شرط للإنهاء.": "لا نزاع في أن",
+        }
+        for draft, expected in samples.items():
+            with self.subTest(draft=draft):
+                found = asserted_without_source(draft)
+                self.assertTrue(found, f"لم يُعلن شيء في: {draft}")
+                self.assertEqual(found[0].phrase, expected)
+
+    def test_a_reported_quotation_defect_stays_fixed(self):
+        """
+        🔑🔑 **عيبٌ ثالث: صيغة النقطتين في علامة النقل عن مصدر ثانوي.**
+
+        كان `_introduces_a_quotation` يطلب النقطتين **قبل** اسم المصدر ولا يقبلهما
+        بعده — **وفي الصيغة الوثائقية نفسها («يقول تعليق فلان: «…»») النقطتان
+        بعد الاسم**، فكان الشرط يرفض الصيغة التي جاء لأجلها.
+
+        ⚠️ **والاختبار يثبّت الوجهين المنقولين**، لأن النصّ المنقول حرفياً عن تعليق
+        **لا يمرّ من أي فحص آخر**: `attribution.py` يفحص نسبة النصّ إلى مادّته،
+        ولا يعرف أن المصدر تعليق.
+        """
+        samples = (
+            "ويقول تعليق على قانون المعاملات المدنية: «الإخطار واجب».",
+            "ويقول تعليق على قانون المعاملات المدنية «الإخطار واجب».",
+        )
+        for draft in samples:
+            with self.subTest(draft=draft):
+                findings = secondary_as_primary((the_secondary_source(),), draft)
+                self.assertEqual(len(findings), 1, draft)
+
+    def test_the_quotation_helper_accepts_the_colon_on_either_side(self):
+        """
+        ⚠️ **وحدّ الدالّة نفسها:** النقطتان تُقبلان قبل الاسم أو بعده، لأن
+        العربية تكتب الوجهين، **والعلامة واحدة في المعنى**.
+        """
+        self.assertTrue(authority._introduces_a_quotation("", ': «نصّ'))
+        self.assertTrue(
+            authority._introduces_a_quotation("وفقا ل", " : «نصّ")
+        )
+        self.assertFalse(
+            authority._introduces_a_quotation("وفقا ل", " نصّ")
+        )
+        self.assertFalse(
+            authority._introduces_a_quotation("راجع", " «نصّ")
+        )
 
     def test_empty_input(self):
         """بلا نصّ: لا إعلان ولا انهيار."""

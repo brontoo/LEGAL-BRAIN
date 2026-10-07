@@ -37,7 +37,13 @@ from case_file import (  # noqa: E402
     RegimeArea,
 )
 from citations import CITATIONS_BEGIN, CITATIONS_END  # noqa: E402
+from facts import CLIENT_STATEMENT_IS_NOT_PROOF, Standing  # noqa: E402
 from revisions import STYLE_TARGET  # noqa: E402
+
+# ⚠️ ويُستورد `briefing` في الاختبار **بقدر ما يُقرأ منه ثابت**: اسم المراجعة،
+# ودرجات السلامة. فبدل أن نكتب «المراجعة الثانية» و«verified» بيدنا — وهي
+# نسخةٌ من الحقيقة تفترق عن الوحدة عند أوّل تعديل — نقرؤها من الوحدة نفسها.
+import briefing  # noqa: E402
 
 CLAUSE = "على المستأجر سداد الأجرة في أول خمسة أيام من كل شهر ميلادي."
 GENUINE_QUOTE = "سداد الأجرة في أول خمسة أيام من كل شهر"
@@ -64,16 +70,26 @@ def scripted_turn(quote: str, *, body: str = "عقد إيجار تجاري\nال
     ]
 
 
-def drain_sse(messages: list, case_frame: dict | None = None) -> list:
+def drain_sse(
+    messages: list,
+    case_frame: dict | None = None,
+    ledger: object = None,
+) -> list:
     """
     يستهلك مولّد SSE ويُرجع الإطارات الخام.
 
     ⚠️ و``case_frame`` يُمرَّر كما يمرّره `/generate` — فالإطار الأول في البثّ
     يأتي من المولّد نفسه، فلا يفترق الاختبار عن المسار الحقيقي.
+
+    ⚠️ **و``ledger`` كذلك**: إطار `facts` **لا يمكن بناؤه في `/generate`** لأنه
+    يحتاج المسودّة، فيُبنى داخل المولّد بعد أن تُكتب — فالسجلّ يمرّ إلى المولّد
+    كما يمرّ في المسار الحقيقي، ولا يُبنى في الاختبار بناءً ثانياً.
     """
 
     async def collect() -> list:
-        return [frame async for frame in main._sse_generator(messages, case_frame)]
+        return [
+            frame async for frame in main._sse_generator(messages, case_frame, ledger)
+        ]
 
     return asyncio.run(collect())
 
@@ -104,6 +120,26 @@ def case_report(case: object) -> dict:
 def case_block(case: object) -> str:
     """كتلة القضية في الرسالة لحملٍ ما — كما تُبنى في `generate` بالضبط."""
     return main._case_prompt_block(main._case_from_payload(case_input(case)))
+
+
+def fact_input(facts: object) -> object:
+    """
+    يحوّل حمل وقائع إلى ما يفهمه `/generate` — **عبر المسار نفسه لا عبر نسخة**.
+
+    ⚠️ كـ``case_input``: لا يُنادَى ``_facts_from_payload`` بقائمة قواميس من
+    عندنا، لأن كائن النقل (`FactPayload`) هو ما يقرأه المسار في الإنتاج — فلو
+    مرّرنا قاموساً لَما اختبرنا إلى المسار نفسه.
+    """
+    if facts is None or not isinstance(facts, list):
+        return facts
+    return [
+        main.FactPayload(**item) if isinstance(item, dict) else item for item in facts
+    ]
+
+
+def ledger_of(facts: object) -> object:
+    """السجلّ المبنيّ من حمل وقائع — **ببناء الوحدة، لا ببناء يدويّ في الاختبار**."""
+    return main._facts_from_payload(fact_input(facts))
 
 #: علامة مميّزة من نصّ «لا ملف قضية» — تُفحَص في الرسالة بلا نسخ النصّ كله.
 CASE_BLOCK_ABSENT_MARKER = "لم يُنشأ ملف قضية"
@@ -191,6 +227,98 @@ DIFC_CASE = {
 }
 
 
+# ------------------------------------------------------------------------------
+# ملف قضية **لا سؤال مفتوح فيه** — أقصى ما يُبنى من حمل
+# ------------------------------------------------------------------------------
+# ⚠️ **ولماذا يُكتب هنا؟** لأن سؤال «لم يُنظر» (`None`) **مانعٌ للدرجة العليا**
+# في `briefing.readiness`، وهو كذلك في الوحدة عن حقّ: من لم يُسأل عن شرط التحكيم
+# لا يُشهد له بأنّه ضبط المسار. فالقضية المكتملة في `COMPLETE_CASE` تُبقي الحقلين
+# `None` **عن قصد** (لأنهما «لم يُنظر»)، فلا تصلح مدخلاً لقياس «أفضل حال ممكنة».
+# فالجواب هنا **مكتوب** لا مسكوت عنه — ولا يُخترع جواب، بل يُقال: «لا شرط تحكيم،
+# ولا اتّفاق على قانون مختار». ومن أراد أن يعرف ما الذي يمنع الدرجة العليا فليُغبْ
+# هذين الحقلين ويرَ الرتبة تهبط — وهو الفرق بين «لم يُسأل» و«أُجيب».
+COMPLETE_CASE_ANSWERED = {
+    **COMPLETE_CASE,
+    "has_choice_of_law": False,
+    "has_arbitration_clause": False,
+}
+
+
+# ------------------------------------------------------------------------------
+# وقائع الاختبار — **الواقعة التاريخية نفسها، لا واقعة مُخترَعة**
+# ------------------------------------------------------------------------------
+# ⚠️ `facts.py` وُجد لعطب تكرّر في ثلاث مسودّات: واقعةٌ غُيِّرت فانقلب مَن عليه
+# الخطأ. فلو اخترعنا واقعةً «تشبه» الحادثة لَما شهد الاختبار على العطب الذي
+# جاءت الوحدة لمنعه. والواقعة أدناه هي هي: **رفض التوقيع على مخالصة متضمّنة
+# تنازلاً**، بنصّها ومصدرها وموضعها ودرجتها والنصّ الذي تستند إليه.
+
+#: 🔑 الواقعة المُسجَّلة — ودرجتها ``claimed`` لأن رواية الموكّل ليست دليلاً
+#: (انظر `CLIENT_STATEMENT_IS_NOT_PROOF`)، **ولا يجوز أن تُرقّى إلى `AGREED`**.
+RELEASE_FACT = {
+    "key": "release.refused",
+    "statement": "رفض الموظف التوقيع على مخالصة متضمّنة تنازلاً",
+    "source": "مخالصة مؤرّخة ٢٠٢٤-٠٥-١٠",
+    "locus": "الصفحة ٢",
+    "date": "2024-05-10",
+    "asserted_by": "الموكّل",
+    "standing": "claimed",
+    "quote": "أرفض التوقيع على هذه المخالصة لاشتمالها على تنازل",
+}
+
+#: سجلّ الاختبار — واقعة واحدة، هي التي غُيِّرت في المسودّة المعطوبة.
+FACTS = [RELEASE_FACT]
+
+#: المسودّة المعطوبة — **واقعة أخرى قيلت على أنّها الواقعة الأولى**.
+#:
+#: ⚠️ **وهي سليمة الأسانيد والصياغة**: كل ما فيها منقول صحيحاً، ولا فيها خطأ
+#: لغوي. والعيب كلّه في **واقعة واحدة قلبها** — ولذلك **لا يكشفها** فحص
+#: الاستشهادات ولا التدقيق اللغوي ولا المراجعة الثانية، فكلّها تقرأ المسودّة
+#: في نفسها ولا تقابلها بسجلّ. وهذا هو موضع `facts.py` بالذات.
+FLAWED_DRAFT = (
+    "وحيث إن الموظف رفض استلام المبلغ المعروض عليه، فإنه لا يستحقّ المطالبة به."
+)
+
+#: مسودّة **أمينة** في جملة واحدة — القياس السالب لفحص الوقائع.
+#:
+#: ⚠️ **وهي الجملة السليمة نفسها التي يمرّ عليها `language_audit` بلا خطأ ولا
+#: ملاحظة**، فالقياس «أفضل حال» لا يحتاج مدخلات مصطنعة.
+CLEAN_DRAFT = "البند الأول: يلتزم الطرف الثاني بالسداد في الأوّل من كلّ شهر."
+
+#: الواقعة المقابلة للمسودّة الأمينة — **بنصّها التامّ لا بنصفه**.
+#:
+#: ⚠️ ولماذا النصّ التام؟ لأن المقارنة تُنتج إنذاراً كاذباً على **إعادة الصياغة
+#: المشروعة** (وهو حدّ معلن في `facts.py`): واقعةٌ نصف جملة تُقرأ ``reworded``
+#: لأن كل رمز زائد في النافذة يخفض نسبة الاتّحاد. فالمدخل الذي نُسمّيه «نظيفاً»
+#: يجب أن يكون نظيفاً فعلاً — وإلا كان الاختبار **يشهد لعطب لا وجود له**، وهو
+#: العيب المسجَّل في صدر `briefing.py`.
+FULL_FACT = {
+    "key": "contract.payment",
+    "statement": CLEAN_DRAFT,
+    "source": "عقد إيجار تجاري",
+    "locus": "البند الأول",
+    "date": "",
+    "asserted_by": "المستند",
+    "standing": "claimed",
+    "quote": CLEAN_DRAFT,
+}
+
+#: عبارات **لا يجوز أن تظهر في أيّ إطار** — لأن معناها أن المخرج صار منتهياً
+#: قابلاً للتسليم، وهو حكمٌ ليس للخادم.
+#:
+#: ⚠️ **وهي مكتوبة في الاختبار وحده ولا تُكتب ثابتاً في `main.py`**، على قاعدة
+#: `tests/test_briefing.py`: الكلمة المحرّمة تُعرف في الاختبار، ولو كُتبت ثابتاً
+#: في الملف لظهرت في مخرجه، ولو كُتبت في تعليق لاحتمل أن تُنسخ إلى نصّ.
+FORBIDDEN_READY_PHRASES = (
+    "جاهز للإيداع",
+    "جاهزة للإيداع",
+    "جاهز للاكتتاب",
+    "صالح للإيداع",
+    "صالح للاكتتاب",
+    "جاهز للاستخدام",
+)
+
+
+
 def parse_frames(frames: list) -> list:
     """يحلّل إطارات SSE ويُرجع كائنات الأحداث."""
     events = []
@@ -199,6 +327,25 @@ def parse_frames(frames: list) -> list:
         assert frame.endswith("\n\n"), f"إطار بلا فاصل: {frame[-10:]!r}"
         events.append(json.loads(frame[len("data: ") :]))
     return events
+
+
+class _CleanReviewLLM:
+    """
+    نموذج المراجعة **بلا اعتراضات** — لبناء «أفضل حال ممكنة» في الاختبار.
+
+    ⚠️ **ولماذا يُستبدل النموذج، والوهميّ في `fake_deps` قائم؟** لأن الوهميّ
+    يُرجع نصّاً فارغاً، و`parse_review` **يرفع** على الفارغ
+    («مخرج المراجع فارغ — لا شيء يُقرأ») — فمسار المراجعة **الناجحة** لا يُبلَغ
+    في هذه المجموعة أصلاً، وهو سلوك قائم لا نُغيّره (وإنّما نُشهد عليه في
+    ``test_a_check_that_did_not_run_reaches_briefing_as_absent``).
+
+    فالمطلوب هنا مدخلٌ **أقصى ما يمكن بناؤه**: مراجعة جرت ولم تجد ما تعترض عليه.
+    ويُعطى ذلك بمصفوفة JSON فارغة — وهي الشكل الذي يفهمه `parse_review`
+    («لا اعتراضات»)، لا بنصّ نخترعه. ولا شبكة ولا نموذج في ذلك.
+    """
+
+    def invoke(self, *_args, **_kwargs) -> object:
+        return fake_deps._FakeMessage(content="[]")
 
 
 class MainTestBase(unittest.TestCase):
@@ -210,6 +357,17 @@ class MainTestBase(unittest.TestCase):
             "match_legal_contracts",
             [fake_deps.make_row(chunk_id=777, document_name="عقد إيجار سكني", chunk_content=CLAUSE)],
         )
+
+    def swap_review_llm(self, replacement: object) -> None:
+        """
+        يُبدّل نموذج المراجعة مؤقّتاً، ويُعيد الأصليّ بعده — **بلا `mock`**.
+
+        ⚠️ والتبديل على ``main.llm`` وحده لا على `legal_agent.llm`: هذا الأخير
+        يُبنى منه `llm_with_tools` عند الاستيراد، فتبديله يمسّ الوكيل نفسه.
+        والمُراد هنا **نداء المراجعة وحده** (`_review_round`).
+        """
+        self.addCleanup(setattr, main, "llm", main.llm)
+        main.llm = replacement
 
     def run_stream(self) -> list:
         """يشغّل `_stream_agent` ويُرجع كل أحداثه (kind, payload)."""
@@ -2045,6 +2203,635 @@ class TestOfficeSceneContract(MainTestBase):
         `STAGE_CHARACTER[drafting] == drafting` وهو التباس لا خطأ صريح.
         """
         self.assertEqual(self.characters() & self.backend_stages(), set())
+
+
+# ==============================================================================
+# ٩. سجلّ الوقائع — الفحص الذي يمنع تغيير واقعة
+# ==============================================================================
+# ⚠️ **وما تمنعه هذه المجموعة ليس الفشل الصريح بل النجاح الكاذب.** الوحدة
+# `facts.py` كانت مبنيّة ومختبرة **ولا يُناديها أيّ موضع** — فكانت توجد ولا
+# تُغيّر شيئاً، كحال `case_file.py` قبل وصلها. والوصل يفتح ثلاثة أبواب يجب أن
+# تُغلق: أن يُقبل سجلّ فاسد فيُبنى عليه، أو أن يُبتلع سجلّ فاسد فيظنّ المستدعي
+# أنّه مرّ، أو أن يُسكَت عن غياب السجلّ فيُقرأ السكوت سلامة.
+
+
+class TestFactPayload(MainTestBase):
+    """
+    حمل الوقائع على `/generate` — **يُبنى مرة واحدة قبل الوكيل**.
+    ========================================================================
+    ⚠️ **والقاعدة التي يفحصها هذا الصنف**: السجلّ الفاسد يُردّ **برسالة الوحدة
+    نفسها** وبقبل أن يُستدعى نموذج واحد — لأن **سجلّاً يُتجاهَل صامتاً أسوأ من
+    سجلٍّ غائب**: المستدعي يظنّ أنّ وقائعه قُوبلت، فتُبنى المسودّة على غير ما
+    أرسل. ورسالة الوحدة لا تُترجم: نصُّها يسمّي الموضع الذي يُصلَح فيه.
+    """
+
+    def test_a_valid_payload_becomes_the_module_object(self):
+        """الحمل الصالح يُبنى سجلاً — والقيَم كما وردت لا كما فُسّرت."""
+        ledger = ledger_of(FACTS)
+        self.assertIsInstance(ledger, main.FactLedger)
+
+        fact = ledger.of_key("release.refused")
+        self.assertIsNotNone(fact)
+        self.assertEqual(fact.statement, RELEASE_FACT["statement"])
+        self.assertEqual(fact.quote, RELEASE_FACT["quote"])
+        self.assertEqual(fact.locus, RELEASE_FACT["locus"])
+        self.assertEqual(fact.source, RELEASE_FACT["source"])
+        # ⚠️ والدرجة تُقرأ من الوحدة لا من نصّ مكتوب هنا.
+        self.assertEqual(fact.standing, Standing.CLAIMED)
+        self.assertTrue(fact.is_quoted)
+
+    def test_no_payload_means_no_ledger(self):
+        """وغياب الحمل يعني «لم يُرسل سجلّ» — ولا يُبنى سجلّ فارغ عن لسانه."""
+        self.assertIsNone(main._facts_from_payload(None))
+
+    def test_an_empty_list_is_a_built_and_reported_empty_ledger(self):
+        """
+        ⚠️ **و``[]`` ليست غياباً**: سجلٌّ فارغ يُبنى ويُفحَص ويُقال ``fact_count: 0``.
+        والخطر الذي يمنعه هذا الفرق أن يُقرأ الفراغ المُعلَن غياباً — أو العكس.
+        """
+        ledger = ledger_of([])
+        self.assertIsInstance(ledger, main.FactLedger)
+        self.assertEqual(ledger.keys(), ())
+
+    def test_a_ledger_that_is_not_a_list_is_rejected(self):
+        with self.assertRaises(main.HTTPException) as caught:
+            main._facts_from_payload(fact_input("وقائع"))
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("قائمة", caught.exception.detail)
+
+    def test_an_unknown_standing_is_rejected_with_the_modules_own_values(self):
+        """
+        ⚠️ **والقيمة المجهولة تُرفض بأسماء القيم المتاحة من التصنيف نفسه.**
+        ولو مرّت لَما ظهرت خطأً بل قيمةً لا تُطابق شيئاً في `by_standing` —
+        **فيُقرأ الفراغ سلامة**، وهو العطب نفسه الذي أُصلح في مطابقة الجهة.
+        """
+        payload = [dict(RELEASE_FACT, standing="مؤكَّدة")]
+        with self.assertRaises(main.HTTPException) as caught:
+            main._facts_from_payload(fact_input(payload))
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("مؤكَّدة", caught.exception.detail)
+        for member in Standing:
+            with self.subTest(standing=member.value):
+                self.assertIn(member.value, caught.exception.detail)
+
+    def test_a_missing_standing_is_rejected_not_assumed(self):
+        """
+        🔑 **وغياب الدرجة لا يُملأ بقيمة مخترعة.**
+
+        ودرجة الواقعة **وزنها في المذكرة**، فافتراضُها حكمٌ من عندنا لم يكتبه
+        أحد — وهو **الافتراض الصامت** الذي يقوم هذا المشروع على منعه. ومن أراد
+        أن يعرف أثر ذلك فليقرأ `Standing`: «استنتاج» و«غير محقّقة» و«متنازع
+        عليها» أنواعُ حكمٍ مختلفة، ولا يُقاس بعضها إلى بعض.
+        """
+        payload = [{key: value for key, value in RELEASE_FACT.items() if key != "standing"}]
+        with self.assertRaises(main.HTTPException) as caught:
+            main._facts_from_payload(fact_input(payload))
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("درجة الواقعة", caught.exception.detail)
+        self.assertIn(Standing.CLAIMED.value, caught.exception.detail)
+
+    def test_a_duplicate_key_is_rejected_with_the_modules_own_message(self):
+        """
+        ⚠️ **والرسالة رسالة الوحدة لا رسالتنا.**
+
+        «مفتاح مكرّر في السجلّ» تُكتب في `facts.py` وحدها، ولو ترجمناها إلى نصّ
+        من عندنا لضاع الموضع الذي يُصلَح فيه — وهو المفتاح المكرّر بعينه.
+        """
+        payload = [RELEASE_FACT, RELEASE_FACT]
+        with self.assertRaises(main.HTTPException) as caught:
+            main._facts_from_payload(fact_input(payload))
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("مفتاح مكرّر", caught.exception.detail)
+        self.assertIn("release.refused", caught.exception.detail)
+
+    def test_a_fact_without_a_statement_is_rejected(self):
+        """وواقعة بلا نصّ تُردّ برسالة الوحدة أيضاً — لا تُبنى بمعنى مخترع."""
+        payload = [dict(RELEASE_FACT, statement="")]
+        with self.assertRaises(main.HTTPException) as caught:
+            main._facts_from_payload(fact_input(payload))
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("release.refused", caught.exception.detail)
+
+    def test_a_system_agreed_fact_is_refused_with_the_modules_rule(self):
+        """
+        🔑 **والحارس يُنادى: المنظومة لا تُنشئ واقعة «متفقاً عليها».**
+
+        ورسالة الوحدة تُنقل كاملةً — وفيها القاعدة نفسها، لا إشارة إليها:
+        **رواية الموكّل ليست دليلاً**. ولو مرّت `AGREED` من مسار آلي لصارت في
+        المذكرة حقيقةً مسلَّمة، وهي **صورة أخرى من العيب الأول**: أن يُغيَّر
+        **وزن** الواقعة لا نصّها.
+        """
+        payload = [dict(RELEASE_FACT, standing=Standing.AGREED.value)]
+        with self.assertRaises(main.HTTPException) as caught:
+            main._facts_from_payload(fact_input(payload))
+
+        self.assertEqual(caught.exception.status_code, 400)
+        # ⚠️ والرسالة بنصّ الوحدة: `AGREED` بحرفه اللاتيني كما تكتبه، ومعها
+        # القاعدة كاملةً — لا إشارة إليها.
+        self.assertIn(Standing.AGREED.name, caught.exception.detail)
+        self.assertIn(CLIENT_STATEMENT_IS_NOT_PROOF, caught.exception.detail)
+
+    def test_a_malformed_ledger_never_starts_generation(self):
+        """
+        🔑 **والسجلّ الفاسد يُردّ قبل أن يُستدعى نموذج واحد.**
+
+        ولو بُني السجلّ داخل البثّ لكان الردّ بعد أن دُفع ثمن التوليد، ولظهرت
+        مراحل في الواجهة ثم اختفت. **والفحص هنا على الحركة لا على الرسالة**: لا
+        نداء أداة، ولا نموذج تضمين — فالمسار **لم يبدأ أصلاً**، ومن ثمّ لا إطار
+        مرحلة، لأن النقطة رفعت قبل أن تُرجع بثّاً يُستهلك.
+        """
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(
+                main.generate(
+                    main.GenerateRequest(
+                        prompt="صغ عقداً",
+                        doc_type="عقد",
+                        facts=[main.FactPayload(**dict(RELEASE_FACT, standing="باطلة"))],
+                    )
+                )
+            )
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(fake_deps.AGENT_SCRIPT, [])
+        self.assertEqual(fake_deps.FakeEmbedder.instances, [], "استُدعي النموذج")
+        self.assertEqual(fake_deps.FAKE_SUPABASE.calls, [], "جرت أداة استرجاع")
+
+    def test_the_ledger_is_built_before_the_messages_and_the_thread(self):
+        """
+        ⚠️ **وموضع البناء مفحوص لا موصوف**: يُبنى السجلّ في `generate` **قبل**
+        بناء الرسائل، فلا يفترق الاختبار عن المسار إذا نُقل البناء لاحقاً.
+        والفحص بمقارنة الحالتين: حملٌ صالح يمرّ، وحملٌ فاسد يرفع — والحمل
+        الصالح يُبنى ولو لم يُنادَ الوكيل أصلاً.
+        """
+        response = asyncio.run(
+            main.generate(
+                main.GenerateRequest(prompt="صغ عقداً", doc_type="عقد", facts=FACTS)
+            )
+        )
+        # لم يُستهلك البثّ بعد — ومع ذلك لم يرفع الطلب: البناء وقع قبله.
+        self.assertEqual(response.media_type, "text/event-stream")
+
+
+class TestFactsFrame(MainTestBase):
+    """
+    إطار `facts` — فحص الأمانة على المسودّة، وإعلانه حين لا يُشغَّل.
+    ========================================================================
+    ⚠️ **وموضع الإطار في البثّ شرطٌ في فائدته**: الواقعة المُغيَّرة تُرى **قبل**
+    أن يُعتمد المستند لا بعده. وقد تكرّر العيب في ثلاث مسودّات لأن الإنذار كان
+    يأتي — لو جاء — بعد التسليم.
+    """
+
+    def facts_of(self, events: list) -> dict:
+        """إطار `facts` الواحد من إطارات البثّ."""
+        frames = [event for event in events if event["type"] == "facts"]
+        self.assertEqual(len(frames), 1, "إطار `facts` ليس واحداً")
+        return frames[0]["report"]
+
+    def test_a_valid_fact_payload_emits_a_facts_frame(self):
+        """حملٌ صالح ⇒ إطارٌ واحد يقول إنّ الفحص **جرى**، ومعه مخرَج الوحدة."""
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        report = self.facts_of(
+            parse_frames(
+                drain_sse(
+                    main._build_messages("صغ عقداً"), None, ledger_of([FULL_FACT])
+                )
+            )
+        )
+
+        self.assertTrue(report["ran"])
+        self.assertEqual(report["message"], "")
+        self.assertEqual(report["ledger"]["fact_count"], 1)
+        self.assertEqual(report["shifts"], [])
+        # ⚠️ وقاعدتا الوحدة تصلان مع الملخّص، فلا تُقرأ وقائعه بلا قواعده.
+        self.assertIn(
+            "client_statement_is_not_proof", report["ledger"]["rules"]
+        )
+        self.assertIn(
+            "opponent_pleading_is_not_evidence", report["ledger"]["rules"]
+        )
+
+    def test_no_ledger_still_emits_a_facts_frame_saying_it_did_not_run(self):
+        """
+        🔑 **ولا يُحذف الإطار عند غياب السجلّ — ولا يدّعي أنّ الفحص نجح.**
+
+        وهذا هو الأصل الذي يقوم عليه `briefing.py`: **الفحص الذي لم يُشغَّل ليس
+        فحصاً نجح.** ولو حُذف الإطار لَقرأ المحامي سكوتاً، والسكوت في موضع فحصٍ
+        يُقرأ سلامة — **والواقعة المُغيَّرة لا يكشفها فحص الأسانيد ولا الصياغة**.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        report = self.facts_of(
+            parse_frames(drain_sse(main._build_messages("صغ عقداً")))
+        )
+
+        self.assertFalse(report["ran"])
+        self.assertIsNone(report["ledger"], "ملخّص بلا فحص يُقرأ نظافة")
+        self.assertEqual(report["shifts"], [])
+        self.assertIn("لم يُجرِ", report["message"])
+        self.assertIn("لم يُشغَّل", report["message"])
+        # ⚠️ ولا عبارة سلامة في نصّ الغياب.
+        self.assertNotIn("سليم", report["message"])
+        self.assertNotIn("لا افتراق", report["message"])
+
+    def test_a_changed_fact_reaches_the_frame(self):
+        """
+        🔑 **العيب التاريخي نفسه — لا واقعة مُخترَعة للاختبار.**
+
+        الموظف **رفض التوقيع على مخالصة متضمّنة تنازلاً**، فصارت في المسودّة
+        **رفض استلام المبلغ**. والفرق ليس في الصياغة بل في **مَن عليه الخطأ**:
+        الأول يمتنع عن تنازل، والثاني يمتنع عن قبض حقّه. والأولى تُبنى عليها
+        دعوى العامل، والثانية تُهدَم بها.
+
+        ⚠️ **والمفحوص أنّ الافتراق وصل الإطار** — بالواقعة بعينها، وبوسمٍ ليس
+        «لم تُذكر»: فالواقعة **حاضرة محرَّفة**، وهي التي تُقرأ فتُقبل. ووسمُها
+        ``missing`` كان يُخفي أنّها في المسودّة بمعنى آخر — وهو الفرق الذي
+        ضُبطت عليه عتبات `facts.py`.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
+        report = self.facts_of(
+            parse_frames(
+                drain_sse(main._build_messages("صغ عقداً"), None, ledger_of(FACTS))
+            )
+        )
+
+        self.assertTrue(report["ran"])
+        shifts = report["shifts"]
+        self.assertEqual(
+            [shift["fact_key"] for shift in shifts],
+            ["release.refused"],
+            "لم يصل الافتراق إلى الإطار — وهو العيب الذي تكرّر ثلاث مرّات",
+        )
+
+        shifted = shifts[0]
+        self.assertNotEqual(shifted["kind"], "missing", "الواقعة حاضرة لا غائبة")
+        self.assertIn("استلام", shifted["draft_text"])
+        self.assertIn("التوقيع", shifted["fact_statement"])
+        self.assertIn("تنازلاً", shifted["fact_statement"])
+        # ⚠️ والوسم من الوحدة لا منّا: الأرقام والعتبات تُقرأ في `note` أيضاً،
+        # لأن العتبات **عتبات**، والمحامي يستحقّ أن يعرف قربَ الافتراق من الحدّ.
+        self.assertTrue(shifted["note"].strip())
+        self.assertEqual(report["ledger"]["shifts"], shifts)
+
+    def test_a_faithful_draft_does_not_shift_a_fact_that_matches_it(self):
+        """
+        ⚠️ **والقياس السالب: أداة تُنذر دائماً لا تُنذر أبداً.**
+
+        مسودّة تحمل الواقعة بنصّها ⇒ لا افتراق. ولو أُنذر عليها لصار كل إنذار
+        من الفحص ضجيجاً يُقرأ ويُهمَل — ومع الإهمال يمرّ العيب الحقيقي.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        report = self.facts_of(
+            parse_frames(
+                drain_sse(
+                    main._build_messages("صغ عقداً"), None, ledger_of([FULL_FACT])
+                )
+            )
+        )
+        self.assertEqual(report["shifts"], [])
+
+    def test_the_frame_is_json_serializable(self):
+        """الإطار يُبثّ بـ ``json.dumps`` — وإلا انكسر البثّ صامتاً."""
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
+        for event in parse_frames(
+            drain_sse(main._build_messages("صغ عقداً"), None, ledger_of(FACTS))
+        ):
+            if event["type"] == "facts":
+                json.dumps(event["report"], ensure_ascii=False)
+
+    def test_no_draft_means_no_facts_frame_and_no_false_missing(self):
+        """
+        ⚠️ **وبلا مسودّة لا يُبنى الإطار أصلاً** — ولا تُوسم كل واقعة ``missing``.
+
+        ولو بُني لَوسم الفحص **كل** واقعة غائبة، لا لأنها سقطت من مسودّة، بل
+        لأنه لا مسودّة — والوسم حينها **كذبٌ لا إنذار**: يُقرأ سقوطُ وقائع لم
+        تُكتب بعد. وهذا هو مسار الفشل نفسه الذي يُبثّ فيه خطأٌ صريح.
+        """
+        fake_deps.AGENT_SCRIPT = [{"content": ""}]
+        events = parse_frames(
+            drain_sse(main._build_messages("صغ عقداً"), None, ledger_of(FACTS))
+        )
+        kinds = [event["type"] for event in events]
+
+        self.assertNotIn("facts", kinds)
+        self.assertNotIn("briefing", kinds)
+        self.assertIn("error", kinds)
+
+
+# ==============================================================================
+# ١٠. التقرير الداخلي — المخرج الثاني، ومَنع الطمأنة الكاذبة
+# ==============================================================================
+
+
+class TestBriefingFrame(MainTestBase):
+    """
+    إطار `briefing`: التقرير الداخلي مفصولاً عن المذكرة.
+    ========================================================================
+    ⚠️ **وعلّة وجود الوحدة ليست عرض الأرقام بل منع خلطٍ واحد**: أن يُقرأ
+    **«لم يُفحص»** كما يُقرأ **«فُحص فلم يُوجد عيب»**. وهذا الخلط وقع فعلاً في
+    `review-panel.tsx`: وصل الشكل `failed: True` ومعه `clean: True`، فقُدِّم
+    `clean` فقيل «سليمة» عن مراجعة **لم تحدث قطّ**.
+    """
+
+    def briefing_of(self, events: list) -> dict:
+        """إطار `briefing` الواحد من إطارات البثّ."""
+        frames = [event for event in events if event["type"] == "briefing"]
+        self.assertEqual(len(frames), 1, "إطار `briefing` ليس واحداً")
+        return frames[0]
+
+    def test_the_briefing_frame_is_emitted_last_and_carries_both_shapes(self):
+        """
+        🔑 **والإطار يحمل قاموس الوحدة ونصّها معاً.**
+
+        ⚠️ **والنصّ يُرسل لأنه لا يُعاد بناؤه**: لو أعادت الواجهة رسم التقرير
+        لنشأ نصٌّ ثانٍ ينحرف عن `to_markdown` عند أوّل تعديل — وهو الانحراف
+        الصامت نفسه الذي أُصلح في الأدوات الخمس.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        self.swap_review_llm(_CleanReviewLLM())
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(COMPLETE_CASE_ANSWERED),
+                ledger_of([FULL_FACT]),
+            )
+        )
+        frame = self.briefing_of(events)
+
+        # القاموس: درجةٌ من ثلاث، ونعتٌ، ومصادر لكل نوع متوقَّع.
+        self.assertIn(frame["report"]["safety"], briefing.SAFETY_LEVELS)
+        self.assertEqual(
+            [source["kind"] for source in frame["report"]["sources"]],
+            list(briefing.EXPECTED_KINDS),
+            "نوع متوقَّع غاب من التقرير — فيُقرأ غيابه سلامةً",
+        )
+        # والنصّ: نفس ما تُنتجه الوحدة، لا نسخةً منه.
+        self.assertTrue(frame["markdown"].startswith("# تقرير داخلي"))
+        self.assertIn(f"حالة التحقّق: {frame['report']['safety']}", frame["markdown"])
+        self.assertIn("## المصادر", frame["markdown"])
+
+    def test_nothing_is_reported_ready_to_file_in_any_frame(self):
+        """
+        🔑 **ولا إطار واحد يصف المخرج بأنه انتهى قابلاً للتسليم.**
+
+        ⚠️ **وهذا القياس على «أفضل حال ممكنة»**: الفحوص كلها جرت، ولا سؤال
+        مفتوح، ولا دعوى غير موثَّقة، ولا خطأ مُبلَّغ عنه — حتى الدرجة العليا
+        تُبلَغ. ولو ظهرت العبارة في أي حال فستظهر هنا؛ ولذلك يُفحَص **كل إطار**
+        لا إطار التقرير وحده: العبارة تُكتب في سطر حالة أو في عنوان.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        self.swap_review_llm(_CleanReviewLLM())
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(COMPLETE_CASE_ANSWERED),
+                ledger_of([FULL_FACT]),
+            )
+        )
+        frame = self.briefing_of(events)
+        # ⚠️ أوّلاً: هذه **أفضل حال** فعلاً — وإلا لكان الفحص على حالٍ أدنى.
+        self.assertEqual(frame["report"]["safety"], briefing.SAFETY_VERIFIED)
+
+        everything = "\n".join(
+            json.dumps(event, ensure_ascii=False) for event in events
+        )
+        for phrase in FORBIDDEN_READY_PHRASES:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, everything)
+
+    def test_a_check_that_did_not_run_reaches_briefing_as_absent(self):
+        """
+        🔑 **والمراجعة الفاشلة تصل التقرير غائبةً — لا نظيفة.**
+
+        ⚠️ **وهذا مسارٌ واقعيّ لا مُصطنَع**: الوهميّ في `fake_deps` يُرجع نصّاً
+        فارغاً، و`parse_review` يرفع عليه، فيُنتج `_review_round` الشكل الحقيقي
+        للفشل: ``failed: True`` **ومعه ``clean: True`` و``error_count: 0``**.
+
+        فيُفحص شيئان معاً:
+          ١. الإطار يُمرَّر **كما هو** — ``failed`` و``clean`` فيه، ولا نُصلحه
+             هنا: إصلاحُه في `main.py` يُخفي أنّ النداء لم يجرِ.
+          ٢. والتقرير **لا يقرؤه نظيفاً**: المصدر غائب، وعدده ``None`` لا ``0``
+             (والصفر هنا يُقرأ «لا خطأ» عن فحص لم يحدث)، والدرجة ليست عليا.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(COMPLETE_CASE_ANSWERED),
+                ledger_of([FULL_FACT]),
+            )
+        )
+
+        # ١) الإطار كما هو — وفيه الطُعم الذي أُصلح في `review-panel.tsx`.
+        review_frame = next(
+            event for event in events if event["type"] == "review"
+        )["report"]
+        self.assertTrue(review_frame["failed"])
+        self.assertTrue(review_frame["clean"], "الطُعم: فشلٌ يقول إنّه نظيف")
+        self.assertEqual(review_frame["error_count"], 0)
+
+        # ٢) والتقرير لا يقرؤه نظافة.
+        report = self.briefing_of(events)["report"]
+        label = next(
+            source.label for source in briefing.gather(None) if source.kind == "review"
+        )
+        source = next(item for item in report["sources"] if item["kind"] == "review")
+        self.assertFalse(source["present"], "مراجعة لم تحدث قُدّمت حاضرةً")
+        self.assertIsNone(
+            source["errors"], "صفرٌ مكان «لا نعلم» يُقرأ «لا خطأ»"
+        )
+        self.assertNotIn("سليم", source["summary"])
+        self.assertIn("لم يُشغَّل", "\n".join(report["gaps"]))
+        self.assertIn(f"{label}: لم يُشغَّل الفحص", "\n".join(report["gaps"]))
+        self.assertNotEqual(report["safety"], briefing.SAFETY_VERIFIED)
+        # ⚠️ والنصّ يقول الحدّ نفسه: الصفّ يقول إنّ الفحص لم يُجرِ، والعدد «—».
+        markdown = self.briefing_of(events)["markdown"]
+        self.assertIn(f"| {label} | لم يُجرِ الفحص |", markdown)
+
+    def test_the_absent_ledger_reaches_briefing_as_absent_too(self):
+        """
+        ⚠️ **وغياب السجلّ يصل التقرير غائباً كذلك** — لا ملخّصاً نظيفاً.
+
+        ولا يكفي أن يقول إطار `facts` إنّ الفحص لم يُشغَّل: التقرير الداخلي
+        يُبنى من ملخّصات، فلو مُرِّر له ``{"shifts": []}`` لَحُسب الفحص **ناجحاً**
+        بلا خطأ — وهي الطمأنة الكاذبة بعينها في نوع آخر.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        events = parse_frames(
+            drain_sse(main._build_messages("صغ عقداً"), case_report(COMPLETE_CASE))
+        )
+
+        report = self.briefing_of(events)["report"]
+        source = next(item for item in report["sources"] if item["kind"] == "facts")
+        self.assertFalse(source["present"])
+        self.assertIsNone(source["errors"])
+        self.assertIn("الوقائع: لم يُشغَّل الفحص", "\n".join(report["gaps"]))
+
+    def test_the_open_questions_of_the_case_reach_the_report(self):
+        """
+        ⚠️ **والأسئلة المفتوحة تمنع الدرجة العليا — ولا تُسكَت.**
+
+        ولو لم تُمرَّر لقال نعت التقرير **«ولم يبقَ سؤال مفتوح»** وإطار `case`
+        فوقه يعرض أسئلةً لم تُجب. فالطمأنة الكاذبة لا تُمنع في الوحدة وحدها:
+        **يجب أن يصلها ما يجعلها صادقة**.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        self.swap_review_llm(_CleanReviewLLM())
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(COMPLETE_CASE),
+                ledger_of([FULL_FACT]),
+            )
+        )
+
+        case_questions = main._case_frame(
+            main._case_from_payload(case_input(COMPLETE_CASE))
+        )["questions"]
+        self.assertTrue(case_questions, "القضية المرجعية بلا أسئلة مفتوحة")
+
+        report = self.briefing_of(events)["report"]
+        self.assertEqual(
+            list(report["open_questions"]),
+            [question["question"] for question in case_questions],
+        )
+        # ⚠️ والسؤال المفتوح **يمنع** الدرجة العليا — وهو الأثر العملي.
+        self.assertNotEqual(report["safety"], briefing.SAFETY_VERIFIED)
+
+    def test_the_report_names_the_checks_by_their_module_labels(self):
+        """
+        ⚠️ **والأنواع تُعرض بأسماء الوحدة** — ولو كتبنا الأسماء هنا لافترقت
+        نسختان: واحدة في التقرير وواحدة في الاختبار.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        self.swap_review_llm(_CleanReviewLLM())
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(COMPLETE_CASE_ANSWERED),
+                ledger_of([FULL_FACT]),
+            )
+        )
+        report = self.briefing_of(events)["report"]
+
+        self.assertEqual(
+            [source["label"] for source in report["sources"]],
+            [source.label for source in briefing.gather(None)],
+        )
+
+
+class TestFrameOrder(MainTestBase):
+    """
+    ترتيب الإطارات — **الترتيب المُنفَّذ يُثبَّت هنا، ويُعلَّل**.
+    ========================================================================
+    ⚠️ **والترتيب ليس تفصيلاً في العرض**، وهو الدرس المكتوب في `briefing.py`
+    نفسه: `_verify_round` كان يبني الشكل صحيحاً **ولم يكن أحد يسأل هل يصل**.
+    فما يُفحص هنا المواضع لا الوجود:
+
+        case ← المراحل ← citations ← language ← review ← facts ← briefing
+             ← مرحلة الختم ← done
+
+    والعلل ثلاث:
+      ١. **`case` أولاً** لأنه يُثبِت ما بُنيت عليه المسودّة قبل أن تبدأ — وهو
+         موضعٌ فُحص من قبل (`test_the_case_frame_precedes_the_first_stage`).
+      ٢. **`facts` بعد `review` وقبل الختم**: الواقعة المُغيَّرة تُرى قبل أن
+         يُعتمد المستند؛ والفحص يحتاج مسودّةً ومراجعةً قبلها فلا معنى لتقديمه.
+      ٣. **`briefing` آخر إطار تقرير**: كل ما يُلخّصه معروف قبله، **ولا يُحسب
+         بعده شيء** — لأن «لا عمل بعد الختم إلا التسليم»، فلا يُبنى تقرير بعد
+         أن يُعتمد المستند. وما بعد `briefing` ليس تقريراً: مرحلة الختم، ثم
+         التسليم.
+    """
+
+    def test_the_frames_come_in_the_order_they_build_on(self):
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        self.swap_review_llm(_CleanReviewLLM())
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(COMPLETE_CASE_ANSWERED),
+                ledger_of([FULL_FACT]),
+            )
+        )
+        kinds = [event["type"] for event in events]
+
+        self.assertEqual(kinds[0], "case", "أول إطار ليس ملف القضية")
+
+        reports = ["citations", "language", "review", "facts", "briefing"]
+        positions = [kinds.index(kind) for kind in reports]
+        self.assertEqual(
+            positions, sorted(positions), f"ترتيب إطارات التقارير انقلب: {kinds}"
+        )
+
+        # ⚠️ وكل ما يلخّصه التقرير **قبله**: لا يُبنى تقرير على ما لم يصل بعد.
+        for kind in ("case", "citations", "language", "review", "facts"):
+            with self.subTest(kind=kind):
+                self.assertLess(kinds.index(kind), kinds.index("briefing"))
+
+        # ⚠️ وما بعد التقرير ليس تقريراً: مرحلة الختم، ثم التسليم.
+        after = kinds[kinds.index("briefing") + 1 :]
+        self.assertEqual(after, ["stage", "done"])
+        self.assertEqual(events[kinds.index("briefing") + 1]["stage"], main.KEY_SEAL)
+
+    def test_the_facts_frame_precedes_the_seal_stage(self):
+        """🔑 **والواقعة المُغيَّرة تُرى قبل الختم لا بعده** — وهذا كلّ الفائدة."""
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"), None, ledger_of(FACTS)
+            )
+        )
+        kinds = [event["type"] for event in events]
+        seal = kinds.index("stage", kinds.index("facts"))
+
+        self.assertLess(kinds.index("facts"), seal)
+        self.assertEqual(events[seal]["stage"], main.KEY_SEAL)
+        self.assertLess(kinds.index("facts"), kinds.index("done"))
+
+
+class TestChatStaysWorking(MainTestBase):
+    """
+    `/chat` يبقى كما كان — **والخيار المُعلَن: الثلاثي لا يتغيّر شكله**.
+    ========================================================================
+    ⚠️ **والبديل كان إضافة إطارَي الوقائع والتقرير إلى مُعاد
+    `_run_agent_collect`**، وهو يهدم عقداً قائماً على ثلاثة ويُحوّل `/chat` إلى
+    مسارٍ ثانويّ مختلف الشكل. أما الإطارات الجديدة فتُهمَل فيه كما يُهمَل إطار
+    `review` القائم — لأن `/chat` **لا يبثّ SSE أصلاً**، فلا موضع لإطار بثّ في
+    ردّ محادثة. وثمنُ ذلك أن `_stream_agent` يبنيها ثم تُهمَل: حسابٌ حتمي بلا
+    نموذج ولا شبكة، أرخص من مسارين يفترقان.
+    """
+
+    def test_chat_still_answers_in_the_same_shape(self):
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        payload = asyncio.run(main.chat_endpoint(main.ChatRequest(prompt="صغ عقداً")))
+
+        self.assertEqual(
+            set(payload), {"response", "session_id", "citations", "language"}
+        )
+        self.assertTrue(payload["citations"]["has_evidence"])
+        self.assertIn("summary", payload["language"])
+        # ⚠️ ولا إطار بثّ في ردّ المحادثة — لا `facts` ولا `briefing` ولا `review`.
+        for frame_kind in ("facts", "briefing", "review", "case"):
+            with self.subTest(frame=frame_kind):
+                self.assertNotIn(frame_kind, payload)
+
+    def test_the_collector_still_returns_a_three_tuple(self):
+        """
+        ⚠️ **والشكل ثلاثيّ — والفحص بالعدد والأنواع معاً.**
+
+        (ولهذا الفحص نظيرٌ في `TestRunAgentCollectShape`؛ وهو يُعاد هنا لأن
+        الإطارات الجديدة هي التي تهدّده — فالاختبار الذي يحرس عقداً لا يُترك
+        يشهد على نفسه.)
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        collected = main._run_agent_collect(main._build_messages("صغ عقداً"))
+
+        self.assertIsInstance(collected, tuple)
+        self.assertEqual(len(collected), 3)
+        final_text, citations, language = collected
+        self.assertIn("عقد إيجار", final_text)
+        self.assertIn("summary", citations)
+        self.assertIn("summary", language)
 
 
 if __name__ == "__main__":

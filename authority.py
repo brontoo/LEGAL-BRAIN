@@ -1142,10 +1142,19 @@ def _ends_with_citation_lead(pre_text: str) -> bool:
     words = _SPACE_BEFORE_WORD.sub(" ", _drop_dangling_lam(pre_text.lower())).split()
     if not words:
         return False
+    # ⚠️ **وتُجاز بادئة «و»/«ف» على الصيغة**: العربية تقول
+    # «**و**يقول تعليق فلان إن الإخطار واجب»، فيقع أوّل المقطع في
+    # وسط الكلمة ويُرفض التطابق. فيُقارن المقطع مرّة بحاله، ومرّة
+    # بعد استبعاد حرف العطف الأوّل إن كان واحداً منهما.
+    tail = words[-max(len(lead.split()) for lead in _CITATION_LEADS) :]
+    candidates = [tail]
+    if tail and len(tail[0]) > 1 and tail[0][0] in ("\u0648", "\u0641"):
+        candidates.append([tail[0][1:]] + tail[1:])
     return any(
-        words[-len(lead_words) :] == lead_words
+        candidate[-len(lead_words) :] == lead_words
+        for candidate in candidates
         for lead_words in (lead.split() for lead in _CITATION_LEADS)
-        if lead_words and len(lead_words) <= len(words)
+        if lead_words and len(lead_words) <= len(candidate)
     )
 
 

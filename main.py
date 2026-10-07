@@ -12,10 +12,24 @@ LEGAL-BRAIN — خادم الـ API (FastAPI)
     uvicorn main:app --reload --port 8000
 
 عقد البث (SSE) الذي تتوقّعه الواجهة في frontend/app/workspace/page.tsx:
-    data: {"type": "case",  "report": {...}}     ملف القضية — يُبثّ **قبل أول مرحلة**
-    data: {"type": "stage", "message": "..."}    مرحلة جارية
-    data: {"type": "done",  "document": "..."}   المستند النهائي
-    data: {"type": "error", "message": "..."}    فشل
+    data: {"type": "case",      "report": {...}}                    ملف القضية — **أول إطار**
+    data: {"type": "stage",     "stage": "...", "message": "..."}    مرحلة جارية
+    data: {"type": "citations", "report": {...}}                    تقرير الأسانيد
+    data: {"type": "language",  "report": {...}}                    تقرير التدقيق اللغوي
+    data: {"type": "review",    "report": {...}}                    تقرير المراجعة الثانية
+    data: {"type": "facts",     "report": {...}}                    فحص أمانة الوقائع
+    data: {"type": "briefing",  "report": {...}, "markdown": "..."}  التقرير الداخلي
+    data: {"type": "done",      "document": "..."}                  المستند النهائي
+    data: {"type": "error",     "message": "..."}                   فشل
+
+وترتيب إطارات التقارير ثابت، وهو ترتيب بناء ما تُبلِّغ عنه:
+    case ← المراحل (وكل مرحلة تُبثّ **قبل** نتيجتها) ← citations ← language
+    ← review ← facts ← briefing ← مرحلة الختم ← done
+
+⚠️ **و`facts` قبل الختم عن قصد**: الواقعة المُغيَّرة تُرى **قبل** أن يُعتمد
+المستند لا بعده — وهذا هو العيب الذي تكرّر في ثلاث مسودّات.
+⚠️ **و`briefing` آخر إطار تقرير**: لا يُبنى بعده شيء، لأن «لا عمل بعد الختم إلا
+التسليم» — فلا يُحسب تقرير بعد أن يُختم المستند.
 
 سجلّ التغييرات عن النسخة السابقة:
   * أُضيف POST /generate مع بثّ SSE حقيقي — كان مُعلَناً في الـ commit ولكنه غائب.
@@ -24,6 +38,10 @@ LEGAL-BRAIN — خادم الـ API (FastAPI)
     مُسقطة، فكان التطبيق عاجزاً عن الاستشهاد بالسند القانوني.
   * أُضيف CORS قابل للضبط من متغيّرات البيئة.
   * حُذف server.py لأنه كان نسخة مكررة حرفياً من هذا الملف.
+  * وُصل `facts.py` و`briefing.py` بالمسار الحيّ: الأول يحكم على **أمانة
+    الوقائع في المسودّة** (وكان العيب الذي تكرّر ثلاث مرّات)، والثاني يُخرج
+    **تقرير المحامي الداخلي**. وكانا مبنيَّين ومختبرَين ولا يُناديان من أيّ
+    موضع — فكانا يوجدان ولا يُغيّران شيئاً، كحال `case_file.py` قبلهما.
 ================================================================================
 """
 
@@ -35,7 +53,7 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -60,6 +78,23 @@ from language_audit import summarize as summarize_language_audit
 from review import build_review_prompt, parse_review
 from review import summarize as summarize_review
 from revisions import RevisionRejected, build_revision, summarize
+
+# ⚠️ **و`facts` و`briefing` يُستوردان في صدر الملف لا داخل دالّة.** وليس ذلك
+# ترتيباً شكلياً: كلاهما مكتبة بايثون القياسية وحدها (لا شبكة ولا قرص ولا نموذج)،
+# فاستيرادهما لا يكلّف شيئاً ولا يفشل في التشغيل. والاستيراد داخل دالّة **يُخفي
+# عطب الاستيراد إلى لحظة الطلب** — وهو صنف العطب الذي وُلد `test_module_health.py`
+# لأجله: وحدة كانت ترفع `ValueError` عند الاستيراد فلم يعلم أحد لأن لا مسار
+# يستوردها. فالاستيراد هنا يُفشل الإقلاع **إن فشل**، وهو الموضع الذي يُصلَح فيه.
+import briefing
+from facts import (
+    Fact,
+    FactLedger,
+    Standing,
+    SystemOverclaimError,
+    assert_system_does_not_agree,
+    check_fidelity,
+)
+from facts import summarize as summarize_facts
 
 load_dotenv()
 
@@ -277,6 +312,40 @@ class CasePayload(BaseModel):
     has_choice_of_law: Optional[bool] = None
 
 
+class FactPayload(BaseModel):
+    """
+    واقعة واحدة كما تصل من الواجهة — **وكل حقل فيها اختياري على مستوى النقل**.
+
+    ⚠️ **ولا يُحكم هنا على الواقعة، بل يُنقل شكلها إلى `facts.py` وحده.**
+    والسبب أن الوحدة هي التي تعرف معنى «مفتاح» و«درجة» و«نصّ» — ونسخةٌ ثانية
+    من الحكم هنا **تنحرف عنها بصمت**، فيُقبل ما ترفضه أو يُرفض ما تقبله.
+
+    ⚠️ **والحقل الغائب يبقى غائباً**: لا افتراضي يُخترع لدرجة ولا لمصدر. والفرق
+    أن درجة الواقعة (`standing`) **يُردّ الطلب بغيابها** لأنها وزن الواقعة في
+    المذكرة وافتراضُها حكمٌ لم يكتبه أحد؛ أما `quote` فيجوز أن يغيب — وتُسجَّل
+    الواقعة بلا نصّ، ويُعلَن ذلك في ``unquoted`` من الوحدة.
+
+    Attributes:
+        key:      معرّف آلي ثابت — به تُنادى الواقعة وبه تُقارَن.
+        statement: الواقعة بالعربية، جملةً واحدة.
+        source:   اسم المستند الذي جاءت منه.
+        locus:    الموضع (صفحة أو بند).
+        date:     تاريخ الواقعة كما ورد، أو ``None`` — **ولا يُحوَّل هنا**.
+        asserted_by: من يتمسّك بها.
+        standing: قيمة آلية من ``Standing`` — ولا تُستنبط من نصّ الواقعة.
+        quote:    النصّ الذي تستند إليه حرفياً، أو ``None`` لما لا نصّ له.
+    """
+
+    key: Optional[str] = None
+    statement: Optional[str] = None
+    source: Optional[str] = None
+    locus: Optional[str] = None
+    date: Optional[str] = None
+    asserted_by: Optional[str] = None
+    standing: Optional[str] = None
+    quote: Optional[str] = None
+
+
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="الوقائع والمعطيات")
     doc_type: str = Field("مستند قانوني", description="نوع المستند المطلوب")
@@ -287,6 +356,15 @@ class GenerateRequest(BaseModel):
     #: ⚠️ والتصنيف **نصّاً لا كائناً** (كما في `_sessions` أعلاه): لا نُقيّم
     #: ``Optional[CasePayload]`` عند التعريف، فيعمل الملف على أي إصدار بايثون.
     case: Optional["CasePayload"] = None
+    #: سجلّ وقائع القضية — **قائمة وقائع، وليس فيها حقل مطلوب على مستوى النقل**.
+    #: وغيابه الكامل يعني «لم يُرسل سجلّ»، وهو ما يُقال صراحةً في إطار `facts`:
+    #: **فحصٌ لم يُشغَّل، لا فحصٌ ناجح.**
+    #: ⚠️ **ولا يُبتلع السجلّ الفاسد**: `FactLedger` يرفضه فيُردّ الطلب ٤٠٠
+    #: برسالته هو، **قبل أن يُستدعى نموذج واحد** — لأن سجلّاً فاسداً يُتجاهَل
+    #: صامتاً يُوهم المستدعي أنّ وقائعه قُوبلت، فتُبنى المسودّة على غير ما أرسل.
+    #: ⚠️ والعنصر الواحد `FactPayload` — والتحقّق **شكلُ نقلٍ لا حكم**: الحكم
+    #: على معنى الواقعة في `facts.py` وحده.
+    facts: Optional[list["FactPayload"]] = None
 
 
 class RevisionRequest(BaseModel):
@@ -1026,19 +1104,264 @@ def _verify_round(final_text: str, evidence: list) -> tuple[str, dict]:
     return clean, report
 
 
-def _stream_agent(messages: list):
+# ==============================================================================
+# ٥.١ سجلّ الوقائع والتقرير الداخلي — ما يُبنى **بعد** وجود المسودّة
+# ==============================================================================
+# ⚠️ **لماذا هنا، وما العطب الذي وُجد هذا القسم لمنعه؟**
+#
+# `facts.py` بُني ليمنع عيباً تكرّر في **ثلاث مسودّات متعاقبة**: واقعةٌ غُيِّرت،
+# فانقلب مَن عليه الخطأ — «رفض التوقيع على مخالصة متضمّنة تنازلاً» صارت «رفض
+# استلام المبلغ». و`briefing.py` بُني ليُخرج تقرير المحامي **مفصولاً عن المذكرة**.
+# والاثنان كانا مبنيَّين ومختبرَين **ولا يُناديان من أيّ موضع** — فكانا يوجدان
+# ولا يُغيّران شيئاً، كحال `case_file.py` قبلهما. وهذا القسم هو الوصل.
+#
+# ⚠️ **ولا يُعاد هنا شيء من منطق الوحدة**: لا حساب افتراق، ولا درجة سلامة، ولا
+# بناء مجموعات التقرير — كلُّ ذلك يُنادى من `check_fidelity` و`summarize` و`build`.
+# ونسخةٌ ثانية هنا **تنحرف عن الوحدة بصمت**، وهو العيب نفسه في صورة أخرى.
+#
+# ⚠️ **والسجلّ يُبنى قبل الوكيل ويُفحَص بعده**: بناءُ السجلّ من الحمل يجب أن
+# يسبق استدعاء النموذج (فحملُه الفاسد يُردّ ٤٠٠ **قبل** أن يُدفع ثمن التوليد)،
+# أما **الفحص** فلا معنى له قبل أن تُكتب المسودّة — فلا شيء يُقابَل بالسجلّ.
+
+#: نصّ «لم يُشغَّل فحص الوقائع» — **وهو أهمّ سطر في هذا القسم**.
+#:
+#: ⚠️ **ولا يُحذف إطار `facts` عند غياب السجلّ.** حذفُه يُقرأ سكوتاً، والسكوت في
+#: موضع فحصٍ يُقرأ سلامة — وهو الخلط نفسه الذي وُلد `briefing.py` لمنعه:
+#: **الفحص الذي لم يُشغَّل ليس فحصاً نجح.** فلا يُقال «لا افتراق» عمّا لم يُقابَل
+#: بشيء، لأن الواقعة المُغيَّرة **لا يكشفها** فحص الأسانيد ولا التدقيق اللغوي ولا
+#: المراجعة الثانية: كلها تقرأ المسودّة في نفسها ولا تقابلها بسجلّ.
+FACTS_NOT_RUN = (
+    "لم يُجرِ فحص أمانة الوقائع: لم يُرسل سجلّ وقائع مع الطلب، فلا شيء قابَل "
+    "المسودّة. ⚠️ وغيابه **فحصٌ لم يُشغَّل، لا فحصٌ ناجح**: واقعةٌ غُيِّرت في "
+    "المسودّة — وهي العيب الذي تكرّر ثلاث مرّات — لا يكشفها فحصُ الأسانيد ولا "
+    "التدقيق اللغوي ولا المراجعة."
+)
+
+#: ما يُقال عند غياب درجة الواقعة.
+#:
+#: ⚠️ **ولا تُفترض درجة**: الدرجة هي **وزن الواقعة في المذكرة** (انظر
+#: `Standing`)، فافتراضها يُنشئ من عندنا حكماً لم يكتبه أحد — وهو **الافتراض
+#: الصامت** بعينه. ولو مُرّرت ``None`` إلى الوحدة لانكسر ``by_standing`` عند
+#: أوّل عرض، فالرفض هنا **إعلانٌ لموضع الإصلاح** لا عقوبة.
+FACT_STANDING_MISSING = (
+    "درجة الواقعة غير مسجَّلة: كل واقعة تُسجَّل بدرجتها — ولا تُفترض لها درجة."
+)
+
+
+def _fact_field(item: object, name: str) -> object:
+    """
+    يقرأ حقل واقعة من الحمل — كائن نقلٍ كان أو قاموساً، أو ``None`` إن غاب.
+
+    ⚠️ **والغياب يُعاد ``None`` ولا يُمنح قيمة مفترضة**: الوحدة هي التي ترفض
+    الواقعة بلا مفتاح أو بلا نصّ **برسالته هو**، فلا نُكرّر شرطه هنا.
+    """
+    if isinstance(item, dict):
+        return item.get(name)
+    return getattr(item, name, None)
+
+
+def _fact_text(item: object, name: str) -> str:
+    """حقل واقعة نصّاً — والغائب فراغ، ولا يُخترع له نصّ."""
+    value = _fact_field(item, name)
+    return str(value).strip() if value is not None else ""
+
+
+def _fact_standing(raw: object) -> Standing:
+    """
+    درجة الواقعة — **ورسالة الوحدة تُنقل كما هي مع القيم المتاحة**.
+
+    ⚠️ **ولا تُترجم الرسالة**: `Standing` ترفع ``ValueError`` بنصّها، وهي
+    الرسالة التي تسمّي القيمة المرفوضة. وتُضاف إليها **القيم المتاحة من
+    التصنيف نفسه** — لا من قائمة نكتبها هنا، فقائمةٌ ثانية تفترق عن التصنيف
+    عند أوّل إضافة درجة، فيصير الإصلاح تخميناً.
+    """
+    accepted = [member.value for member in Standing]
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{FACT_STANDING_MISSING} المتاح: {accepted}",
+        )
+    try:
+        return Standing(str(raw).strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"درجة الواقعة: {exc} — المتاح: {accepted}",
+        ) from exc
+
+
+def _facts_from_payload(payload: object) -> Optional[FactLedger]:
+    """
+    يحوّل حمل الوقائع إلى `FactLedger` — أو يردّه ٤٠٠ **برسالة الوحدة**.
+
+    ⚠️ **والبناء مرة واحدة، قبل بناء الرسائل وقبل الخيط** — كما في ملف القضية:
+    فحملٌ يرفضه `FactLedger` يجب أن يُردّ **قبل أن يُستدعى نموذج واحد**، وإلا
+    كان الـ٤٠٠ بعد أن دُفع ثمن التوليد. وهذا فحص
+    ``test_a_malformed_ledger_never_starts_generation``.
+
+    ⚠️ **وسجلٌّ فاسد يُتجاهَل صامتاً أسوأ من سجلٍّ غائب**: المستدعي يظنّ أنّ
+    وقائعه قُوبلت، فتُبنى المسودّة على غير ما أرسل — وهو العيب الذي جاء
+    `facts.py` لمنعه. فلا تُبتلع رسالة الوحدة، ويتغيّر رمز الحالة وحده: ٤٠٠ لا
+    ٥٠٠ — لأن العطب في الطلب لا في الخادم.
+
+    ⚠️ **و``None`` تعني «لم يُرسل سجلّ»** فتُبثّ في إطار `facts` صريحةً. أما
+    ``[]`` فسجلٌّ فارغ **يُبنى ويُفحَص**، ويقول ملخّصه ``fact_count: 0`` — فما
+    أُعلن فراغه ليس غائباً.
+    """
+    if payload is None:
+        return None
+
+    if isinstance(payload, (str, bytes)) or not isinstance(payload, (list, tuple)):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "الوقائع يجب أن تكون قائمة وقائع، ووصل: "
+                f"{type(payload).__name__}"
+            ),
+        )
+
+    built: list[Fact] = []
+    for item in payload:
+        built.append(
+            Fact(
+                key=_fact_text(item, "key"),
+                statement=_fact_text(item, "statement"),
+                source=_fact_text(item, "source"),
+                locus=_fact_text(item, "locus"),
+                date=_fact_text(item, "date"),
+                asserted_by=_fact_text(item, "asserted_by"),
+                standing=_fact_standing(_fact_field(item, "standing")),
+                quote=_fact_text(item, "quote"),
+            )
+        )
+
+    # ⚠️ **والحارس يُنادى قبل بناء السجلّ، وأخطرُ ما في الحمل يُقال أولاً.**
+    # واقعة `AGREED` وصلت من هذا المسار تعني أنّ **المنظومة أنشأت «متفقاً عليه»**
+    # — وهي الحالة التي ترفع فيها الوحدة استثناءً لا تحذيراً، لأن التحذير يُطبع
+    # وتمضي الواقعة المصنوعة إلى المذكرة. فتُنقل رسالتها (وفيها القاعدة) ويُردّ
+    # الطلب ٤٠٠، ولا تُرقّى درجةٌ ولا تُنزل.
+    try:
+        assert_system_does_not_agree(tuple(built))
+    except SystemOverclaimError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        return FactLedger(tuple(built))
+    except ValueError as exc:
+        # ⚠️ رسالة `FactLedger` بنصّها: مفتاح مكرّر، أو واقعة بلا مفتاح أو بلا
+        # نصّ. وهي الرسالة التي تسمّي الموضع، فلا تُترجم إلى نصّ من عندنا.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _facts_frame(draft: str, ledger: Optional[FactLedger]) -> dict:
+    """
+    إطار `facts`: نتيجة فحص الأمانة على المسودّة، أو إعلان أنّه لم يُشغَّل.
+
+    ⚠️ **و`check_fidelity` حتميّة وبلا نموذج وبلا شبكة وبلا قرص** (انظر صدر
+    `facts.py`)، فيُشغَّل **دائماً** متى وُجد سجلّ: لا يُترك لخيار، ولا يُعلَّق
+    على توفيق نداء. وهذا شرط لا تحسين — **الضمانة التي تحتاج نداءً لا تُختبر،
+    وما لا يُختبر لا يُعوَّل عليه**، وقد دفع المشروع ثمن ذلك ثلاث مرّات.
+
+    ⚠️ **ولا تُنادى على مسودّة غير موجودة**: `_stream_agent` لا يبني هذا الإطار
+    في مسار «لا نصّ»، لأن كلّ واقعة كانت ستُوسم ``missing`` — لا لأنها سقطت من
+    مسودّة، بل لأنه لا مسودّة. والوسم حينها كذبٌ لا إنذار.
+
+    ⚠️ **والافتراقات تُصعَّد مع الملخّص**: ``shifts`` موجودة داخل ``summarize``
+    **وهي هنا أيضاً** لأن الواجهة تحتاج الافتراق وحده ولا تحتاج سجلّ الوقائع
+    كلّه — والاعتماد على مفتاح متداخل يُشيع القراءة الخاطئة حين يتغيّر الشكل.
+    """
+    if ledger is None:
+        return {
+            "ran": False,
+            "message": FACTS_NOT_RUN,
+            "ledger": None,
+            "shifts": [],
+        }
+
+    shifts = check_fidelity(draft, ledger)
+    payload = summarize_facts(ledger, shifts)
+    return {
+        "ran": True,
+        "message": "",
+        # ⚠️ مخرَج الوحدة كما هو — **ونفسه يُمرَّر إلى التقرير الداخلي** (فيه
+        # ``summary`` و``fact_count`` و``shifts``)، فلا نسخة ثانية للسجلّ.
+        "ledger": payload,
+        "shifts": payload["shifts"],
+    }
+
+
+def _case_open_questions(case_frame: Optional[dict]) -> tuple[str, ...]:
+    """
+    أسئلة ملف القضية المفتوحة — **بنصّ الوحدة، وبترتيبها، وبلا إعادة صياغة**.
+
+    ⚠️ **ولماذا تُمرَّر إلى التقرير الداخلي؟** لأن `readiness` تعتبر السؤال
+    المفتوح مانعاً للدرجة العليا، فلو لم تُمرَّر لقال التقرير في نعته العلوي
+    **«ولم يبقَ سؤال مفتوح»** وإطار `case` فوقه يعرض ثلاثة أسئلة لم تُجب. وهذا
+    **طمأنة كاذبة** من الصنف الذي وُلدت هذه الوحدة لمنعه.
+    """
+    if not case_frame:
+        return ()
+    questions: list[str] = []
+    for question in case_frame.get("questions") or ():
+        text = str((question or {}).get("question", "")).strip()
+        if text:
+            questions.append(text)
+    return tuple(questions)
+
+
+def _briefing_frame(
+    reports: Mapping[str, Any],
+    open_questions: Sequence[str] = (),
+) -> dict:
+    """
+    إطار `briefing`: التقرير الداخلي — بقاموسه **ونصّه** معاً.
+
+    ⚠️ **ولا يُحسب هنا رقم، ولا يُفسَّر شيء**: `briefing.build` تُنادى بملخّصات
+    الفحوص **كما أُبلغت**، وهي وحدها تعرف أن الغائب ثغرةٌ بمستوى خطأ، وأن
+    ``failed: True`` معه ``clean: True`` **ليست نظافة**. ولو جمعنا هنا ملخّصاً
+    «نظيفاً» عن فحص لم يجرِ، أو قدّمنا ``clean`` على ``failed``، لَعاد العيب
+    الذي وُلد الملف لمنعه — وهو العيب الذي وقع فعلاً في `review-panel.tsx`.
+
+    ⚠️ **ونصّ التقرير يُرسل مع قاموسه** لأن الواجهة لا يجوز أن تُعيد بناءه:
+    نصٌّ ثانٍ في جافاسكربت ينحرف عن `to_markdown` عند أوّل تعديل، وهو الانحراف
+    الصامت نفسه الذي أُصلح في الأدوات الخمس.
+
+    ⚠️ **ولا طابع زمني يُمرَّر**، وهذا مقصود: `build` لا تقرأ الساعة بنفسها
+    (لتكون دالّةً نقيّة تعطي المدخل نفسه المخرج نفسه)، وقراءتُها هنا تجعل
+    تشغيلين بالمدخل نفسه يفترقان — والاختبار الذي لا يُعاد فيه إنتاج الناتج
+    لا يشهد على شيء.
+    """
+    report = briefing.build(reports, open_questions=open_questions)
+    return {"report": report.to_dict(), "markdown": report.to_markdown()}
+
+
+def _stream_agent(
+    messages: list,
+    case_frame: Optional[dict] = None,
+    ledger: Optional[FactLedger] = None,
+):
     """
     يولّد أحداث الوكيل خطوة بخطوة.
 
     يُنتج أزواجاً (kind, payload):
-        ("stage", "نص المرحلة")   عند بدء استدعاء أداة أو انتهائه
+        ("stage", StageEvent)     عند بدء استدعاء أداة أو انتهائه
         ("citations", {...})      تقرير التحقّق من الأسانيد
+        ("language", {...})       تقرير التدقيق اللغوي
+        ("review", {...})         تقرير المراجعة الثانية
+        ("facts", {...})          فحص أمانة الوقائع — أو إعلان أنّه لم يُشغَّل
+        ("briefing", {...})       التقرير الداخلي: قاموسه ونصّه
         ("final", "نص المستند")   عند اكتمال الصياغة — بلا كتلة الأسانيد
 
     ⚠️ جامع الأدلة يُفتح **هنا** لا في المستدعي. السبب: هذه الدالة تُنفَّذ داخل
     الخيط العامل حيث تجري الأدوات، و`ContextVar` معزول لكل خيط. ولو فُتح الجامع
     في حلقة الأحداث لما رآه الخيط العامل أصلاً، فتُسجَّل الأدلّة في سياق فارغ
     ويصير التحقّق بلا معنى.
+
+    ⚠️ **وَ``case_frame`` و``ledger`` يُمرَّران لا يُقرآن من حالة عامّة**:
+    إطار `case` يُبنى في `generate` قبل الخيط (فحملُه الفاسد يُردّ قبل الوكيل)،
+    وسجلّ الوقائع كذلك. والمعرَّفان هنا لأن **إطاري `facts` و`briefing` يُبنيان
+    بعد وجود المسودّة** — فلا يمكن بناؤهما في النقطة كما يُبنى إطار `case`.
+    و``None`` في كليهما مقصود: «لم يُرسل حمل» معلومة تُقال، لا فراغ يُسكت عنه.
     """
     yield ("stage", StageEvent(KEY_INTAKE, STAGE_ANALYSING))
 
@@ -1096,16 +1419,63 @@ def _stream_agent(messages: list):
         # وكل مرحلة **تُبثّ قبل** نتيجتها: فيرى المحامي المدقّق يعمل ثم يستلم
         # تقريره، بدل أن يظهر التقرير من العدم.
         yield ("stage", StageEvent(KEY_VERIFYING, STAGE_VERIFYING))
-        clean, report = _verify_round(final_text, evidence)
-        yield ("citations", report)
+        clean, citation_report = _verify_round(final_text, evidence)
+        yield ("citations", citation_report)
 
         # سيبويه المُكشّر — تدقيق لغوي حتمي بلا نموذج (انظر language_audit.py)
         yield ("stage", StageEvent(KEY_POLISH, STAGE_POLISHING))
-        yield ("language", summarize_language_audit(audit_language(clean)))
+        language_report = summarize_language_audit(audit_language(clean))
+        yield ("language", language_report)
 
         # المفتش ثُغرة — القراءة الثانية. وقبل الختم، فلا يُختم إلا بعد مراجعة.
         yield ("stage", StageEvent(KEY_REVIEW, STAGE_REVIEWING))
-        yield ("review", _review_round(_brief_from(messages), clean, _evidence_text(evidence)))
+        review_report = _review_round(
+            _brief_from(messages), clean, _evidence_text(evidence)
+        )
+        yield ("review", review_report)
+
+        # ------------------------------------------------------------------
+        # أمانة الوقائع — **بعد وجود المسودّة، وقبل الختم**
+        # ------------------------------------------------------------------
+        # ⚠️ **وموضعه هنا هو فائدته**: الواقعة المُغيَّرة تُرى **قبل** أن يُعتمد
+        # المستند لا بعده. ولو بُثّ بعد الختم لَما كان إنذاراً بل تقريراً عن
+        # مستندٍ انتهى — وهو عين العيب الذي تكرّر ثلاث مرّات: أن يُسلَّم عملٌ
+        # وفيه واقعة مقلوبة.
+        # ⚠️ **ويُفحَص النصّ النظيف** (`clean`) — وهو المستند الذي يقرأه المحامي،
+        # لا نصّ النموذج بكتلة أسانيده: فكتلة الأسانيد رموزٌ لا من المذكرة،
+        # وإدخالها في المقابلة يرفع التغطية زوراً.
+        facts_frame = _facts_frame(clean, ledger)
+        yield ("facts", facts_frame)
+
+        # ------------------------------------------------------------------
+        # التقرير الداخلي — **آخر إطار تقرير، وقبل الختم**
+        # ------------------------------------------------------------------
+        # ⚠️ **وهنا سبب وجود `briefing.py`**: عرضُ عملٍ ناقص التحقّق على أنه
+        # منتهٍ. فالفحص الذي لم يجرِ يُمرَّر ``None`` **لا ملخّصاً نظيفاً**:
+        #  • ``facts`` غائبٌ سجلُّه ⇒ ``facts_frame["ledger"]`` هو ``None``،
+        #    فيقول التقرير «لم يُشغَّل» ولا يقول «لا افتراق».
+        #  • والمراجعة تمرّ **كما هي**: وإن وصلت ``failed: True`` ومعه
+        #    ``clean: True`` فالتقرير يعرف ترتيبها (`FAILED_KEYS` في الوحدة)،
+        #    ولا نُصلحها هنا — إصلاحها هنا يُخفي أن النداء لم يجرِ.
+        #  • و``attribution`` **جرى داخل `_verify_round`**، فتمريره ليس تبرّعاً:
+        #    تركُه يجعل التقرير يشهد أنّه لم يُشغَّل وهو قد جرى.
+        #  • وملف القضية يُمرَّر بما أثبته إطاره؛ فإن لم يُبنَ فهو ``None``.
+        # ⚠️ **ولا يُبنى بعد الختم**: «لا عمل بعد الختم إلا التسليم»، والتقرير
+        # عملٌ يُحسب — فلا يُحسب بعد أن يُعتمد المستند.
+        yield (
+            "briefing",
+            _briefing_frame(
+                reports={
+                    "citation": citation_report,
+                    "attribution": citation_report.get("attribution"),
+                    "review": review_report,
+                    "language": language_report,
+                    "facts": facts_frame["ledger"],
+                    "case_file": (case_frame or {}).get("case"),
+                },
+                open_questions=_case_open_questions(case_frame),
+            ),
+        )
 
         # المعلم أبو الختم — لا عمل بعد الختم إلا التسليم
         yield ("stage", StageEvent(KEY_SEAL, STAGE_SEALING))
@@ -1223,6 +1593,16 @@ def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
     ⚠️ **وإطار `case` لا يُنتج من هنا** بل من `_sse_generator` — لأن `/chat`
     لا يبثّ SSE أصلاً. ولو أُنتج هنا لكان إطاره يُهمَل في `/chat` ويُبثّ في
     `/generate` من موضعين يفترقان.
+
+    ⚠️ **وأُبقي الشكل ثلاثياً عند وصل `facts` و`briefing` — والخيار مكتوب هنا.**
+    البديل كان إضافة إطارَي الوقائع والتقرير الداخلي إلى المُعاد، وهو يهدم
+    عقداً قائماً على ثلاثة **ويجعل لـ`/chat` شكلَ بثٍّ ثانياً**: أي أن ما يُختبر
+    في `/generate` لا يُختبر في `/chat` والعكس. أما الإطارات الجديدة فتُهمَل هنا
+    كما يُهمَل إطار `review` القائم — **لأن `/chat` لا يبثّ SSE أصلاً**، فإطار
+    التقرير الداخلي لا موضع له في ردّ محادثة، وفحص الوقائع لا سجلّ له فيها.
+    ⚠️ **ولا تُبنى الإطارات مرّتين**: `_stream_agent` يبنيها في الحالين، ويُهمَل
+    في `/chat` ما لا يُعاد. وثمنُ ذلك حسابٌ حتمي بلا نموذج ولا شبكة — أرخص من
+    مسارين يفترقان.
     """
     final_text = ""
     report: dict = {}
@@ -1264,6 +1644,7 @@ async def health():
 async def _sse_generator(
     messages: list,
     case_frame: Optional[dict] = None,
+    ledger: Optional[FactLedger] = None,
 ) -> AsyncIterator[str]:
     """
     يحوّل مُولِّد الوكيل المتزامن (blocking) إلى بثّ غير متزامن.
@@ -1277,6 +1658,11 @@ async def _sse_generator(
     ⚠️ **ولماذا لا يُبثّ في `generate` قبل إرجاع البثّ؟** لأن `generate` يُرجع
     ``StreamingResponse`` ولا يكتب فيه شيئاً؛ فالإطار الأول لا يُسلَّم إلا حين
     يبدأ استهلاك المولّد — فلو بُثّ هناك لكان ترتيبه غير مضمون بالنسبة للمراحل.
+
+    ⚠️ **وَ``ledger`` يُمرَّر إلى ``_stream_agent`` ولا يُقرأ من حالة عامّة**:
+    إطار `facts` يُبنى **بعد وجود المسودّة**، فلا يمكن بناؤه في `generate` كما
+    يُبنى إطار `case`. والسجلّ نفسُه بُني في `generate` قبل الخيط (فحملُه الفاسد
+    يُردّ ٤٠٠ قبل أن يُستدعى نموذج)، فلا يُعاد بناؤه هنا.
     """
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -1290,7 +1676,7 @@ async def _sse_generator(
             if case_frame is not None:
                 emit({"type": "case", "report": case_frame})
 
-            for kind, payload in _stream_agent(messages):
+            for kind, payload in _stream_agent(messages, case_frame, ledger):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
                     emit(
@@ -1306,6 +1692,18 @@ async def _sse_generator(
                     emit({"type": "language", "report": payload})
                 elif kind == "review":
                     emit({"type": "review", "report": payload})
+                elif kind == "facts":
+                    emit({"type": "facts", "report": payload})
+                elif kind == "briefing":
+                    # ⚠️ النصّ يُبثّ مع القاموس: الواجهة تعرض التقرير كما بنته
+                    # الوحدة، ولا تُعيد بناءه — ونصٌّ ثانٍ ينحرف بصمت.
+                    emit(
+                        {
+                            "type": "briefing",
+                            "report": payload["report"],
+                            "markdown": payload["markdown"],
+                        }
+                    )
                 elif kind == "final":
                     if payload:
                         emit({"type": "done", "document": payload})
@@ -1355,11 +1753,21 @@ async def generate(req: GenerateRequest):
 
     ⚠️ **والبناء قبل بناء الرسائل وقبل الخيط**: أي فشل هنا يرتفع من النقطة
     نفسها فيردّه FastAPI ٤٠٠، ولا يُفتح بثّ ولا يُستدعى الوكيل.
+
+    ⚠️ **وسجلّ الوقائع يُبنى هنا أيضاً، وقبل الخيط** — `facts.py` كان مبنياً
+    ومختبراً ولا يُنادى من أيّ موضع، كحال `case_file` قبله. وسجلٌّ يرفضه
+    `FactLedger` (مفتاح مكرّر، أو واقعة بلا مفتاح أو نصّ، أو درجة مجهولة، أو
+    واقعة `AGREED` أنشأها المسار) **يُردّ ٤٠٠ برسالة الوحدة، قبل أن يُستدعى
+    نموذج واحد** — لأن سجلّاً فاسداً يُتجاهَل صامتاً يُوهم المستدعي أنّ وقائعه
+    قُوبلت، فتُبنى المسودّة على غير ما أرسل.
+    ⚠️ **والفاسد لا يُبتلع ولا يُوقف العمل الصحيح**: غياب السجلّ كليّاً لا يردّ
+    الطلب، بل يُبثّ إطار `facts` يقول صراحةً إنّ الفحص **لم يُشغَّل**.
     """
     case_input = _case_from_payload(req.case)
+    ledger = _facts_from_payload(req.facts)
     messages = _build_messages(req.prompt, req.doc_type, case_input)
     return StreamingResponse(
-        _sse_generator(messages, _case_frame(case_input)),
+        _sse_generator(messages, _case_frame(case_input), ledger),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
