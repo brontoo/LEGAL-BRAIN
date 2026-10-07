@@ -96,6 +96,12 @@ from facts import (
 )
 from facts import summarize as summarize_facts
 
+# ⚠️ **وَ`revision_loop` يُستورد في صدر الملف لا داخل دالّة** — وللعلّة نفسها
+# المكتوبة أعلاه في `facts` و`briefing`: استيرادٌ داخل دالّة **يُخفي عطب
+# الاستيراد إلى لحظة الطلب**، فيبقى العطب صامتاً حتى يقع في وجه محامٍ.
+# وهذه الوحدة مكتبة بايثون القياسية وحدها: لا شبكة ولا قرص ولا نموذج.
+import revision_loop
+
 load_dotenv()
 
 # ==============================================================================
@@ -1335,6 +1341,112 @@ def _briefing_frame(
     return {"report": report.to_dict(), "markdown": report.to_markdown()}
 
 
+#: نصّ إطار `revision` — **وفي صدره إعلانُ أنّ إعادة الصياغة لم تقع، وعلّتها**.
+#:
+#: ⚠️ **والجملة ليست تبريراً شكلياً بل شرط سلامة**: قائمة الأخطاء تُبنى من فحوص
+#: **وقعت على هذه المسوّدة بعينها**، وإعادة الصياغة **تُنتج نصّاً آخر** لم تجرِ
+#: عليه الفحوص — فيصير المستند وفحوصه **يصفان نصّين مختلفين**، وهو أسوأ من ترك
+#: الخطأ ظاهراً. فمن وصل الحلقة لاحقاً **يجب أن يغيّر هذه الجملة بقصد**، لا أن
+#: يجد إطاراً يقرأ «تمّت» فيُصدّق.
+REVISION_NOT_REDRAFTED = (
+    "هذه قائمة ما وجدته الفحوص مجتمعةً. "
+    "ولم تُجرَ إعادة صياغة: الحلقة لم تُوصَل بعد، "
+    "وإعادة الصياغة بلا إعادة تشغيل الفحوص "
+    "تترك المستند وفحوصه يصفان نصّين مختلفين."
+)
+
+#: نصّ الفشل — **إعلانٌ لا سكوت، وليس درجةً تُقرأ نظافة**.
+#:
+#: ⚠️ **ولا يُبتلع الفشل بقائمة فارغة**: إطارٌ بلا أخطاء يُقرأ «لا عيب»، وهو
+#: الكذب نفسه الذي يمنعه `briefing.py` — فالفحص الذي **لم يجرِ** ليس فحصاً نجح.
+REVISION_COLLECT_FAILED = (
+    "تعذّر جمع قائمة الأخطاء: لم تُبنَ القائمة أصلاً، "
+    "وغيابُ القائمة ليس سلامة — الفحوص التي جرت لم تُعرَض، "
+    "والفحص الذي لم يجرِ ليس فحصاً نجح."
+)
+
+
+def _revision_frame(
+    draft: str,
+    *,
+    review_outcome: Optional[object],
+    fidelity_shifts: Optional[Sequence] = None,
+    attribution_outcome: Optional[object] = None,
+    language_report: Optional[object] = None,
+) -> dict:
+    """
+    إطار `revision`: **قائمة الأخطاء المُوحَّدة** من المصادر الأربعة، قبل الختم.
+
+    ⚠️ **وثلاثة من المصادر تُحسَب موضعياً ولا تُبَثّ، والرابع لا يُعاد بلا ثمن.**
+    وهذا ما أثبته التشغيل لا ما قُدِّر:
+
+      • ``fidelity``: ``check_fidelity(clean, ledger)`` **خالصة** — لا نموذج ولا
+        شبكة ولا قرص — و``ledger`` مُعاملٌ في المولّد، فتُعاد هنا بلا كلفة.
+        ولهذا لا تُقرأ من إطار `facts`: **ذاك يحمل افتراقاتٍ مُلخَّصة لا كائنات
+        ``FactShift``**، و``collect_errors`` تصل إلى **خصائص** الكائن
+        (``shift.fact_key``) — فالمعلومة تُفقد عند الملخّص، وبناءها منه مستحيل.
+      • و``attribution`` و``language``: فحصان حتميان، مدخلاتهما (``clean``
+        والأدلّة) في النطاق، فيُعاد تشغيلهما كما يُعاد الأول.
+      • و``review`` وحده **نداءُ نموذج** — لا يُعاد بلا ثمن، فيُبَثّ من
+        ``_review_round`` ككائنٍ خام.
+
+    ⚠️ **ولا كائن مُنمَّط يدخل هذا الإطار**: الإطار يُسلسل إلى JSON ليُبثّ عبر
+    SSE، ووضع ``FactShift`` في مفتاح أسقط أربعة اختبارات — أحدها اسمه
+    ``test_the_frame_is_json_serializable``. فالخام يُستهلك هنا **ويُهدم أثره**
+    قبل البناء، ويُبَثّ من الحقول نصّاً لا كائناً.
+
+    ⚠️ **وَ``None`` مقابل ``()`` هو تصميم الوحدة كلّه، ويُحترم كما هو**:
+    ``fidelity_shifts=None`` تعني «لم يُشغَّل الفحص» فتُمرَّر كما هي ولا يُدرَج
+    المصدر في ``checked_sources``؛ و``()`` تعني «شُغّل ولم يُنتج افتراقاً».
+    فتمرير ``()`` عن فحص لم يقع **يجعل النظام يشهد بفحص لم يحدث** — وهو العطب
+    الذي وُلد `briefing.py` لمنعه.
+
+    ⚠️ **والفشل هنا يُعلَن ولا يُبتلع**، والمرجع ``None`` لا قائمةٌ فارغة.
+    """
+    # ⚠️ والاستدعاء داخل `try` **بلا ابتلاع**: النجاح وحده يُبنى، والفشل يُقال.
+    try:
+        errors = revision_loop.collect_errors(
+            draft,
+            review_outcome=review_outcome,
+            fidelity_shifts=fidelity_shifts,
+            attribution_outcome=attribution_outcome,
+            language_report=language_report,
+        )
+        checked = revision_loop.sources_checked(
+            review_outcome=review_outcome,
+            fidelity_shifts=fidelity_shifts,
+            attribution_outcome=attribution_outcome,
+            language_report=language_report,
+        )
+    except Exception as exc:  # noqa: BLE001 — الفشل يُعلَن ولا يُسقط التوليد
+        print(f"\n[Revision] ⚠️ تعذّر جمع قائمة الأخطاء: {type(exc).__name__}: {exc}")
+        return {
+            "errors": [],
+            "checked_sources": [],
+            "redrafted": False,
+            "collected": False,
+            "message": REVISION_COLLECT_FAILED,
+        }
+
+    # ⚠️ الخام يُترجم إلى **حقول نصّية** هنا، فلا يعبر كائنٌ إلى الإطار.
+    return {
+        "errors": [
+            {
+                "source": error.source,
+                "kind": error.kind,
+                "severity": error.severity,
+                "message": error.message,
+                "quote": error.quote,
+            }
+            for error in errors
+        ],
+        "checked_sources": list(checked),
+        "redrafted": False,
+        "collected": True,
+        "message": REVISION_NOT_REDRAFTED,
+    }
+
+
 def _stream_agent(
     messages: list,
     case_frame: Optional[dict] = None,
@@ -1349,6 +1461,7 @@ def _stream_agent(
         ("language", {...})       تقرير التدقيق اللغوي
         ("review", {...})         تقرير المراجعة الثانية
         ("facts", {...})          فحص أمانة الوقائع — أو إعلان أنّه لم يُشغَّل
+        ("revision", {...})       قائمة الأخطاء المُوحَّدة — أو إعلان تعذّر جمعها
         ("briefing", {...})       التقرير الداخلي: قاموسه ونصّه
         ("final", "نص المستند")   عند اكتمال الصياغة — بلا كتلة الأسانيد
 
@@ -1429,7 +1542,11 @@ def _stream_agent(
 
         # المفتش ثُغرة — القراءة الثانية. وقبل الختم، فلا يُختم إلا بعد مراجعة.
         yield ("stage", StageEvent(KEY_REVIEW, STAGE_REVIEWING))
-        review_report = _review_round(
+        # ⚠️ **والزوج مقصود**: الإطار للمحامي كما كان (فلا ينكسر تسلسله إلى
+        # JSON)، **والحصيلة الخام تعبر معه** — لأن `collect_errors` تصل إلى
+        # خصائص الكائن، والملخّص لا يحمل كائناً. فالمعلومة تُلتقط عند مَن
+        # يملكها، ولا يُعاد بناءها من ملخّص فُقدت فيه.
+        review_report, review_outcome = _review_round(
             _brief_from(messages), clean, _evidence_text(evidence)
         )
         yield ("review", review_report)
@@ -1446,6 +1563,41 @@ def _stream_agent(
         # وإدخالها في المقابلة يرفع التغطية زوراً.
         facts_frame = _facts_frame(clean, ledger)
         yield ("facts", facts_frame)
+
+        # ------------------------------------------------------------------
+        # قائمة الأخطاء المُوحَّدة — **بعد `review` وقبل `briefing`**
+        # ------------------------------------------------------------------
+        # ⚠️ **وثلاثة من المصادر تُحسَب هنا في النطاق، ولا تُبَثّ من بعيد:**
+        #  • ``fidelity``: ``check_fidelity`` خالصة (بلا نموذج وبلا شبكة وبلا
+        #    قرص)، و``ledger`` مُعاملٌ في هذا المولّد. ⚠️ **ولا تُقرأ من إطار
+        #    `facts`** — ذاك يحمل افتراقات **مُلخَّصة** لا كائنات ``FactShift``،
+        #    و``collect_errors`` تقرأ خصائص الكائن — فالمعلومة تُفقد قبل هنا.
+        #  • و``attribution`` و``language``: فحصان حتميان، مدخلاتهما (``clean``
+        #    والأدلّة) في النطاق، فيُعاد تشغيلهما من الوحدة نفسها — **بلا نسخة
+        #    ثانية للحكم**، وهو العيب الذي حذّرت منه الوحدات مراراً.
+        #  • و``review`` وحده نداءُ نموذج، فلا يُعاد: يعبر خاماً من الزوج أعلاه.
+        #
+        # ⚠️ **وَ``None`` هنا ليست ``()``**: `check_fidelity` تُشغَّل فقط متى
+        # وُجد سجلّ؛ وبغيابه تُمرَّر ``None`` = «لم يُشغَّل» — **فلا يُدرَج
+        # المصدر في ``checked_sources``**. ولو مُرّرت ``()`` لَقيل «شُغّل ولم
+        # يجد شيئاً»، **ولَشهد النظام بفحص لم يقع**.
+        raw_shifts = (
+            tuple(check_fidelity(clean, ledger)) if ledger is not None else None
+        )
+        attribution_outcome = verify_attributions(
+            clean, evidence, lambda row: getattr(row, "text", "") or ""
+        )
+        language_outcome = audit_language(clean)
+        yield (
+            "revision",
+            _revision_frame(
+                clean,
+                review_outcome=review_outcome,
+                fidelity_shifts=raw_shifts,
+                attribution_outcome=attribution_outcome,
+                language_report=language_outcome,
+            ),
+        )
 
         # ------------------------------------------------------------------
         # التقرير الداخلي — **آخر إطار تقرير، وقبل الختم**
@@ -1538,7 +1690,9 @@ def _message_text(message) -> str:
     return str(content or "")
 
 
-def _review_round(brief: str, draft: str, evidence_text: str) -> dict:
+def _review_round(
+    brief: str, draft: str, evidence_text: str
+) -> tuple[dict, Optional[object]]:
     """
     المراجعة الثانية — «المفتش ثُغرة» يقرأ المسودّة **كخصم لا كصديق**.
 
@@ -1554,9 +1708,20 @@ def _review_round(brief: str, draft: str, evidence_text: str) -> dict:
     ⚠️ **والفشل هنا لا يُسقط التوليد أبداً** — لكنه **يُعلَن** (`failed: True`)
     ولا يُسكَت عنه. فمسودّة بلا مراجعة أفضل من توليد منقطع، **ومراجعة تُوهم
     أنها جرت أسوأ من الاثنين**.
+
+    ⚠️ **وتُعيد زوجاً: (الإطار, الحصيلة الخام أو ``None``)** — والسبب أنّ
+    ``collect_errors`` في `revision_loop` تصل إلى **خصائص** الحصيلة
+    (`finding.message`)، والملخّص `summarize_review` **لا يحمل كائناً** —
+    فبناء الحصيلة من الإطار مستحيل، والمعلومة تُفقد عند الباب. فالخام يعبر من
+    هنا، **والإطار يبقى كما هو فلا يُكسر تسلسله إلى JSON**.
+
+    ⚠️ **و``None`` في الموضع الثاني ليست تفصيلاً**: هي القول «المراجعة **لم
+    تجرِ**» — فرع الاستثناء، والمسوّدة الفارغة. ولا تُستبدل بقائمة فارغة
+    (``()``) أبداً: ``()`` تعني «جرت ولم تجد شيئاً»، وتمريرها عن فحصٍ لم يقع
+    **يجعل النظام يشهد بفحص لم يحدث** — وهذا موضع ``sources_checked`` نفسه.
     """
     if not draft.strip():
-        return {}
+        return {}, None
 
     try:
         raw = _message_text(llm.invoke(build_review_prompt(brief, draft, evidence_text)))
@@ -1571,12 +1736,12 @@ def _review_round(brief: str, draft: str, evidence_text: str) -> dict:
             "dropped": 0,
             "findings": [],
             "failed": True,
-        }
+        }, None
 
     report = summarize_review(outcome.findings, outcome.dropped)
     report["failed"] = False
     print(f"\n[Review] 🛡️ اعتراضات: {report['error_count']} · ملاحظات: {report['notice_count']}")
-    return report
+    return report, outcome
 
 
 def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
@@ -1694,6 +1859,13 @@ async def _sse_generator(
                     emit({"type": "review", "report": payload})
                 elif kind == "facts":
                     emit({"type": "facts", "report": payload})
+                elif kind == "revision":
+                    # ⚠️ **ولا كائن مُنمَّط في هذا الإطار**: قائمة الأخطاء تُبثّ
+                    # حقولاً نصّية (المصدر والنوع والخطورة والنصّ والاقتباس)،
+                    # **بلا `action` وبلا `fixable_by_redraft`** — وكلاهما قرارُ
+                    # الحلقة لا عرضٌ للمحامي. ووضع ``FactShift`` في الإطار
+                    # أسقط أربعة اختبارات، لأن الإطار يُسلسل JSON.
+                    emit({"type": "revision", "report": payload})
                 elif kind == "briefing":
                     # ⚠️ النصّ يُبثّ مع القاموس: الواجهة تعرض التقرير كما بنته
                     # الوحدة، ولا تُعيد بناءه — ونصٌّ ثانٍ ينحرف بصمت.
