@@ -405,6 +405,9 @@ class TestTheModulesTheObjectiveNames(unittest.TestCase):
         "authority",
         "claims",
         "rules",
+        "revision_loop",
+        "quotation",
+        "revisions",
     )
 
     #: ⚠️ **وحدات الهدف بلا اختبار بعد — دَين مُعلَن، لا إعفاء.**
