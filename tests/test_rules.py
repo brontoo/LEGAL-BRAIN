@@ -161,6 +161,9 @@ def _verification(
 
 
 #: حكم موضوعي صالح — بمصدره وتاريخه.
+#:
+#: ⚠️ و``supersedes`` هنا **بمعناها الصحيح**: مفاتيح ما نسخته هذه القاعدة.
+#: فالقاعدة الأحدث هي التي تُصرّح، لأنها وحدها تعرف أنها جاءت بعد غيرها.
 def _substantive(
     key: str = "leave.basis",
     statement: str = "الأساس هو الأجر الأساسي.",
@@ -955,26 +958,35 @@ class TestMustReview(unittest.TestCase):
         """
         🔑 **والقاعدة التي حلّ محلها غيرُها تُدرَج — وهذا أصل عيب الثمانية
         والعشرين في المئة:** قاعدة ملغاة تُقرأ سارية لأن لا شيء وسمها.
+
+        ⚠️ **والاتّجاه هو موضع الدقّة، فلا يُعكس:** الذي يُصرّح بـ``supersedes``
+        هو **الأحدث**، لأنه الذي يعرف أنه نسخ. وقد وُجد هذا الاتّجاه **مقلوباً
+        في أوّل نسخة من هذا الملف**: كانت `must_review` تُدرج **السارية** وتترك
+        **الملغاة** — وهي أسوأ من غياب القائمة كلها، لأنها **تُطمئن** القارئ
+        إلى نصّ منسوخ. وصار للاتّجاه اختبار صريح.
         """
         old = _substantive(
             key="leave.old",
             statement="الأساس خمسة عشر يوماً.",
             in_force_from="2010-01-01",
-            supersedes=("leave.basis",),
         )
         new = _substantive(
             key="leave.basis",
             statement="الأساس واحد وعشرون يوماً.",
             in_force_from="2021-01-01",
+            supersedes=("leave.old",),
         )
         rule_set = RuleSet(rules=(old, new))
-        self.assertEqual([rule.key for rule in must_review(rule_set, "2026-01-01")], ["leave.old"])
+        review = [rule.key for rule in must_review(rule_set, "2026-01-01")]
+        self.assertEqual(review, ["leave.old"])
+        # واللاحقة **ليست** في القائمة: هي التي نسخت، لا التي نُسخت.
+        self.assertNotIn("leave.basis", review)
         # وقبل نفاذ اللاحق لم تنته نافذة السابق: لا مراجعة.
         self.assertEqual(must_review(rule_set, "2015-01-01"), ())
 
     def test_a_sound_rule_is_not_listed(self):
         """وما كان بمصدره وغيرَ منسوخ **لا يُدرَج** — فالقائمة ليست كل الجدول."""
-        sound = _substantive(key="leave.basis", supersedes=())
+        sound = _substantive(key="leave.basis")
         self.assertEqual(must_review(RuleSet(rules=(sound,)), "2026-01-01"), ())
 
     def test_the_shipped_table_needs_no_review(self):
