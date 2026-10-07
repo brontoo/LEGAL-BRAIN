@@ -94,6 +94,8 @@ from facts import (
     assert_system_does_not_agree,
     check_fidelity,
 )
+
+import revision_loop
 from facts import summarize as summarize_facts
 
 load_dotenv()
@@ -1448,6 +1450,83 @@ def _stream_agent(
         yield ("facts", facts_frame)
 
         # ------------------------------------------------------------------
+        # قائمة الأخطاء المُوحَّدة — البند ٨، نصفه الأول
+        # ------------------------------------------------------------------
+        # ⚠️ **والمراجعة وحدها لا تُنتجها.** فأربعة فحوص تُنتج أربعة تقارير
+        # منفصلة، ولا يعرف المحامي أيّها يكمل الآخر، ولا أيّها يُصلَح بإعادة
+        # الكتابة وأيّها لا. وهذا ما وُلدت ``revision_loop`` له.
+        #
+        # ⚠️ **والفارق بين ``None`` و``()`` هو عصب الوحدة:**
+        #   ``()``   ⇒ **الفحص جرى ولم يجد شيئاً**
+        #   ``None`` ⇒ **الفحص لم يجرِ**
+        # وتمرير ``()`` لفحص لم يجرِ **يجعل النظام يشهد بفحص لم يحدث** — وهو
+        # العطب الذي بُنيت ``briefing`` لمنعه. (مُتحقَّق بالتشغيل:
+        # ``sources_checked(fidelity_shifts=())`` ⇒ ``('fidelity',)``
+        # و``sources_checked(fidelity_shifts=None)`` ⇒ ``()``.)
+        #
+        # ⚠️ **ولا تُوصَل إعادة الصياغة هنا.** فنداء ``run_loop`` بلا إعادة
+        # تشغيل الفحوص على المسودّة الجديدة يُنتج **مذكرة تغيّرت بعد فحصها
+        # وفحوصها تصف النصّ السابق** — وهو أسوأ من تركها. فالإطار يقول
+        # صراحةً إن الإعادة **لم تحدث**، ولا يسكت.
+        _attribution = citation_report.get("attribution")
+        _shifts = (
+            tuple(facts_frame.get("shifts") or ())
+            if facts_frame.get("ledger") is not None
+            else None          # ⚠️ لم يجرِ الفحص — ``None`` لا ``()``
+        )
+        try:
+            _revision_errors = revision_loop.collect_errors(
+                clean,
+                review_outcome=review_report,
+                fidelity_shifts=_shifts,
+                attribution_outcome=_attribution,
+                language_report=language_report,
+            )
+            _checked = revision_loop.sources_checked(
+                review_outcome=review_report,
+                fidelity_shifts=_shifts,
+                attribution_outcome=_attribution,
+                language_report=language_report,
+            )
+        except Exception as exc:  # noqa: BLE001 — فشل الجمع يُعلَن ولا يُبتلع
+            yield (
+                "revision",
+                {
+                    "errors": [],
+                    "checked_sources": [],
+                    "redrafted": False,
+                    "message": (
+                        "تعذّر جمع قائمة الأخطاء: "
+                        f"{type(exc).__name__}. وغياب القائمة ليس سلامة."
+                    ),
+                },
+            )
+        else:
+            yield (
+                "revision",
+                {
+                    "errors": [
+                        {
+                            "source": e.source,
+                            "kind": e.kind,
+                            "severity": e.severity,
+                            "message": e.message,
+                            "quote": e.quote,
+                        }
+                        for e in _revision_errors
+                    ],
+                    "checked_sources": list(_checked),
+                    "redrafted": False,
+                    "message": (
+                        "هذه قائمة ما وجدته الفحوص مجتمعةً. "
+                        "ولم تُجرَ إعادة صياغة: الحلقة لم تُوصَل بعد، "
+                        "وإعادة الصياغة بلا إعادة تشغيل الفحوص "
+                        "تترك المستند وفحوصه يصفان نصّين مختلفين."
+                    ),
+                },
+            )
+
+        # ------------------------------------------------------------------
         # التقرير الداخلي — **آخر إطار تقرير، وقبل الختم**
         # ------------------------------------------------------------------
         # ⚠️ **وهنا سبب وجود `briefing.py`**: عرضُ عملٍ ناقص التحقّق على أنه
@@ -1692,6 +1771,11 @@ async def _sse_generator(
                     emit({"type": "language", "report": payload})
                 elif kind == "review":
                     emit({"type": "review", "report": payload})
+                elif kind == "revision":
+                    # ⚠️ قائمة الأخطاء المُوحَّدة. وفيها ``redrafted: False``
+                    # صريحةً: إطارٌ يسرد الأخطاء ويسكت عن أنه لم يُعِد الصياغة
+                    # يُقرأ «لم يبقَ ما يلزم» — وهو كذب بالسكوت.
+                    emit({"type": "revision", "report": payload})
                 elif kind == "facts":
                     emit({"type": "facts", "report": payload})
                 elif kind == "briefing":
