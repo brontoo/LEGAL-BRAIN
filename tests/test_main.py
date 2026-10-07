@@ -2792,6 +2792,232 @@ class TestBriefingFrame(MainTestBase):
         )
 
 
+class TestRevisionFrame(MainTestBase):
+    """
+    إطار `revision` — **قائمة الأخطاء المُوحَّدة** من المصادر الأربعة.
+    ========================================================================
+    ⚠️ **وما يُفحَص هنا ثلاثة أشياء لا واحد، وكلّها عطبٌ لا تفصيل:**
+
+      ١. **``None`` مقابل ``()``**: ``None`` = «الفحص **لم يجرِ**» فلا يُدرَج
+         المصدر في ``checked_sources``؛ و``()`` = «جرى ولم يجد شيئاً» **فيُدرَج**.
+         وخلطهما **يجعل النظام يشهد بفحص لم يقع** — وهو العطب الذي وُلد
+         `briefing.py` لمنعه، وهذا موضع ``sources_checked`` بعينه.
+      ٢. **نصّ «لم تُجرَ إعادة صياغة»**: الجملة تُثبَّت هنا **ليُغيَّر النصّ
+         بقصد** عند وصل الحلقة، لا أن يجد واصلُها إطاراً يقرأ «تمّت» فيُصدّق.
+         وعلّتها أنّ الفحوص وقعت على **هذه** المسوّدة، وإعادة الصياغة تُنتج
+         نصّاً آخر — **فيصف المستند وفحوصه نصّين مختلفين**.
+      ٣. **ولا كائن مُنمَّط في الإطار**: الإطار يُسلسل JSON ليُبثّ عبر SSE.
+         ⚠️ ووضع ``FactShift`` في مفتاح **أسقط أربعة اختبارات فعلاً**، أحدها
+         ``test_the_frame_is_json_serializable``.
+    """
+
+    def revision_of(self, events: list) -> dict:
+        """إطار `revision` الواحد من إطارات البثّ."""
+        frames = [event for event in events if event["type"] == "revision"]
+        self.assertEqual(len(frames), 1, "إطار `revision` ليس واحداً")
+        return frames[0]["report"]
+
+    def test_the_frame_carries_the_error_list_and_the_sources_that_ran(self):
+        """
+        🔑 **والقائمة تُبنى من الفحوص التي جرت — وتقول أيّها جرت.**
+
+        ⚠️ **و``checked_sources`` ليست زينة**: قائمةُ أخطاءٍ فارغة لا تُفرّق
+        بين «فُحصت فلم يُوجد عيب» و«لم يُفحص شيء» — **وكلتاهما فراغ**. فمن
+        أراد الحكم على النظافة يسأل هذه القائمة، لا يقرأ الفراغ.
+
+        ⚠️ **ونموذج المراجعة يُبدَّل هنا عن قصد** (`_CleanReviewLLM`): الوهميّ
+        في `fake_deps` يُرجع نصّاً فارغاً فترفع `parse_review`، فتصل المراجعة
+        ``None`` — **وهو القياس السالب لا الموجب**. فالمطلوب هنا مراجعةٌ جرت.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        self.swap_review_llm(_CleanReviewLLM())
+        self.swap_review_llm(_CleanReviewLLM())
+        report = self.revision_of(
+            parse_frames(
+                drain_sse(
+                    main._build_messages("صغ عقداً"), None, ledger_of([FULL_FACT])
+                )
+            )
+        )
+
+        # المصادر الأربعة جرت كلها: مراجعة ناجحة، وسجلّ وقائع، وفحصان حتميان.
+        self.assertEqual(
+            sorted(report["checked_sources"]),
+            ["attribution", "fidelity", "language", "review"],
+        )
+        self.assertIsInstance(report["errors"], list)
+        for error in report["errors"]:
+            self.assertEqual(
+                sorted(error),
+                ["kind", "message", "quote", "severity", "source"],
+                "الإطار يحمل حقلاً زائداً — وقد يكون كائناً لا يُسلسل",
+            )
+        # ⚠️ ولا قرارَ الحلقة في العرض: `action` و`fixable_by_redraft` شأنها.
+        self.assertNotIn("action", json.dumps(report, ensure_ascii=False))
+
+    def test_a_source_that_did_not_run_is_not_listed(self):
+        """
+        🔑 **``None`` مقابل ``()`` — وهذا موضع الفرق بعينه.**
+
+        ⚠️ **والحال هنا أفضل ما يمكن بناؤه، وهي الحال التي يكشفها الفرق:**
+        المراجعة **لم تجرِ** (الوهميّ يُرجع نصّاً فارغاً ⇐ الخام ``None``)،
+        والسجلّ **موجود** فشُغّل ``check_fidelity`` فعلاً ولم يجد افتراقاً
+        (``()``) — لأن المسودّة تحمل الواقعة بنصّها.
+
+        فالمتوقّع: ``fidelity`` **مُدرَج** (جرى نظيفاً)، و``review``
+        **غير مُدرَج** (لم يجرِ). ولو سُوّي بين ``None`` و``()`` لَظهر
+        ``review`` في القائمة، **ولَشهد النظام بمراجعة لم تقع**.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        report = self.revision_of(
+            parse_frames(
+                drain_sse(
+                    main._build_messages("صغ عقداً"), None, ledger_of([FULL_FACT])
+                )
+            )
+        )
+
+        self.assertIn("fidelity", report["checked_sources"])
+        self.assertNotIn(
+            "review",
+            report["checked_sources"],
+            "فحصٌ لم يجرِ أُدرج في «ما جرى» — شهادة بفحص لم يقع",
+        )
+
+    def test_no_ledger_means_fidelity_is_absent_not_empty(self):
+        """
+        🔑 **وبغياب السجلّ: ``None`` تُمرَّر، فلا يُدرَج `fidelity`.**
+
+        ⚠️ **وهذا هو الخلط الذي يمنعه `briefing.py` صريحاً**: ``()`` تعني
+        «شُغّل `check_fidelity` ولم يُنتج افتراقاً»، و``None`` تعني «لم
+        يُشغَّل». فتمرير ``()`` عن فحصٍ لم يقع **يُترجم غياباً إلى سلامة** —
+        والحكم على وقائع لم تُقابَل بشيء.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        report = self.revision_of(
+            parse_frames(drain_sse(main._build_messages("صغ عقداً")))
+        )
+
+        self.assertNotIn("fidelity", report["checked_sources"])
+        # ⚠️ ومع ذلك لا يقول الإطار «لا خطأ» عن فحص لم يجرِ: يقول أيّها جرى.
+        self.assertEqual(set(report["checked_sources"]), {"language", "attribution"})
+
+    def test_the_frame_states_that_redrafting_did_not_happen(self):
+        """
+        🔑 **والجملة مُثبَّتة هنا ليُغيَّر النصّ بقصد عند وصل الحلقة.**
+
+        ⚠️ **وعلّتها ليست تواضعاً في العرض**: الفحوص وقعت على **هذه** المسوّدة،
+        وإعادة الصياغة تُنتج نصّاً **لم تجرِ عليه** — فيصف المستندُ وفحوصُه
+        نصّين مختلفين، **وهو أسوأ من ترك الخطأ ظاهراً**. فمن وصل الحلقة فليُغيّر
+        هذه الجملة، لا أن يجد إطاراً يقول «تمّت» فيُصدّق.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        report = self.revision_of(
+            parse_frames(
+                drain_sse(
+                    main._build_messages("صغ عقداً"), None, ledger_of([FULL_FACT])
+                )
+            )
+        )
+
+        self.assertFalse(report["redrafted"])
+        self.assertIn("لم تُجرَ إعادة صياغة", report["message"])
+        self.assertIn("الحلقة لم تُوصَل بعد", report["message"])
+        self.assertIn("يصفان نصّين مختلفين", report["message"])
+
+    def test_no_frame_says_ready_to_file(self):
+        """
+        ⚠️ **ولا إطار واحد يصف المخرج بأنه انتهى قابلاً للتسليم** — والقياس
+        على «أفضل حال ممكنة»: كل الفحوص جرت ولا خطأ مُبلَّغ عنه.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(COMPLETE_CASE_ANSWERED),
+                ledger_of([FULL_FACT]),
+            )
+        )
+        everything = "\n".join(
+            json.dumps(event, ensure_ascii=False) for event in events
+        )
+        for phrase in FORBIDDEN_READY_PHRASES:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, everything)
+
+    def test_the_frame_is_json_serializable(self):
+        """⚠️ الإطار يُبثّ بـ ``json.dumps`` — وإلا انكسر البثّ صامتاً."""
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
+        report = self.revision_of(
+            parse_frames(
+                drain_sse(main._build_messages("صغ عقداً"), None, ledger_of(FACTS))
+            )
+        )
+        json.dumps(report, ensure_ascii=False)
+        # ⚠️ والافتراق هنا حقيقي، فالقائمة ليست فارغة — والاختبار يشهد على
+        # مسارٍ فيه خطأ فعلاً، لا على مسارٍ نظيف يمرّ بأي حال.
+        self.assertIn("fidelity", report["checked_sources"])
+
+    def test_a_failed_collection_is_announced_and_not_swallowed(self):
+        """
+        🔑 **وفشل الجمع يُعلَن — لا إطارٌ فارغ يُقرأ نظافة.**
+
+        ⚠️ **و``collected: False`` هي الفرق بين «لا خطأ» و«لا قائمة»**: ولو
+        بُثّت ``errors: []`` وحدها لَقرأها المحامي سلامةً، وهي في الحقيقة
+        **سقوطُ القائمة كلها** — وهو عين ما يمنعه `briefing.py`.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+
+        original = main.revision_loop.collect_errors
+        self.addCleanup(setattr, main.revision_loop, "collect_errors", original)
+
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("عطبٌ مصنوع في الجمع")
+
+        main.revision_loop.collect_errors = explode
+
+        report = self.revision_of(
+            parse_frames(drain_sse(main._build_messages("صغ عقداً")))
+        )
+
+        self.assertFalse(report["collected"])
+        self.assertEqual(report["errors"], [])
+        self.assertIn("تعذّر جمع قائمة الأخطاء", report["message"])
+        self.assertIn("ليس سلامة", report["message"])
+        self.assertFalse(report["redrafted"])
+
+    def test_the_route_itself_emits_the_frame(self):
+        """
+        🔑 **والإطار يُصدَر من `/generate` نفسها لا من المولّد وحده.**
+
+        ⚠️ والفرق ليس شكلياً: بناء الإطار في المولّد صحيح **ولا يثبت أنّ فرع
+        ``revision`` في `_sse_generator` موجود**. ولو نُسي لَما ظهر الإطار في
+        الواجهة أصلاً — **وتمرّ اختبارات المولّد كلها**، لأنها تنادي
+        ``_stream_agent`` مباشرةً. وهذا النوع نفسه من العطب كُشف في
+        `briefing.py`: أجزاءٌ تُختبر منفصلةً والمسار الحقيقي **لم يُشغَّل قطّ**.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+        response = asyncio.run(
+            main.generate(
+                main.GenerateRequest(
+                    prompt="صغ عقداً",
+                    doc_type="عقد",
+                    case=main.CasePayload(**COMPLETE_CASE_ANSWERED),
+                    facts=FACTS,
+                )
+            )
+        )
+
+        async def collect() -> list:
+            return [frame async for frame in response.content]
+
+        events = parse_frames(asyncio.run(collect()))
+        report = self.revision_of(events)
+
+        self.assertTrue(report["collected"], "لم يصل الإطار عبر النقطة نفسها")
+        self.assertIn("fidelity", report["checked_sources"])
+
+
 class TestFrameOrder(MainTestBase):
     """
     ترتيب الإطارات — **الترتيب المُنفَّذ يُثبَّت هنا، ويُعلَّل**.
@@ -2800,15 +3026,19 @@ class TestFrameOrder(MainTestBase):
     نفسه: `_verify_round` كان يبني الشكل صحيحاً **ولم يكن أحد يسأل هل يصل**.
     فما يُفحص هنا المواضع لا الوجود:
 
-        case ← المراحل ← citations ← language ← review ← facts ← briefing
-             ← مرحلة الختم ← done
+        case ← المراحل ← citations ← language ← review ← facts ← revision
+             ← briefing ← مرحلة الختم ← done
 
-    والعلل ثلاث:
+    والعلل أربع:
       ١. **`case` أولاً** لأنه يُثبِت ما بُنيت عليه المسودّة قبل أن تبدأ — وهو
          موضعٌ فُحص من قبل (`test_the_case_frame_precedes_the_first_stage`).
       ٢. **`facts` بعد `review` وقبل الختم**: الواقعة المُغيَّرة تُرى قبل أن
          يُعتمد المستند؛ والفحص يحتاج مسودّةً ومراجعةً قبلها فلا معنى لتقديمه.
-      ٣. **`briefing` آخر إطار تقرير**: كل ما يُلخّصه معروف قبله، **ولا يُحسب
+      ٣. **`revision` بعد `review` وقبل `briefing`**: قائمة الأخطاء تُبنى من
+         الأربعة، و``review`` **نداءُ نموذج لا يُعاد** فلا بدّ أن يسبقها — وإلا
+         بُنيت القائمة بلا مصدرها الأول. ⚠️ **وقبل `briefing`** لأن التقرير
+         الداخلي يلخّص ما جرى، فلو جاءت القائمة بعده لكان ملخّصُه عنها عمياء.
+      ٤. **`briefing` آخر إطار تقرير**: كل ما يُلخّصه معروف قبله، **ولا يُحسب
          بعده شيء** — لأن «لا عمل بعد الختم إلا التسليم»، فلا يُبنى تقرير بعد
          أن يُعتمد المستند. وما بعد `briefing` ليس تقريراً: مرحلة الختم، ثم
          التسليم.
@@ -2828,14 +3058,20 @@ class TestFrameOrder(MainTestBase):
 
         self.assertEqual(kinds[0], "case", "أول إطار ليس ملف القضية")
 
-        reports = ["citations", "language", "review", "facts", "briefing"]
+        reports = ["citations", "language", "review", "facts", "revision", "briefing"]
         positions = [kinds.index(kind) for kind in reports]
         self.assertEqual(
             positions, sorted(positions), f"ترتيب إطارات التقارير انقلب: {kinds}"
         )
 
+        # ⚠️ **`revision` بعد `review` وقبل `briefing`** — وهذا موضعه المعلول:
+        # القائمة تُبنى من المراجعة (ونداءُ النموذج لا يُعاد)، والتقرير الداخلي
+        # يلخّص ما جرى فلا يُبنى على قائمةٍ لم تصل بعد.
+        self.assertLess(kinds.index("review"), kinds.index("revision"))
+        self.assertLess(kinds.index("revision"), kinds.index("briefing"))
+
         # ⚠️ وكل ما يلخّصه التقرير **قبله**: لا يُبنى تقرير على ما لم يصل بعد.
-        for kind in ("case", "citations", "language", "review", "facts"):
+        for kind in ("case", "citations", "language", "review", "facts", "revision"):
             with self.subTest(kind=kind):
                 self.assertLess(kinds.index(kind), kinds.index("briefing"))
 
