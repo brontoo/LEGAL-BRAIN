@@ -80,6 +80,7 @@ def drain_sse(
     messages: list,
     case_frame: dict | None = None,
     ledger: object = None,
+    redraft: object = None,
 ) -> list:
     """
     يستهلك مولّد SSE ويُرجع الإطارات الخام.
@@ -90,11 +91,17 @@ def drain_sse(
     ⚠️ **و``ledger`` كذلك**: إطار `facts` **لا يمكن بناؤه في `/generate`** لأنه
     يحتاج المسودّة، فيُبنى داخل المولّد بعد أن تُكتب — فالسجلّ يمرّ إلى المولّد
     كما يمرّ في المسار الحقيقي، ولا يُبنى في الاختبار بناءً ثانياً.
+
+    ⚠️ **وَ``redraft`` يُمرَّر كما يمرّره `/generate`** (انظر
+    ``test_the_generate_route_passes_a_redraft_callable``). وافتراضه ``None``
+    مقصود: به يُبنى **القياس السالب** — مسارٌ لا إعادة فيه — **بلا نموذج وبلا
+    شبكة**، فتُقاس الحلقة بمزيّفٍ لا بنداء.
     """
 
     async def collect() -> list:
         return [
-            frame async for frame in main._sse_generator(messages, case_frame, ledger)
+            frame
+            async for frame in main._sse_generator(messages, case_frame, ledger, redraft)
         ]
 
     return asyncio.run(collect())
@@ -290,6 +297,14 @@ FLAWED_DRAFT = (
 #: ملاحظة**، فالقياس «أفضل حال» لا يحتاج مدخلات مصطنعة.
 CLEAN_DRAFT = "البند الأول: يلتزم الطرف الثاني بالسداد في الأوّل من كلّ شهر."
 
+#: المسودّة الثانية في اختبارات الإعادة — **نصّ الواقعة من السجلّ حرفياً**.
+#:
+#: ⚠️ **ولماذا لا نصٌّ مُخترع في الاختبار؟** لأن **الحكم على الخطأ للفحص لا
+#: للاختبار**: وجود الخطأ أو زواله يُقاس بـ`check_fidelity` على هذا النصّ، فلو
+#: كان نصّاً لا يردّ الواقعة إلى السجلّ **لَما شهد الاختبار على إصلاح أصلاً**.
+#: وهو نصّ `RELEASE_FACT` نفسها — الواقعة التي غُيِّرت في `FLAWED_DRAFT`.
+REDRAFTED_DRAFT = RELEASE_FACT["statement"]
+
 #: الواقعة المقابلة للمسودّة الأمينة — **بنصّها التامّ لا بنصفه**.
 #:
 #: ⚠️ ولماذا النصّ التام؟ لأن المقارنة تُنتج إنذاراً كاذباً على **إعادة الصياغة
@@ -314,6 +329,24 @@ FULL_FACT = {
 #: ⚠️ **وهي مكتوبة في الاختبار وحده ولا تُكتب ثابتاً في `main.py`**، على قاعدة
 #: `tests/test_briefing.py`: الكلمة المحرّمة تُعرف في الاختبار، ولو كُتبت ثابتاً
 #: في الملف لظهرت في مخرجه، ولو كُتبت في تعليق لاحتمل أن تُنسخ إلى نصّ.
+#: عبارات **لا يجوز أن يحملها موجّه إعادة الصياغة** — لأنها **شهادةٌ بزوال
+#: الخطأ تُطلب من النموذج قبل أن يفحصه أحد**. وهي أخطر من كلمةٍ في تقرير:
+#: النموذج يُصدّق ما يُقال له، **فتصير قائمة الأخطاء تقول إن الخطأ زال لأن
+#: النموذج قال، لا لأن الفحص وجد** — وهو عين ما بُني `revision_loop` لمنعه.
+#:
+#: ⚠️ **وهي مكتوبة في الاختبار وحده ولا تُكتب ثابتاً في `review.py`**، على قاعدة
+#: ``FORBIDDEN_READY_PHRASES`` نفسها: عبارةٌ محرّمة تُعرف في الاختبار، ولو
+#: كُتبت في الوحدة لظهرت في مخرجها.
+CLAIMS_THE_ERROR_IS_FIXED = (
+    "أصلحتَ",
+    "تمّ الإصلاح",
+    "تم الإصلاح",
+    "صار سليماً",
+    "زال الخطأ",
+    "أُصلح",
+    "اكتمل",
+)
+
 FORBIDDEN_READY_PHRASES = (
     "جاهز للإيداع",
     "جاهزة للإيداع",
@@ -2961,12 +2994,20 @@ class TestRevisionFrame(MainTestBase):
 
     def test_the_frame_states_that_redrafting_did_not_happen(self):
         """
-        🔑 **والجملة مُثبَّتة هنا ليُغيَّر النصّ بقصد عند وصل الحلقة.**
+        🔑 **والإطار يقول إن الإعادة لم تقع — في المسار الذي لم تقع فيه.**
 
-        ⚠️ **وعلّتها ليست تواضعاً في العرض**: الفحوص وقعت على **هذه** المسوّدة،
-        وإعادة الصياغة تُنتج نصّاً **لم تجرِ عليه** — فيصف المستندُ وفحوصُه
-        نصّين مختلفين، **وهو أسوأ من ترك الخطأ ظاهراً**. فمن وصل الحلقة فليُغيّر
-        هذه الجملة، لا أن يجد إطاراً يقول «تمّت» فيُصدّق.
+        ⚠️ **وقد غُيِّر النصّ هنا بقصد عند وصل الحلقة** (`_stream_agent` تنادي
+        `revision_loop.run_loop` بـ``redraft`` المُمرَّر)، **لأن الشقّ الأول منه
+        صار كذباً**: كان يقول «الحلقة لم تُوصَل بعد» — **وقد وُصلت**. فالنصّ
+        الجديد يقول **السببين الباقيين**: مسارٌ لا يُمرَّر له قابلٌ للإعادة،
+        ونصٌّ **لا خطأ فيه يُصلحه نداء** — وهذا حال هذا الاختبار (مسودّة
+        نظيفة على سجلّ يطابقها، فلا خطأ أصلاً).
+
+        ⚠️ **وعلّة الجملة ليست تواضعاً في العرض**: الفحوص وقعت على **هذه**
+        المسوّدة، وإعادة الصياغة تُنتج نصّاً **لم تجرِ عليه** — فيصف المستندُ
+        وفحوصه نصّين مختلفين، **وهو أسوأ من ترك الخطأ ظاهراً**. ولذلك بقي
+        الشقّ الثاني على حاله، **والقياس الموجب (إعادةٌ وقعت فعلاً) في
+        `TestRedraftLoop`** — فيُحرس الشقّان: نفيٌ صادق، وإثباتٌ صادق.
         """
         fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
         report = self.revision_of(
@@ -2979,8 +3020,11 @@ class TestRevisionFrame(MainTestBase):
 
         self.assertFalse(report["redrafted"])
         self.assertIn("لم تُجرَ إعادة صياغة", report["message"])
-        self.assertIn("الحلقة لم تُوصَل بعد", report["message"])
+        self.assertIn("قابل للإصلاح بالصياغة", report["message"])
         self.assertIn("يصفان نصّين مختلفين", report["message"])
+        # ⚠️ **ولا تُعلَن حلقةٌ لم تقع**: لا سبب إيقاف، ولا عدّ محاولات.
+        self.assertNotIn("stop_code", report)
+        self.assertNotIn("stopped_reason", report)
 
     def test_no_frame_says_ready_to_file(self):
         """
@@ -3095,6 +3139,281 @@ class TestRevisionFrame(MainTestBase):
 
         self.assertTrue(report["collected"], "لم يصل الإطار عبر النقطة نفسها")
         self.assertIn("fidelity", report["checked_sources"])
+
+
+class TestRedraftLoop(MainTestBase):
+    """
+    حلقة الإعادة المحدودة — **والشرط الحاكم: الإطارات تصف النصّ النهائي**.
+    ========================================================================
+    ⚠️ **والشرط واحد وهو حاكم**: إعادةُ صياغةٍ تُنتج نصّاً وتبقى الإطارات تصف
+    النصّ السابق **أسوأ من عدم الإعادة**: مذكرةٌ تبدّلت وفحوصُها تصف نصّاً آخر.
+    فما يُقاس هنا ليس وجود الحلقة، بل **أن ما بُني بعدها يقرأ النصّ الجديد**.
+
+    ⚠️ **وَ``redraft`` مُمرَّرٌ لا مُستدعى** (كـ``ledger``): فالحلقة تُختبر هنا
+    **بلا شبكة وبلا مفتاح وبلا نموذج**، بمزيّفٍ يُعيد نصّاً مُعدّاً. **ولا يُقاس
+    شيء في هذا الصنف على مخرَج نموذج** — ولا يُمرَّر نموذجٌ حقيقي أصلاً.
+
+    ⚠️ **والحكم على الخطأ للفحوص لا للنموذج**: النصّ الثاني هنا **نصّ الواقعة
+    من السجلّ** (`REDRAFTED_DRAFT`)، فزوال الخطأ يُقاس بـ``check_fidelity`` على
+    النصّ الجديد — **لا بعبارةٍ في الموجّه ولا بشهادةٍ من المزيّف**. ولو كان
+    المزيّف يقول «أصلحتُ» لما تحرّك فحص.
+    """
+
+    def run_generate(self, redraft, body, ledger) -> list:
+        """يُشغّل البثّ بمزيّفٍ للإعادة، ويُرجع الإطارات المُحلَّلة."""
+        self.swap_review_llm(_CleanReviewLLM())
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=body)
+        return parse_frames(
+            drain_sse(main._build_messages("صغ عقداً"), None, ledger, redraft)
+        )
+
+    def frame_of(self, events: list, kind: str) -> dict:
+        frames = [event for event in events if event["type"] == kind]
+        self.assertEqual(len(frames), 1, f"إطار `{kind}` ليس واحداً")
+        return frames[0]
+
+    def revision_of(self, events: list) -> dict:
+        return self.frame_of(events, "revision")["report"]
+
+    def facts_of(self, events: list) -> dict:
+        return self.frame_of(events, "facts")["report"]
+
+    def document_of(self, events: list) -> str:
+        """
+        المستند المُسلَّم.
+
+        ⚠️ **والحدث اسمه ``done`` لا ``final``**: الثاني نوعُ ما يُنتجه المولّد
+        داخلياً، والأول ما يُبثّ فعلاً — **وقد أمسك مسبارٌ هذا الخطأ في نفسه
+        قبل أن يُكتب هنا**، وهو الفرق بين اختبارٍ يشهد على البثّ وآخر يشهد على
+        اسمٍ لم يُبَثّ قطّ.
+        """
+        return self.frame_of(events, "done")["document"]
+
+    def stage_keys(self, events: list) -> list:
+        return [event["stage"] for event in events if event["type"] == "stage"]
+
+    def index_where(self, events: list, predicate) -> int:
+        return next(index for index, event in enumerate(events) if predicate(event))
+
+    def test_the_frames_describe_the_redrafted_text(self):
+        """
+        🔑 **الإطارات تُبنى بعد الإعادة، فتصف النصّ الجديد لا الذي استُبدل.**
+
+        ⚠️ **والفرق يُقاس بفحصٍ لا بقراءة نصّ**: `_facts_frame` تُبنى من
+        ``check_fidelity(clean, ledger)``، **فهي تشهد على النصّ الذي وصلها**.
+        و`FLAWED_DRAFT` يُنتج افتراقاً (`reworded`) والنصّ الثاني لا يُنتج شيئاً
+        — **فالفراغ في الثاني شهادةٌ على النصّ الجديد، لا فراغٌ عن لا شيء.**
+
+        ⚠️ **ولهذا يُقاس القياس السالب في هذا الاختبار نفسه**: لولا أنّ
+        ``check_fidelity(FLAWED_DRAFT, ledger)`` غير فارغ، لَكان
+        ``assertEqual(shifts, [])`` يمرّ على إطارٍ لم يُشغَّل قطّ — **وهو العطب
+        الذي تكرّر في هذا الملف ثلاث مرّات وسويتٌ أخضر لا يراه.**
+        """
+        ledger = ledger_of(FACTS)
+        called = []
+
+        def fake_redraft(text, errors, attempt=0):
+            called.append((text, tuple(error.kind for error in errors)))
+            return REDRAFTED_DRAFT
+
+        events = self.run_generate(fake_redraft, FLAWED_DRAFT, ledger)
+
+        # ⚠️ **القياس السالب أوّلاً**: النصّ القديم يُنتج افتراقاً، فالنصّ الثاني
+        # يردّ الواقعة إلى السجلّ — وإلا لَكان الاختبار يشهد على لا شيء.
+        self.assertTrue(
+            main.check_fidelity(FLAWED_DRAFT, ledger),
+            "المسودّة المعطوبة لا تُنتج افتراقاً — فلا يشهد فراغُ الجديد على شيء",
+        )
+        self.assertEqual(
+            tuple(main.check_fidelity(REDRAFTED_DRAFT, ledger)),
+            (),
+            "النصّ الثاني لا يردّ الواقعة إلى السجلّ — فالاختبار لا يشهد على إصلاح",
+        )
+
+        # ⚠️ **والإطارات بعد الإعادة لا قبلها** — وهذا موضع الشرط بعينه.
+        self.assertLess(
+            self.index_where(
+                events, lambda event: event["type"] == "stage"
+                and event["stage"] == main.KEY_REDRAFT
+            ),
+            self.index_where(events, lambda event: event["type"] == "facts"),
+            "إطار `facts` سُبق الإعادة — فهو يصف نصّاً استُبدل",
+        )
+
+        self.assertEqual(
+            self.facts_of(events)["shifts"],
+            [],
+            "إطار `facts` يصف النصّ القديم — وقد استُبدل قبل بنائه",
+        )
+        self.assertEqual(self.document_of(events), REDRAFTED_DRAFT)
+        self.assertNotEqual(self.document_of(events), FLAWED_DRAFT)
+
+        report = self.revision_of(events)
+        self.assertTrue(report["redrafted"], "الإعادة وقعت والإطار ينفيها")
+        self.assertFalse(
+            [error for error in report["errors"] if error["source"] == "fidelity"],
+            "خطأ الوقائع باقٍ في القائمة بعد نصٍّ يردّ الواقعة إلى السجلّ",
+        )
+        self.assertIn(main.KEY_REDRAFT, self.stage_keys(events))
+
+        # ⚠️ **والنداء تلقّى الخطأ القابل للإصلاح وحده** — وهذا عقد `run_loop`:
+        # ما لا يُصلحه نداء لا يُمرَّر إليه، **لأن تمريره طلبُ تظاهرٍ بإصلاحه**.
+        self.assertEqual(len(called), 1)
+        self.assertEqual(called[0][0], FLAWED_DRAFT)
+        self.assertTrue(called[0][1], "نودي النموذج بلا خطأ — فلا شيء يُصلحه")
+        self.assertLessEqual(set(called[0][1]), {"contradicted", "reworded"})
+
+    def test_a_redraft_that_does_not_remove_the_error_stops_at_the_bound(self):
+        """
+        🔑 **وإذا لم تُزل الإعادة الخطأ: تتوقّف عند السقف، وتقول ذلك.**
+
+        ⚠️ **و«تقول ذلك» ليست عبارةً في الاختبار**: النصّ المعروض يُقرأ **من
+        الوحدة** (`STOP_MESSAGES`)، وفيه السقف المعلن وعددُه. ولو كُتب النصّ
+        هنا لَكان نسخةً ثانية تفترق عن الأولى عند أوّل تعديل.
+
+        ⚠️ **والباقي معروض لا مطويّ**: القائمة تحمل الخطأ الذي لم يزل، والمستند
+        المُسلَّم هو **آخر نصّ فُحص** (لا ما أنتجه النموذج قبل فحصه).
+        """
+        called = []
+
+        def stubborn(text, errors, attempt=0):
+            called.append(text)
+            return FLAWED_DRAFT + " "  # نصٌّ ثانٍ، والعيب فيه باقٍ
+
+        events = self.run_generate(stubborn, FLAWED_DRAFT, ledger_of(FACTS))
+        report = self.revision_of(events)
+
+        self.assertTrue(report["redrafted"])
+        self.assertEqual(report["stop_code"], main.revision_loop.STOP_CEILING)
+        self.assertEqual(report["redraft_attempts"], 2)
+        self.assertTrue(report["errors"], "الخطأ الباقي لم يُعرض — وهذا إخفاء")
+        self.assertIn("fidelity", {error["source"] for error in report["errors"]})
+        self.assertIn(
+            main.revision_loop.STOP_MESSAGES[main.revision_loop.STOP_CEILING],
+            report["message"],
+        )
+        # ⚠️ **والسقف المعلن وعددُه في النصّ المعروض**، لا في حقلٍ لا يُقرأ.
+        self.assertIn("2", report["message"])
+        self.assertEqual(self.document_of(events), FLAWED_DRAFT + " ")
+        # ⚠️ **والسقف ٢ محاولتان فحصاً = إعادةٌ واحدة**: فنداءٌ واحد لا اثنان.
+        self.assertEqual(len(called), 1)
+
+    def test_an_error_that_no_redraft_can_fix_never_calls_the_model(self):
+        """
+        🔑 **وما لا يُصلحه نداء لا يُنفَق عليه نداء — ولو بقي خطأ.**
+
+        ⚠️ **والحال هنا خطأٌ حقيقي لا نصٌّ نظيف**: الواقعة **غائبة** عن المسوّدة
+        تماماً (``missing``)، وهي **ليست في جدول الإصلاح**: إعادة الصياغة لا
+        تُنشئ نصّاً غير موجود، بل **تُخفيه**. فالمتوقّع: صفرُ نداء، والخطأ
+        معروض، والإطار يقول إن الإعادة لم تقع.
+        """
+        def must_not_be_called(text, errors, attempt=0):
+            raise AssertionError("نودي النموذج ولا خطأ قابل للإصلاح بالصياغة")
+
+        events = self.run_generate(must_not_be_called, CLEAN_DRAFT, ledger_of(FACTS))
+        report = self.revision_of(events)
+
+        self.assertEqual(
+            [error["kind"] for error in report["errors"]],
+            ["missing"],
+            "الحال ليست حالَ هذا الاختبار — فلا يشهد على منع النداء",
+        )
+        self.assertFalse(report["redrafted"])
+        self.assertIn("لم تُجرَ إعادة صياغة", report["message"])
+        self.assertNotIn("stop_code", report)
+        self.assertNotIn(main.KEY_REDRAFT, self.stage_keys(events))
+
+    def test_a_path_with_no_redraft_callable_says_so(self):
+        """
+        🔑 **وبغياب القابل للإعادة: لا نداء، ولا ادّعاءَ حلقةٍ وقعت.**
+
+        ⚠️ وهذا مسارٌ حقيقي لا افتراض: ``/chat`` **لا يعرض قائمة الأخطاء**،
+        فتبديلُ نصّه صامتاً بلا بيان **أسوأ من تركه بخطئه معروفاً**. فالإطار
+        يقول إن الإعادة لم تقع، **ولا يحمل `stop_code`** — لأن حلقةً لم تقع لا
+        يُقال عنها «توقّفت عند كذا».
+        """
+        events = self.run_generate(None, FLAWED_DRAFT, ledger_of(FACTS))
+        report = self.revision_of(events)
+
+        self.assertTrue(report["errors"], "المسودّة المعطوبة بلا خطأ — حالٌ ليست هذه")
+        self.assertFalse(report["redrafted"])
+        self.assertIn("لم تُجرَ إعادة صياغة", report["message"])
+        self.assertNotIn("stop_code", report)
+        self.assertNotIn("stopped_reason", report)
+
+    def test_the_prompt_carries_the_error_and_no_claim_that_it_is_fixed(self):
+        """
+        🔑 **وموجّه الإعادة يُعرض فيه الخطأ، ولا يُشهد فيه بزواله.**
+
+        ⚠️ **ولماذا هذا شرط لا صياغة؟** لأن الموجّه الذي يقول «أصلحتَ الخطأ»
+        **يجعل النموذج يُصدّقه**، **فتصير قائمة الأخطاء تقول إن الخطأ زال لأن
+        النموذج قال، لا لأن الفحص وجد** — **وهذا يُفسد الغرض كله**: القائمة
+        تُقرأ دليلاً وهي شهادةُ الخصم على نفسه.
+
+        ⚠️ **والأخطاء تُبنى هنا بالوحدة** (`collect_errors` على افتراق حقيقي)،
+        فلا تُخترع أخطاءٌ ليشهد الموجّه عليها.
+        """
+        shifts = tuple(main.check_fidelity(FLAWED_DRAFT, ledger_of(FACTS)))
+        errors = main.revision_loop.collect_errors(
+            FLAWED_DRAFT, fidelity_shifts=shifts
+        )
+        fixable = tuple(error for error in errors if error.fixable_by_redraft)
+        self.assertTrue(fixable, "لا خطأ قابل للإصلاح — فلا يشهد الموجّه على شيء")
+
+        prompt = main.build_redraft_prompt(FLAWED_DRAFT, fixable)
+
+        for error in fixable:
+            with self.subTest(kind=error.kind):
+                self.assertIn(error.message.strip(), prompt)
+                if error.quote:
+                    self.assertIn(error.quote, prompt)
+        self.assertIn(FLAWED_DRAFT, prompt)
+        for phrase in CLAIMS_THE_ERROR_IS_FIXED:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, prompt)
+
+    def test_the_generate_route_passes_a_redraft_callable(self):
+        """
+        🔑 **والنقطة `/generate` نفسها هي التي تُمرّر الإعادة** — لا الوحدة وحدها.
+
+        ⚠️ والفرق ليس شكلياً: حلقةٌ موصولة داخل `_stream_agent` **ولا يمرّر
+        لها `/generate` قابلاً** حلقةٌ **لا تقع أبداً في الإنتاج** — تمرّ
+        اختبارات المولّد كلها وتُشغّل الحلقة بمزيّفٍ لم يُوصَل يوماً. وهذا نوع
+        العطب نفسه الذي كُشف في `briefing.py`: أجزاءٌ تُختبر منفصلةً والمسار
+        الحقيقي **لم يُشغَّل قطّ**.
+
+        ⚠️ **و``main._redraft`` يُبدَّل هنا لا يُحاكى**: `generate` تقرأ الاسم
+        من الوحدة عند الطلب (`_sse_generator(..., _redraft)`)، فالتبديل يقع على
+        المسار الحقيقي نفسه — **ويبقى النداء بلا شبكة وبلا نموذج**.
+        """
+        self.swap_review_llm(_CleanReviewLLM())
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
+        called = []
+
+        def route_redraft(text, errors, attempt=0):
+            called.append(text)
+            return REDRAFTED_DRAFT
+
+        self.addCleanup(setattr, main, "_redraft", main._redraft)
+        main._redraft = route_redraft
+
+        response = asyncio.run(
+            main.generate(
+                main.GenerateRequest(prompt="صغ عقداً", doc_type="عقد", facts=FACTS)
+            )
+        )
+
+        async def collect() -> list:
+            return [frame async for frame in response.content]
+
+        events = parse_frames(asyncio.run(collect()))
+
+        self.assertEqual(
+            called, [FLAWED_DRAFT], "النقطة لم تُمرّر إعادةً قابلة للنداء"
+        )
+        self.assertEqual(self.document_of(events), REDRAFTED_DRAFT)
+        self.assertEqual(self.facts_of(events)["shifts"], [])
+        self.assertTrue(self.revision_of(events)["redrafted"])
 
 
 class TestFrameOrder(MainTestBase):

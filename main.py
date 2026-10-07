@@ -75,7 +75,7 @@ from attribution import verify_attributions
 from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence, get_supabase, llm
 from language_audit import audit_language
 from language_audit import summarize as summarize_language_audit
-from review import build_review_prompt, parse_review
+from review import build_redraft_prompt, build_review_prompt, parse_review
 from review import summarize as summarize_review
 from revisions import RevisionRejected, build_revision, summarize
 
@@ -197,6 +197,10 @@ STAGE_VERIFYING = "المفتش ثُغرة يراجع كل سند قبل الت�
 STAGE_POLISHING = "سيبويه المُكشّر يضبط الصياغة..."
 STAGE_SEALING = "المعلم أبو الختم يعتمد المستند ويختمه..."
 STAGE_REVIEWING = "المفتش ثُغرة يقرأ المسودّة كخصم قبل التسليم..."
+#: ⚠️ **ومرحلة الإعادة لا تُعرض كمراجعة**: الأولى **قراءة** نقدية، وهذه **نداءُ
+#: صياغةٍ ثانٍ** يُنفق وقتاً — فالنصّ يقول ما يجري فعلاً. والواجهة تتجاهل مفتاحاً
+#: لا تعرفه (``STAGE_CHARACTER`` تُفلتر بـ``filter(Boolean)``)، فلا ينكسر المشهد.
+STAGE_REVISING = "أُعيدت صياغة المسودّة، والفحوص تُعاد على النصّ الجديد..."
 
 
 # ------------------------------------------------------------------------------
@@ -218,6 +222,8 @@ KEY_VERIFYING = "verifying"
 KEY_POLISH = "polish"
 KEY_SEAL = "seal"
 KEY_REVIEW = "review"
+#: مفتاح مرحلة الإعادة — **ثابت كغيره**، ونصّه المعروض في `STAGE_REVISING`.
+KEY_REDRAFT = "redraft"
 
 #: من اسم الأداة إلى مفتاح الشخصية التي تشتغل.
 TOOL_STAGE_KEYS = {
@@ -1352,11 +1358,43 @@ def _briefing_frame(
 #: عليه الفحوص — فيصير المستند وفحوصه **يصفان نصّين مختلفين**، وهو أسوأ من ترك
 #: الخطأ ظاهراً. فمن وصل الحلقة لاحقاً **يجب أن يغيّر هذه الجملة بقصد**، لا أن
 #: يجد إطاراً يقرأ «تمّت» فيُصدّق.
+#: ⚠️ **وَالحلقة وُصلت فعلاً** (`_stream_agent` تنادي `revision_loop.run_loop`
+#: بـ``redraft`` المُمرَّر)، **فسبيلان لا تقع فيهما إعادة صياغة**: مسارٌ لم
+#: يُمرَّر له قابلٌ للإعادة (``/chat``، وهو لا يعرض قائمة الأخطاء أصلاً)،
+#: ونصٌّ **لا خطأ فيه قابلاً للإصلاح بالصياغة** — وما عدا القابل للإصلاح لا
+#: تُنفَق عليه محاولة. فالنصّ يقول السببين **ولا يدّعي أن الحلقة غير موجودة**،
+#: وهو ما كان يقوله قبل الوصل وكان سيصير كذباً في المسارين.
 REVISION_NOT_REDRAFTED = (
     "هذه قائمة ما وجدته الفحوص مجتمعةً. "
-    "ولم تُجرَ إعادة صياغة: الحلقة لم تُوصَل بعد، "
+    "ولم تُجرَ إعادة صياغة في هذا المسار: "
+    "فالحلقة لا تنفق محاولةً إلا على خطأ قابل للإصلاح بالصياغة، "
+    "ولا تُنادى بلا قابلٍ للإعادة يُمرَّر لها. "
     "وإعادة الصياغة بلا إعادة تشغيل الفحوص "
     "تترك المستند وفحوصه يصفان نصّين مختلفين."
+)
+
+#: نصّ إطار `revision` **حين وقعت إعادة الصياغة فعلاً**.
+#:
+#: ⚠️ **وهو لا يشهد بإصلاح**: يقول ما جرى — عُرضت الأخطاء، فأنتج النموذج
+#: نصّاً ثانياً، **ثم أُعيد تشغيل الفحوص على النصّ الجديد**. والحكم للفحص لا
+#: للقول: فإن زال الخطأ فذلك، وإلا فهو باقٍ معروضاً. وهذا هو الشرط الذي يقوم
+#: عليه البند: **إعادة صياغة تُتبع بفحصٍ على النصّ الجديد، لا شهادةٍ من النموذج.**
+REVISION_REDRAFTED = (
+    "وهذه قائمة ما وجدته الفحوص مجتمعةً **بعد** إعادة الصياغة. "
+    "عُرضت الأخطاء القابلة للإصلاح على النموذج فأنتج نصّاً ثانياً، "
+    "ثم أُعيد تشغيل الفحوص على النصّ الجديد — فالحكم بالفحص لا بقول النموذج: "
+    "إن زال الخطأ فذلك، وإلا فهو باقٍ معروضاً في هذه القائمة."
+)
+
+#: نصّ إطار `revision` حين عُرضت الأخطاء **فلم يُنتج النموذج نصّاً صالحاً**.
+#:
+#: ⚠️ **وهذا موضع «وإن فشلت الإعادة يُعلَن ذلك»**: الفراغ لا يُعرض إصلاحاً،
+#: والمسودّة الباقية هي آخر مسودّة **فُحصت** — لا نصٌّ لم يُفحص، ولا فراغ
+#: يُقرأ نظافةً.
+REVISION_REDRAFT_FAILED = (
+    "عُرضت الأخطاء القابلة للإصلاح على النموذج فلم يُنتج نصّاً صالحاً، "
+    "فبقيت آخر مسودّة مفحوصة كما هي — **ولم تُصلَح**. "
+    "وإعادة الصياغة التي لا تُنتج نصّاً لا تُعرض إصلاحاً."
 )
 
 #: نصّ الفشل — **إعلانٌ لا سكوت، وليس درجةً تُقرأ نظافة**.
@@ -1377,6 +1415,7 @@ def _revision_frame(
     fidelity_shifts: Optional[Sequence] = None,
     attribution_outcome: Optional[object] = None,
     language_report: Optional[object] = None,
+    redraft_result: Optional[object] = None,
 ) -> dict:
     """
     إطار `revision`: **قائمة الأخطاء المُوحَّدة** من المصادر الأربعة، قبل الختم.
@@ -1406,6 +1445,14 @@ def _revision_frame(
     الذي وُلد `briefing.py` لمنعه.
 
     ⚠️ **والفشل هنا يُعلَن ولا يُبتلع**، والمرجع ``None`` لا قائمةٌ فارغة.
+
+    ⚠️ **و``redraft_result`` يُعلَن ولا يُصدَّق**: هو حصيلة `revision_loop.run_loop`
+    إن وقعت إعادة صياغة، و``None`` إن لم تقع (مسارٌ بلا قابلٍ للإعادة، أو نصٌّ
+    لا خطأ فيه يُصلحه نداء). **و``redrafted`` تُقرأ من ``attempts_used`` ولا
+    تُكتب بيدها**: المحاولة الواحدة تعني أن الإعادة **لم تُنتج نصّاً مفحوصاً**،
+    فالمسودّة الباقية هي الأولى نفسها — **والحكم على الخطأ للفحوص، لا لقول
+    النموذج.** و``draft`` يُمرَّر **بعد** الإعادة، فالخام المجموع هنا خامُ
+    النصّ الذي يقرأه المحامي.
     """
     # ⚠️ والاستدعاء داخل `try` **بلا ابتلاع**: النجاح وحده يُبنى، والفشل يُقال.
     try:
@@ -1432,8 +1479,24 @@ def _revision_frame(
             "message": REVISION_COLLECT_FAILED,
         }
 
+    # ⚠️ **و``redrafted`` لا تُكتب بيدها**: هي «هل وُجد نصٌّ ثانٍ **فُحص**؟» —
+    # فالمحاولة الواحدة تعني أنّ الإعادة **لم تُنتج نصّاً** (فشل النداء أو
+    # فراغه)، والمسودّة الباقية هي الأولى نفسها. وتُقرأ من ``attempts_used``
+    # فلا يُزعم إصلاحٌ لم يقع، **ولا يُنفى إصلاحٌ وقع**.
+    redrafted = redraft_result is not None and redraft_result.attempts_used > 1
+
+    if redraft_result is None:
+        message = REVISION_NOT_REDRAFTED
+    elif not redrafted:
+        message = REVISION_REDRAFT_FAILED
+    else:
+        message = REVISION_REDRAFTED
+        # ⚠️ **وسبب الإيقاف يُعلَن في النصّ المعروض** — و«حتى السقف» ليس
+        # «نظيفاً»: من لم يقرأ العدد لا يعرف أنّ المحاولات نفدت والخطأ باقٍ.
+        message = f"{message} سبب الإيقاف: {redraft_result.stopped_reason}"
+
     # ⚠️ الخام يُترجم إلى **حقول نصّية** هنا، فلا يعبر كائنٌ إلى الإطار.
-    return {
+    frame = {
         "errors": [
             {
                 "source": error.source,
@@ -1445,10 +1508,19 @@ def _revision_frame(
             for error in errors
         ],
         "checked_sources": list(checked),
-        "redrafted": False,
+        "redrafted": redrafted,
         "collected": True,
-        "message": REVISION_NOT_REDRAFTED,
+        "message": message,
     }
+
+    # ⚠️ **وسبب الإيقاف يُعلَن حقلاً آلياً أيضاً** (`stop_code` يُقارَن، والنصّ
+    # يُعرَض): فحكمٌ على حلقةٍ وقعت لا يُبنى على قراءة جملة عربية.
+    if redraft_result is not None:
+        frame["stop_code"] = redraft_result.stop_code
+        frame["stopped_reason"] = redraft_result.stopped_reason
+        frame["redraft_attempts"] = redraft_result.attempts_used
+
+    return frame
 
 
 def _stream_agent(
@@ -1484,6 +1556,13 @@ def _stream_agent(
     وسجلّ الوقائع كذلك. والمعرَّفان هنا لأن **إطاري `facts` و`briefing` يُبنيان
     بعد وجود المسودّة** — فلا يمكن بناؤهما في النقطة كما يُبنى إطار `case`.
     و``None`` في كليهما مقصود: «لم يُرسل حمل» معلومة تُقال، لا فراغ يُسكت عنه.
+
+    ⚠️ **وَ``redraft`` يُمرَّر ولا يُستدعى من هنا** (كـ``ledger``): الحلقة
+    المحدودة (`revision_loop.run_loop`) تناديه **فقط** متى وُجد خطأ قابل
+    للإصلاح، ومكانه في الاختبار مزيّفٌ يُعيد نصّاً مُعدّاً — **فتُختبر الحلقة
+    بلا شبكة وبلا نموذج**. و``None`` تعني «لا إعادة صياغة في هذا المسار»،
+    وهي حال `/chat`: فهو **لا يعرض قائمة الأخطاء**، فلا يُبرَّر فيه تبديلُ نصٍّ
+    صامت لا يعلم به المحامي. وأما `/generate` فيُمرّر ``_redraft``.
     """
     yield ("stage", StageEvent(KEY_INTAKE, STAGE_ANALYSING))
 
@@ -1581,19 +1660,26 @@ def _stream_agent(
         # ⚠️ **والإعادة **قبل** الإطارات — **لأن الإطارات يجب أن تصف النصّ
         # النهائي.** ولو أُعيدت بعده، **لَوصفت نصّاً تغيّر بعد فحصه** — وذلك
         # **أسوأ من عدم الإعادة**: مذكرةٌ تبدّلت وفحوصُها تصف السابق.
-        # ⚠️ **والعدد محدود**: البند ينصّ على «عدد محدود من المحاولات».
+        # ⚠️ **والعدد محدود**: البند ينصّ على «عدد محدود من المحاولات»، فالسقف
+        # مكتوبٌ في النداء (٢) **لا مفترَضاً في الوحدة**.
         # ⚠️ **ولا يُعاد الصياغة على خطأ غير قابل للإصلاح بها**: فإن كان العيب
         # في **الواقعة** لا في **العبارة**، **فإعادة الصياغة تُخفيه ولا تُصلحه.**
-        redraft_attempts = 0
+        # ⚠️ **وَ``redraft`` مُمرَّرٌ لا مستدعىً من هنا** (كـ``ledger``): فالحلقة
+        # تُختبر بلا شبكة وبلا نموذج — بمزيّفٍ يُعيد نصّاً مُعدّاً.
+        redraft_result = None
         if redraft is not None:
-            fixed = revision_loop.collect_errors(
-                clean,
-                review_outcome=review_outcome,
-                fidelity_shifts=raw_shifts,
-                attribution_outcome=attribution_outcome,
-                language_report=language_outcome,
+            fixable = tuple(
+                error
+                for error in revision_loop.collect_errors(
+                    clean,
+                    review_outcome=review_outcome,
+                    fidelity_shifts=raw_shifts,
+                    attribution_outcome=attribution_outcome,
+                    language_report=language_outcome,
+                )
+                if error.fixable_by_redraft
             )
-            if any(e.fixable_by_redraft for e in fixed):
+            if fixable:
                 def _recheck(text, _number=None):
                     return revision_loop.collect_errors(
                         text,
@@ -1611,7 +1697,7 @@ def _stream_agent(
                 # ⚠️ **و`run_loop` تُعيد `LoopResult` لا زوجاً**: فكُّها
                 # كزوجٍ يرمي `TypeError` **لحظة وجود خطأ قابل للإصلاح** —
                 # **وقد مرّ ذلك تحت سويتٍ أخضر لأن المسار لم يُبلَغ.**
-                _loop = revision_loop.run_loop(
+                redraft_result = revision_loop.run_loop(
                     clean,
                     redraft,
                     _recheck,
@@ -1623,11 +1709,12 @@ def _stream_agent(
                         language_report=language_outcome,
                     ),
                 )
-                clean = _loop.final_draft
-                redraft_attempts = _loop.attempts_used
+                # ⚠️ **والمسلَّم هو آخر مسودّة **فُحصت** (`final_draft`)، لا ما
+                # أنتجه النموذج قبل فحصه** — فلا يُسلَّم نصٌّ لم يُفحص.
+                clean = redraft_result.final_draft
                 # ⚠️ **والإعادة لا تُدّعى إصلاحاً**: يُعاد الفحص على النصّ الجديد،
                 # **فإن زال الخطأ فذلك، وإلا فهو باقٍ** — **يُفحَص، لا يُفترَض.**
-                yield ("stage", StageEvent("redraft", STAGE_REVIEWING))
+                yield ("stage", StageEvent(KEY_REDRAFT, STAGE_REVISING))
 
         facts_frame = _facts_frame(clean, ledger)
         yield ("facts", facts_frame)
@@ -1684,6 +1771,9 @@ def _stream_agent(
                 fidelity_shifts=raw_shifts,
                 attribution_outcome=attribution_outcome,
                 language_report=language_outcome,
+                # ⚠️ **والإعادة تُعلَن كما وقعت**: الحصيلة تُمرَّر **ولا تُقرأ
+                # منها أخطاءٌ** — الأخطاء أعلاه من النصّ النهائي نفسه.
+                redraft_result=redraft_result,
             ),
         )
 
@@ -1832,6 +1922,33 @@ def _review_round(
     return report, outcome
 
 
+def _redraft(text: str, errors, _attempt: int = 0) -> str:
+    """
+    إعادة صياغة واحدة — **نداءُ النموذج الثاني في مسار التوليد**.
+
+    ⚠️ **والنمط من `_review_round` بعينه**: ``_message_text(llm.invoke(...))``،
+    والموجّه من **دالّة بانية** (`review.build_redraft_prompt`) لا من نصٍّ مضمَّن.
+
+    ⚠️ **ولا تُصدَّق شهادة**: الموجّه **لا يحمل حكماً بزوال الخطأ**، والنصّ
+    الذي يُعيده هذا النداء **يُعاد فحصه** قبل أن يُبنى عليه إطار — فإن زال
+    الخطأ فذلك، وإلا فهو باقٍ معروضاً. **يُفحَص، لا يُفترَض.**
+
+    ⚠️ **والوسيط الثالث من عقد `revision_loop.Redraft`** (رقم المحاولة)، **ولا
+    يُستخدم هنا**: عدد المحاولات تحدّه الحلقة، وهذه الدالّة تُنتج نصّاً واحداً.
+
+    ⚠️ **ولا تُنادى من هنا مباشرةً**: `_stream_agent` يستقبلها **معاملاً**
+    (كـ``ledger``)، فيُمرَّر هذا في الإنتاج **ويُمرَّر مكانه مزيّفٌ في
+    الاختبار** — فتُختبر الحلقة بلا شبكة وبلا مفتاح وبلا نموذج. ولو نُودي
+    النموذج من داخل الحلقة لما أمكن اختبارها أصلاً.
+
+    ⚠️ **والأخطاء التي تصل إليها قابلةٌ للإصلاح وحدها**: `revision_loop`
+    تُمرّر ``fixable``؛ فما لا يُصلحه نداء (رقمٌ يحتاج أداة، ومادةٌ ليست في
+    الأرشيف، وملاحظة) **لا يُعرض عليها** — لأن عرضه عليها **طلبُ تظاهرٍ
+    بإصلاحه**.
+    """
+    return _message_text(llm.invoke(build_redraft_prompt(text, errors)))
+
+
 def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
     """
     ينفّذ الوكيل ويُرجع (النصّ, تقرير الأسانيد, تقرير الصياغة) — لـ /chat.
@@ -1898,6 +2015,7 @@ async def _sse_generator(
     messages: list,
     case_frame: Optional[dict] = None,
     ledger: Optional[FactLedger] = None,
+    redraft: Optional[object] = None,
 ) -> AsyncIterator[str]:
     """
     يحوّل مُولِّد الوكيل المتزامن (blocking) إلى بثّ غير متزامن.
@@ -1916,6 +2034,12 @@ async def _sse_generator(
     إطار `facts` يُبنى **بعد وجود المسودّة**، فلا يمكن بناؤه في `generate` كما
     يُبنى إطار `case`. والسجلّ نفسُه بُني في `generate` قبل الخيط (فحملُه الفاسد
     يُردّ ٤٠٠ قبل أن يُستدعى نموذج)، فلا يُعاد بناؤه هنا.
+
+    ⚠️ **وَ``redraft`` يُمرَّر كذلك** (كـ``ledger``): الحلقة تناديه نداءَ نموذج،
+    **فلا يُستدعى من داخل المولّد مباشرةً** — يُمرَّر في الإنتاج (`generate`
+    تُمرّر ``_redraft``) **ويُمرَّر مكانه مزيّفٌ في الاختبار**. و``None`` هي
+    الافتراضي **لأن مساراتٍ لا تُصلح نصّاً** (ومنها `/chat`) — **وغيابُ
+    الإعادة يُقال في إطار `revision`، ولا يُسكَت عنه.**
     """
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -1929,7 +2053,9 @@ async def _sse_generator(
             if case_frame is not None:
                 emit({"type": "case", "report": case_frame})
 
-            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None, None, None, None):
+            for kind, payload in _stream_agent(
+                messages, case_frame, ledger, None, None, None, None, redraft=redraft
+            ):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
                     emit(
@@ -2030,12 +2156,17 @@ async def generate(req: GenerateRequest):
     قُوبلت، فتُبنى المسودّة على غير ما أرسل.
     ⚠️ **والفاسد لا يُبتلع ولا يُوقف العمل الصحيح**: غياب السجلّ كليّاً لا يردّ
     الطلب، بل يُبثّ إطار `facts` يقول صراحةً إنّ الفحص **لم يُشغَّل**.
+
+    ⚠️ **و``_redraft`` يُمرَّر إلى البثّ هنا — وهذا هو موضع الوصل**: الحلقة
+    المحدودة في `_stream_agent` **لا تنادي نموذجاً بنفسها**؛ تُنادى بـ``redraft``
+    مُمرَّراً. **والاسم يُقرأ من هذا الملف عند الطلب** (`main._redraft`)، فيُمكن
+    تبديله في الاختبار وقياسُ المسار نفسه لا نسخةٍ منه.
     """
     case_input = _case_from_payload(req.case)
     ledger = _facts_from_payload(req.facts)
     messages = _build_messages(req.prompt, req.doc_type, case_input)
     return StreamingResponse(
-        _sse_generator(messages, _case_frame(case_input), ledger),
+        _sse_generator(messages, _case_frame(case_input), ledger, _redraft),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
