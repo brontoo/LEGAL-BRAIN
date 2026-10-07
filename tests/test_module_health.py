@@ -197,11 +197,16 @@ def _importers(name: str) -> list[str]:
         # ⚠️ **والمُلتزَم به وحده**: فاختبار يُكتَب الآن **لا يُصلح وحدةً يتيمة**،
         # لأن ما لم يُلتزَم لم يصل إلى أحد.
         rel = path.relative_to(PROJECT).as_posix()
+        # ⚠️ **ولا يُستثنى المُعدَّل هنا — وهذا إصلاح عطب تكرّر أربع مرات.**
+        #
+        # كان هنا سطر يُسقط الملف المُعدَّل. وهو صواب لفحص **المحتوى**،
+        # **وخاطئ لفحص الوجود**: فوجودُ واصل **لا يعتمد على محتواه**. فإذا
+        # كان الوحيد الذي يستورد وحدةً مُعدَّلاً لحظياً، حسبها الحارس
+        # **يتيمة** وأفشل — بلا عطب. وقد وقع ذلك مع `quotation` ثم
+        # مع `authority`.
         if tracked is not None and rel not in tracked:
             continue
         # ⚠️ ومُعدَّل الآن؟ **فاستيراده لم يُلتزَم بعد** — ولا يُشهَد به.
-        if rel in _dirty():
-            continue
         try:
             source = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -511,7 +516,6 @@ class TestTheModulesTheObjectiveNames(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
 
 def _tracked() -> set[str] | None:
     """المُلتزَم به — **مرّة واحدة لكل تشغيل**."""
