@@ -1632,9 +1632,14 @@ function RevisionBar({
         <div className="flex flex-wrap items-center gap-2 border border-green-200 bg-green-50 p-3 text-sm text-green-800">
           <CheckCircle className="w-4 h-4 shrink-0" />
           <span className="font-semibold">حُفظ تصحيحك.</span>
+          {/* ⚠️ **ولا نسبة ولا عدد كلمات هنا — وهذا مقصود.**
+              كان هذا الموضع يعرض «عدّلتَ ١٢.٣٪ من المسودّة … ٤٥٠ كلمة»،
+              **وهما إحصاء ونسبة، وقد طُلب صراحةً ألّا يُعرضا.** وصياغةُ حفظٍ
+              لا تحتاج رقماً لتُفهَم: من حفظ تصحيحه يعرف أنه حفظه، **والرقم
+              هنا يمنح «تقدّماً» لا يعني المحامي في شيء** — فالتصحيح يقيس
+              أسلوب المنصّة، لا جودة العمل القانوني. */}
           <span>
-            عدّلتَ {(result.edit_ratio * 100).toFixed(1)}٪ من المسودّة
-            ({result.quality_band}) — {result.word_count} كلمة.
+            وسيُقاس عليه أسلوب الكتابة في المرّات القادمة.
           </span>
         </div>
       ) : !editing ? (
