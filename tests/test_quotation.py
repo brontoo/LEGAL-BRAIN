@@ -193,6 +193,40 @@ class TestStrictMatch(unittest.TestCase):
                 result = StrictMatch(kind=kind, quote="نصّ")
                 self.assertEqual(result.accepted(), kind in accepted)
 
+    def test_punctuation_at_the_edge_of_the_quotation_is_compared(self):
+        """
+        ⚠️ **عطب وقع أثناء بناء هذا الملف، ويُثبَّت هنا فلا يعود.**
+
+        أول بناء قارن الترقيم **بين الكلمات** وحده، فسقط فرقٌ حقيقي: الاقتباس
+        «…العمل.» والمصدر «…العمل؛» — الكلمات هي هي، والترقيم المخالف **بعد**
+        آخر كلمة لا بينها، فخرج `PUNCTUATION_CHANGED` بلا تسمية. والفرق بين
+        النقطة والفاصلة المنقوطة فرقٌ يُرى، فلا يُبلَّغ عنه بلا اسم.
+        """
+        result = strict_match("يجوز إنهاء عقد العمل.", "يجوز إنهاء عقد العمل؛")
+        self.assertEqual(result.kind, MatchKind.PUNCTUATION_CHANGED)
+        self.assertIn("؛", " ".join(result.changed))
+
+    def test_punctuation_of_the_source_after_the_excerpt_is_not_a_difference(self):
+        """
+        ⚠️ **والحدّ المقابل، وهو الأهمّ: اقتطاعٌ سليم لا يُنذر.**
+
+        الاقتباس ينتهي عند كلمة، وفاصلةُ المصدر **بعده** ليست من المقتبس بل من
+        بقيّة الجملة. فلو قُورنت لخرج `PUNCTUATION_CHANGED` على كل اقتطاع سليم
+        — **إنذار دائم**، وهو أسوأ ما في أداة كهذه.
+        """
+        result = strict_match(
+            "لا يجوز إنهاء عقد العمل",
+            "لا يجوز إنهاء عقد العمل، ويجب تسليم العامل مستحقاته عند انتهاء العلاقة",
+        )
+        self.assertEqual(result.kind, MatchKind.EXACT)
+        self.assertTrue(result.accepted())
+
+    def test_leading_punctuation_claimed_by_the_quote_is_reported(self):
+        """وعلامة ترقيم في الاقتباس لا مقابل لها في المصدر تُسمّى ولا تُمحى."""
+        result = strict_match("، نصّ المادة", "نصّ المادة")
+        self.assertEqual(result.kind, MatchKind.PUNCTUATION_CHANGED)
+        self.assertIn("،", " ".join(result.changed))
+
     def test_a_short_quotation_is_still_judged(self):
         """
         ⚠️ عتبة `MIN_QUOTE_CHARS` **عتبة دليل** في `citations.py` (أقلّ طول

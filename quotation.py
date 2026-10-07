@@ -424,18 +424,17 @@ def _match_by_words(quote: str, quote_folded: _Folded, source_folded: _Folded) -
     if matched == len(texts_q):
         first = matcher.find_longest_match(0, len(texts_q), 0, len(texts_s))
         if first.size == len(texts_q):
-            quote_from = next(i for i, token in enumerate(tokens_q) if token.word)
-            quote_to = max(i for i, token in enumerate(tokens_q) if token.word)
+            first_word = next(i for i, token in enumerate(tokens_q) if token.word)
+            last_word = max(i for i, token in enumerate(tokens_q) if token.word)
             source_from = word_token_positions[first.b]
             source_to = word_token_positions[first.b + first.size - 1]
 
             # ⚠️ ترقيم الاقتباس **الطرفي** من الاقتباس، فيُقارَن: «…العمل.» مقابل
             # «…العمل؛» فرقُ ترقيم يُبلَّغ عنه. ولو قُورن الترقيم **بين** الكلمات
             # وحده لضاع هذا الفرق: موضعه بعد آخر كلمة لا بينها — وهو عطب وقع.
-            leading = quote_from
+            quote_from, quote_to = first_word, last_word
             while quote_from > 0 and not tokens_q[quote_from - 1].word:
                 quote_from -= 1
-            trailing = len(tokens_q) - 1 - quote_to
             while quote_to + 1 < len(tokens_q) and not tokens_q[quote_to + 1].word:
                 quote_to += 1
 
@@ -445,7 +444,7 @@ def _match_by_words(quote: str, quote_folded: _Folded, source_folded: _Folded) -
             # `PUNCTUATION_CHANGED` على كل اقتطاع سليم — أي **إنذار دائم**.
             source_left = 0
             while (
-                source_left < leading - quote_from
+                source_left < first_word - quote_from
                 and source_from > 0
                 and not tokens_s[source_from - 1].word
             ):
@@ -453,7 +452,7 @@ def _match_by_words(quote: str, quote_folded: _Folded, source_folded: _Folded) -
                 source_left += 1
             source_right = 0
             while (
-                source_right < trailing
+                source_right < quote_to - last_word
                 and source_to + 1 < len(tokens_s)
                 and not tokens_s[source_to + 1].word
             ):
