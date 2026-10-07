@@ -327,6 +327,174 @@ type RevisionFrame = {
   redrafted: boolean;
   collected: boolean;
   message: string;
+  /**
+   * ⚠️ **الحقول الثلاثة أدناه وصلت مع المراجعة الثانية، وأثرها في اللوحة أثرٌ
+   * لا يُسكَت عنه**:
+   *
+   *  • `redrafted: true` تعني **أُنتج نصٌّ ثانٍ** — لا أنّ الخطأ زال. فالفحوص
+   *    أعلاه تصف مسودّةً **لم تعد المعروضة**، والإعادة **تُفحَص ولا تُفترَض**
+   *    (انظر التعليق على `final_draft` في `main.py`).
+   *  • `stop_code` و`stopped_reason` يقولان **لماذا وقفت الحلقة**، ومنه بلوغ
+   *    سقف المحاولات (`redraft_attempts`) — وهو موضع يُقرأ فيه «توقّف» لا «نجح».
+   *
+   * ⚠️ وكلها اختيارية في النوع لأن إطاراً قادماً من خادم أقدم لا يحملها،
+   * **وغيابها لا يُترجم إلى «لم تُجرَ محاولة»** بل إلى «لم يُبلَّغ» (القاعدة
+   * نفسها في `BriefingSource`: الغائب «—» لا صفر).
+   */
+  /** عدد المحاولات التي استُهلكت — و`> 1` هي التي تعني «أُنتج نصٌّ ثانٍ». */
+  redraft_attempts?: number | null;
+  stop_code?: string | null;
+  stopped_reason?: string | null;
+};
+
+/* ==============================================================================
+   الإطارات الأربعة التي كانت تُبثّ وتُسقَط — أنواعها من بواني `main.py` حقلاً بحقل.
+   ============================================================================== */
+
+/**
+ * نتيجة فحص واحد في إطار `claims` — `_flat` في `_claims_frame`.
+ *
+ * ⚠️ **ولا كائن مُنمَّط هنا**: الإطار يُسلسل إلى JSON للبثّ عبر SSE، فحُوّل
+ * ُالخام إلى حقول نصّية. و`kind` و`code` مفتاحان آليّان يُعرضان كما هما (القاعدة
+ * نفسها في `LoopError`).
+ *
+ * ⚠️ و`note` **قد تكون `null`**: تُعرض إن وُجدت، ولا يُخترع لها نصّ.
+ */
+type FindingEntry = {
+  code: string;
+  severity: string;
+  message: string;
+  item_key: string;
+  kind: string;
+  note: string | null;
+};
+
+/** ملخّص المصفوفة — `summarize` في claims.py، **يُعرض بمفاتيحه التي أرسلها الخادم**. */
+type ClaimsSummary = Record<string, string | number | null>;
+
+/**
+ * إطار `claims` — مصفوفة الطلبات والدفوع، `_claims_frame` في main.py.
+ *
+ * ⚠️ **و`built` هو المفتاح، لا القائمة**: `false` تعني أنّ المصفوفة **لم تُبنَ**
+ * (لا حمل، أو فشل بناء)، والقائمة الفارغة حينها **ليست «لا أخطاء»** — وهو
+ * الفرق نفسه الذي وُلدت له `collected` في `RevisionFrame`، وقد تكرّر خطؤه.
+ *
+ * ⚠️ و`stage` **قد تكون `null`**: ومصفوفةٌ بلا مرحلة تُبنى **ويُعلَن أن فحص
+ * المخالفة لم يجرِ** — خيرٌ من ادّعاء انطباق بلا مرحلة.
+ */
+type ClaimsFrame = {
+  built: boolean;
+  message: string;
+  /** `null` حين لا ملخّص — لا `{}` يُقرأ «صفر». */
+  summary: ClaimsSummary | null;
+  errors: FindingEntry[];
+  notices: FindingEntry[];
+  stage: string | null;
+  checked_sources: string[];
+};
+
+/** فحص انطباق سند واحد — `checks[]` في `_authority_frame`. */
+type AuthorityCheck = {
+  key: string;
+  instrument: string;
+  article: string;
+  /** `applicable` · `inapplicable` · `unverified` — و`unverified` تعني **لم يُفحَص**. */
+  status: string;
+  reason: string;
+  conditions: string[];
+  /** **قد يكون غائباً**: يُملأ في مسار الفحص فقط، وغيابه ليس «كلها مستوفاة». */
+  unmet?: string[];
+};
+
+/**
+ * خطأ أو ملاحظة في إطارات `authority` · `deadlines` · `rules`.
+ *
+ * ⚠️ **وثلاثة أحكام في `authority` لا تُدمج، والتمييز بينها هو فائدة الإطار:**
+ *   • `out_of_force` — سندٌ لم يكن سارياً في تاريخ الإيداع: **خطأ**.
+ *   • `secondary_as_primary` — مصدرٌ ثانويّ عُومل معاملة النصّ: **خطأ**.
+ *   • `unsourced` — سندٌ بلا مصدر رسمي: **ملاحظة**، تُعلَن ولا تُعرض كأنها محقَّقة.
+ * ولذلك تُعرض الخطورة **بالقائمة التي ورد فيها العنصر** (errors أو notices) وبـ`kind`
+ * الآلي — ولا تُستنتج من نصّ عربي.
+ *
+ * ⚠️ **وكل حقل عدا `kind` اختياري بقصد**: الإطارات الثلاثة تُنتج أشكالاً مختلفة
+ * (`a`/`b` للتعارض · `quote`/`why` للتمييز · `key` للملاحظة)، **والحقل الغائب
+ * لا يُعرض** بدل أن يُخترع له موضع أو قيمة. والقارئ لا يفترض شكلاً واحداً.
+ */
+type FrameEntry = {
+  /** المفتاح الآلي للتصنيف — يُعرض كما هو ولا يُترجم. */
+  kind: string;
+  message?: string;
+  key?: string;
+  instrument?: string;
+  article?: string;
+  source?: string;
+  /** طرفا تعارض قاعدتين في `rules` — **ولا يُختار بينهما تلقائياً**. */
+  a?: string;
+  b?: string;
+  /** موضع الخلل من المسودّة في `rules`, يُعرض كما هو ليُقابله المحامي بنصّه. */
+  quote?: string;
+  why?: string;
+};
+
+/** إطار `authority` — الفحص الزمنيّ وشروط الانطباق، `_authority_frame` في main.py. */
+type AuthorityFrame = {
+  built: boolean;
+  message: string;
+  summary: ClaimsSummary | null;
+  checks: AuthorityCheck[];
+  errors: FrameEntry[];
+  notices: FrameEntry[];
+  checked_sources: string[];
+};
+
+/** موعد محسوب واحد — `items[]` في `_deadlines_frame`. */
+type DeadlineItem = {
+  key: string;
+  label: string;
+  /** `YYYY-MM-DD` — يُعرض `dir="ltr"` لنفس سبب `key`. */
+  due: string;
+  from: string;
+  amount: number;
+  unit: string;
+  convention: string;
+  source: string;
+  described: string;
+};
+
+/** إطار `deadlines` — العدّ الذي لا يُخترع، `_deadlines_frame` في main.py. */
+type DeadlinesFrame = {
+  built: boolean;
+  message: string;
+  items: DeadlineItem[];
+  /** ⚠️ في هذه الدالة `errors` **تُبنى فارغةً دائماً** — فلا يُقرأ فراغها سلامة. */
+  errors: FrameEntry[];
+  notices: FrameEntry[];
+  checked_sources: string[];
+};
+
+/** قاعدة واحدة في السجلّ — `rules[]` في `_rules_frame`. */
+type RuleItem = {
+  key: string;
+  statement: string;
+  source: string;
+  in_force_from: string;
+};
+
+/** ملاحظة تمييز في المسودّة — `findings[]` في `_rules_frame`. */
+type RuleFinding = { kind: string; quote: string };
+
+/** إطار `rules` — ما ينطبق وما يتعارض وما يستلزم مراجعة، `_rules_frame` في main.py. */
+type RulesFrame = {
+  built: boolean;
+  message: string;
+  rules: RuleItem[];
+  summary: ClaimsSummary | null;
+  conflicts: { a: string; b: string }[];
+  must_review: RuleItem[];
+  findings: RuleFinding[];
+  errors: FrameEntry[];
+  notices: FrameEntry[];
+  checked_sources: string[];
 };
 
 type StreamEvent =
@@ -336,10 +504,77 @@ type StreamEvent =
   | { type: "language"; report: LanguageReport }
   | { type: "review"; report: ReviewReport }
   | { type: "facts"; report: FactsFrame }
+  // ⚠️ الأربعة أدناه تُبثّ **بعد `facts` وقبل `revision`**، وهي ترتيب
+  // `_stream_agent` في main.py: الوقائع ← المصفوفة ← الأسانيد ← المواعيد ←
+  // القواعد ← قائمة الأخطاء الموحّدة ← التقرير. وكانت تُبثّ وتُسقَط هنا بصمت.
+  | { type: "claims"; report: ClaimsFrame }
+  | { type: "authority"; report: AuthorityFrame }
+  | { type: "deadlines"; report: DeadlinesFrame }
+  | { type: "rules"; report: RulesFrame }
   | { type: "briefing"; report: BriefingFrame["report"]; markdown: string }
   | { type: "revision"; report: RevisionFrame }
   | { type: "done"; document: string }
   | { type: "error"; message: string };
+
+/**
+ * حمل الطلب لأربعة فحوص لا تُخترع مدخلاتها — **مفتاحاً بمفتاح كما تقرأه
+ * بواني الخادم**.
+ *
+ * الأسماء هي أسماء مُحوِّلات `main.py` حرفياً: `_matrix_from_payload`
+ * (`claims` · `defences` · `stage` · `our_party`) و`_register_from_payload`
+ * (`authorities`) و`_deadlines_from_payload` (`rules`) و`_rules_from_payload`
+ * (`rules`). والتصنيفات (المحور · المرحلة · نوع السند) **نصوصٌ مطابقة لقيم
+ * وحدات الخادم**، لأن الوحدة ترفض النصّ الحرّ.
+ *
+ * ⚠️ **والغياب هو الحال القائم اليوم**: هذا الكائن فارغ، فالإطارات الأربعة
+ * تصل بـ`built: false` وبنصّ الخادم — وهو **«لم تُبنَ» لا «فُحصت فسلمت»**.
+ * وبناء مدخلاتها واجهةً (نموذج طلبات ودفوع وسجلّ أسانيد وقواعد) خطوةٌ تالية،
+ * ومتى بُنيت **يُملأ هذا الكائن وحده** ولا تُمسّ اللوحات.
+ *
+ * وحقول كل بند داخلها — من `_item` و`_authority_from` و`_deadline_from`
+ * و`_rule_from` في main.py، وهي مرجع من يبني المدخلات لاحقاً:
+ *
+ *  • الطلب/الدفاع: `key` · `label` · `claimed_by` · `elements` ·
+ *    `supporting_facts` · `opposing_facts` · `evidence` · `axes_in_dispute` ·
+ *    `response` · `outcome_sought` · `documents_required` · `is_procedural`
+ *    (و`burden` يُبنى `UNKNOWN` في الخادم ولا يُرسَل).
+ *  • السند: `key` · `instrument` · `article` · `kind` · `official_source` ·
+ *    `in_force_from` · `in_force_to` · `amended_by` · `retrieved_from` ·
+ *    `conditions` · `exceptions`.
+ *  • قاعدة الموعد: `key` · `label` · `amount` · `unit` · `convention_key` ·
+ *    `source` · `note`.
+ *  • القاعدة: `key` · `statement` · `family` · `subject` · `applies_to` ·
+ *    `stages` · `source` · `in_force_from` · `supersedes` · `note`.
+ */
+type GeneratePayload = {
+  /** `_matrix_from_payload` — وإحدى القائمتين على الأقل لازمة وإلا رُدّ الطلب ٤٠٠. */
+  claims?: {
+    claims?: Record<string, unknown>[];
+    defences?: Record<string, unknown>[];
+    /** القيمة من `Stage` في claims.py — وغيابها يُعلَن «لم يُفحَص». */
+    stage?: string;
+    our_party?: string;
+  };
+  /** `_register_from_payload` — قائمة لازمة غير فارغة. */
+  authority?: { authorities?: Record<string, unknown>[] };
+  /** `_deadlines_from_payload` — القواعد يكتبها المحامي، والمنصّة تحسب ولا تخترع. */
+  deadlines?: { rules?: Record<string, unknown>[] };
+  /** `_rules_from_payload` — والسجلّ الفارغ يُعلَن فارغاً لا ناجحاً. */
+  rules?: { rules?: Record<string, unknown>[] };
+};
+
+/**
+ * يبني حمل الطلب — **وموضعُه وُجد ليُملأ، لا ليُكتب فيه اليوم**.
+ *
+ * ⚠️ ولا يُستنتج من الإطارات المعروضة: استنتاجُ مدخلات فحصٍ من إطار عرضٍ يعني
+ * **حاكمَين يفترقان**، والخادم هو موضع التحقّق. فالإطارات تُعرَض، والحمل يُدخَل.
+ *
+ * وبناء مدخلاتها واجهةً (نموذج طلبات ودفوع وسجلّ أسانيد وقواعد) خطوةٌ تالية،
+ * ومتى بُنيت **يُملأ هذا الكائن وحده** ولا تُمسّ اللوحات ولا أنواعها.
+ */
+function buildGeneratePayload(): GeneratePayload {
+  return {};
+}
 
 /** ما يُرجعه `POST /revisions` بعد حفظ التصحيح. */
 type RevisionSaveResult = {
@@ -1355,14 +1590,56 @@ function RevisionPanel({ frame }: { frame: RevisionFrame | null }) {
       <div className="space-y-1 border-t border-slate-200 pt-3">
         <h4 className="text-sm font-semibold text-slate-700">إعادة الصياغة</h4>
         {frame.redrafted === true ? (
-          <p className="text-xs text-slate-500" dir="auto">
-            أُعيدت الصياغة — ولم تعد الفحوص أعلاه وصفاً للنصّ المعروض.
-          </p>
+          <>
+            {/*
+              ⚠️ **«أُنتج نصٌّ ثانٍ» لا «أُصلح الخطأ».**
+              الإعادة تعني أن ما فُحص لم يعد هو المعروض، **والنصّ الجديد يُفحَص
+              ولا يُفترَض** (انظر `final_draft` في main.py). فمن قرأ هنا «تمّ
+              الإصلاح» فقد قرأ شهادةً لم تُمنح — وهذا موضع انزلاق هذا المشروع.
+            */}
+            <p className="text-xs text-slate-500" dir="auto">
+              أُنتج نصٌّ ثانٍ — ولم تعد الفحوص أعلاه وصفاً للنصّ المعروض،
+              وهي تصف ما فُحص قبل الإعادة.
+            </p>
+            <p className="text-xs text-slate-600" dir="auto">
+              إعادة الصياغة ليست إصلاحاً مُثبَتاً: النصّ الجديد يُفحَص من جديد،
+              فإن زال العيب فذلك، وإلا فهو باقٍ — يُفحَص ولا يُفترَض.
+            </p>
+          </>
         ) : (
           <p className="text-xs text-slate-500" dir="auto">
             لم تُجرَ إعادة صياغة.
           </p>
         )}
+
+        {/*
+          ⚠️ **وعدد المحاولات يُعرض رقمُه أو «لم يُبلَّغ به»** — ولا يُقرأ غيابه
+          صفراً: «لم يُبلَّغ» و«لم تُجرَ محاولة» ليسا شيئاً واحداً (القاعدة نفسها
+          في `BriefingSource`). وبلوغ السقف يُقال «توقّف» لا «نجح».
+        */}
+        <p className="text-xs text-slate-500" dir="auto">
+          عدد محاولات الإعادة: {orNotReported(frame.redraft_attempts)}
+          {frame.stop_code ? (
+            <>
+              {" · "}
+              توقّفت الحلقة عند:{" "}
+              <span className="font-mono text-[11px] text-slate-500" dir="ltr">
+                {frame.stop_code}
+              </span>
+            </>
+          ) : null}
+        </p>
+
+        {/*
+          ⚠️ **ونصّ سبب التوقّف من الخادم بنصّه**: هو الذي يقول إن السقف بُلغ،
+          وصياغتُه عندنا تُفقد الجملة سلطتها — وهو نصّ القاعدة المعلنة أعلاه.
+        */}
+        {frame.stopped_reason && (
+          <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+            سبب التوقّف: {frame.stopped_reason}
+          </p>
+        )}
+
         <p className="text-sm leading-relaxed text-slate-700" dir="auto">
           {orDash(frame.message)}
         </p>
@@ -1697,6 +1974,863 @@ function RevisionBar({
   );
 }
 
+/* ==============================================================================
+   اللوحات الأربعة التي كانت تُبثّ وتُسقَط — على قالب `RevisionPanel` نفسه.
+   ============================================================================== */
+
+/**
+ * القيمة أو **«لم يُبلَّغ به»** — للخلية التي يغيب مفتاحها عن الإطار.
+ *
+ * ⚠️ **ولا تُقرأ «—» هنا صفراً**: عددُ محاولات إعادة الصياغة الغائب ليس صفر
+ * محاولات، بل «لم يُبلَّغ» — والفرق بينهما هو كلّ الفرق (القاعدة نفسها في
+ * `BriefingSource`: `errors: null` ليست صفر خطأ). و`orDash` وحدها تُرجع «—»
+ * وهي قرينة على «لا قيمة»، وهذا النصّ يقول **لماذا** لا قيمة.
+ */
+function orNotReported(value: unknown): string {
+  const text = orDash(value);
+  return text === "—" ? "لم يُبلَّغ به" : text;
+}
+
+/**
+ * تسمية المفتاح الآلي بحالته العربية — **والحدّ هو ما يُكتب عربياً، لا الحكم**.
+ *
+ * ⚠️ **و`kind` يُعرض نصّاً ولا يُترجم**: الخادم هو الذي يصنّف (`out_of_force` ·
+ * `secondary_as_primary` · `unsourced`)، والترجمة تنكسر بصمت في أول تعديل
+ * تحريري — وهي القاعدة المعلنة في `LoopError` أعلاه. فالمفتاح يبقى معروضاً في
+ * وسمه، والعربية في اللوحة تشرح **حدّ الحكم** (خطأ يمنع / ملاحظة لا تمنع).
+ */
+
+/**
+ * صفّ المصادر المفحوصة — مشترك بين اللوحات الأربعة، ومصدرُه `checked_sources`.
+ *
+ * ⚠️ وتسمياته عربية، **والمفتاح الغريب عن هذا الجدول يُعرض بمفتاحه**: مفتاح
+ * جديد في الخادم يُقرأ كما هو، ولا ندّعي له اسماً لم نضعه (القاعدة نفسها في
+ * `FIELD_LABELS` و`SOURCE_LABELS`).
+ */
+const CHECKED_SOURCES_LABELS: Record<string, string> = {
+  facts: "مقابلة الطلبات بسجلّ الوقائع",
+  draft: "المسودّة — الطلبات التي لم يُجب عنها",
+  stage: "مخالفة المرحلة",
+  in_force_on: "النفاذ الزمنيّ في تاريخ الإيداع",
+  secondary_as_primary: "مصدر ثانويّ عُومل معاملة النصّ",
+  unsourced: "سندٌ بلا مصدر رسمي",
+  add_period: "إضافة المدّة إلى تاريخ البدء",
+  convention_for: "عدّ المدّة (طبيعي/عمل)",
+  source: "مصدر القاعدة",
+  check_distinctions: "التمييز في المسودّة",
+  conflicts: "تعارض القواعد",
+  must_review: "قواعد تستلزم مراجعة",
+};
+
+/**
+ * المصادر المفحوصة — **تُعرض قبل الأخطاء، وللسبب نفسه في `RevisionPanel`**:
+ * «أيّ فحص جرى» قبل نتيجته، لأن الغياب يُقرأ خطأً نظافة.
+ */
+function CheckedSources({
+  sources,
+  missingNote,
+}: {
+  sources: string[];
+  /** نصّ يُقال حين لا يُبلَّغ عن فحص — يختلف بحال البناء، ويُمرَّر من اللوحة. */
+  missingNote: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold text-slate-700">
+        الفحوص المُبلَّغ عنها — {orDash(sources.length)}
+      </h4>
+      {sources.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {sources.map((source, index) => (
+            <span
+              key={`${source}-${index}`}
+              className="border border-slate-400 bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700"
+            >
+              {CHECKED_SOURCES_LABELS[source] ?? "فحص بلا تسمية عندنا"}
+              {/* المفتاح الآلي بجانب تسميته: العرض لا يخفي المصدر الحقيقي. */}
+              <span className="ms-2 font-mono text-[11px] text-slate-500" dir="ltr">
+                {source}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500" dir="auto">
+          {missingNote}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** صفّ «لم يُبنَ» — الحالة الثالثة، وهي التي لا تُقرأ سلامةً ولا نقصاً. */
+function NotBuiltNotice({ message, why }: { message: string; why: string }) {
+  return (
+    <div className="flex items-start gap-2 border border-slate-300 border-s-4 border-s-slate-500 bg-white p-3">
+      <AlertTriangle className="mt-0.5 w-5 h-5 shrink-0 text-slate-500" />
+      <div className="min-w-0 space-y-1">
+        <p className="font-bold text-slate-700">لم يُبنَ — فلا فحص جرى هنا.</p>
+        {/* نصّ الخادم بنصّه: سببُ غياب البناء معلومة لا نُصيغها نحن. */}
+        <p className="text-sm leading-relaxed text-slate-600" dir="auto">
+          {orDash(message)}
+        </p>
+        <p className="text-xs text-slate-500">{why}</p>
+      </div>
+    </div>
+  );
+}
+
+/** عنوان لوحة بمفتاح الحال — والمفتاح هو المُدخل لا النصّ. */
+function PanelHeading({
+  built,
+  title,
+  detail,
+}: {
+  built: boolean;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {built ? (
+        <FileText className="w-5 h-5 text-slate-600" />
+      ) : (
+        <AlertTriangle className="w-5 h-5 text-slate-500" />
+      )}
+      <h3 className="font-bold text-slate-900">{title}</h3>
+      <span className="text-sm text-slate-500" dir="auto">
+        {detail}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * لوحة المصفوفة — إطار `claims`، `_claims_frame` في main.py.
+ *
+ * ⚠️ **وما تعرضه اللوحة ليس «لا أخطاء» بل ما وُجد**: مخالفةُ المرحلة (وهي
+ * **خطأ** لا ملاحظة — فالاستئناف يطعن في الحكم أو الإجراء، والنقض في القانون،
+ * **والطعن في تقدير الدليل غير مقبول في النقض**)، والطلبُ الذي لم يُجب عنه،
+ * والدفعُ الذي لا واقعة تسنده.
+ *
+ * ⚠️ **و`built: false` لا يُعرض كفحصٍ نجح**: القائمة الفارغة هناك أثرُ عدم بناءٍ
+ * لا نتيجةَ فحص، فتُقال الحال بنصّ الخادم ولا يُقرأ الفراغ.
+ */
+function ClaimsPanel({ frame }: { frame: ClaimsFrame | null }) {
+  if (!frame) return null;
+
+  // ⚠️ المفتاح `built` — لا القائمة. وغيابه يُقرأ «لم تُبنَ» لا «بُنيت».
+  const built = frame.built === true;
+  const errors = frame.errors ?? [];
+  const notices = frame.notices ?? [];
+  const checkedSources = frame.checked_sources ?? [];
+  const stage = frame.stage ?? null;
+
+  const renderFinding = (
+    item: FindingEntry,
+    index: number,
+    kind: "error" | "notice"
+  ) => (
+    <div
+      key={`${kind}-${item.code}-${item.item_key}-${index}`}
+      className={
+        kind === "error"
+          ? "space-y-1 border border-red-200 border-s-4 border-s-red-400 bg-white p-3"
+          : "space-y-1 border border-slate-300 border-s-4 border-s-slate-400 bg-white p-3"
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-slate-500">
+          البند: {orNotReported(item.item_key)}
+        </span>
+        {/* المفتاح الآلي في وسم اتجاهه محدد: خيط لاتيني داخل سطر عربي */}
+        <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+          {item.code}
+        </span>
+        <span
+          className={
+            kind === "error"
+              ? "border border-red-300 bg-red-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-red-700"
+              : "border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600"
+          }
+          dir="ltr"
+        >
+          {item.kind}
+        </span>
+        <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+          {item.severity}
+        </span>
+      </div>
+      <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+        {item.message}
+      </p>
+      {/* ملاحظة الوحدة — تُعرض إن وُجدت، ولا يُخترع لها نصّ. */}
+      {item.note && (
+        <p className="border-s-2 border-slate-300 bg-slate-50 ps-3 text-xs leading-relaxed text-slate-600" dir="auto">
+          {item.note}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 border-t border-slate-200 bg-slate-50 p-6">
+      <PanelHeading
+        built={built}
+        title="مصفوفة الطلبات والدفوع"
+        detail={
+          built
+            ? `أخطاء تمنع: ${orDash(errors.length)} · ملاحظات: ${orDash(notices.length)}`
+            : "لم تُبنَ المصفوفة — لا يُقرأ فراغها سلامة."
+        }
+      />
+
+      {/* ⚠️ والمرحلة قبل الأخطاء: بغيابها **لا يُدّعى فحصُ المخالفة**، ولو جاءت
+          القائمة فارغة. */}
+      <div className="space-y-2">
+        <h4 className="text-sm font-semibold text-slate-700">مرحلة النزاع</h4>
+        {stage ? (
+          <p className="text-sm text-slate-700" dir="auto">
+            <span className="font-mono text-[11px] text-slate-500" dir="ltr">
+              {stage}
+            </span>
+            {" — "}
+            وفُحصت الطلبات والدفوع عليها.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-500" dir="auto">
+            لا مرحلة في الطلب — ففحص المخالفة لم يجرِ، ولا يُقال إن الطلبات
+            موافقةٌ للمرحلة.
+          </p>
+        )}
+      </div>
+
+      <CheckedSources
+        sources={checkedSources}
+        missingNote={
+          built
+            ? "لم يُبلَّغ عن أيّ فحص جرى — وغيابه ليس نظافة."
+            : "لم يُبلَّغ عن فحوص، لأن المصفوفة لم تُبنَ أصلاً."
+        }
+      />
+
+      {!built ? (
+        <NotBuiltNotice
+          message={frame.message}
+          why="تُعرض المصفوفة وحدها، فغيابُها ليس مصفوفةً فارغة: المصفوفة التي لم تُبنَ ليست مصفوفةً سليمة."
+        />
+      ) : (
+        <>
+          {/* شُغّل الفحص ولم يجد شيئاً — وهنا فقط تُقال السلامة، وبالمفتاح. */}
+          {errors.length === 0 && notices.length === 0 && (
+            <div className="flex items-start gap-2 border border-slate-300 border-s-4 border-s-slate-500 bg-white p-3">
+              <FileText className="mt-0.5 w-5 h-5 shrink-0 text-slate-600" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-bold text-slate-700">
+                  بُنيت المصفوفة على ما أُدخل، ولم يُدرج فيها عيب.
+                </p>
+                <p className="text-xs text-slate-500">
+                  وهذا حكمٌ على المصفوفة المُدخلة، لا على المسودّة ولا على الطلبات
+                  نفسها: ما لم يُدخَل لم يُفحص.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {errors.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-red-700">
+                أخطاء تمنع الاعتماد — ومخالفة المرحلة منها
+              </h4>
+              {errors.map((item, index) => renderFinding(item, index, "error"))}
+            </div>
+          )}
+
+          {notices.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-600">
+                ملاحظات — تُعرَض ولا تمنع
+              </h4>
+              {notices.map((item, index) => renderFinding(item, index, "notice"))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * لوحة الأسانيد — إطار `authority`، `_authority_frame` في main.py.
+ *
+ * ⚠️ **وثلاثة أحكام لا تُدمج، وهي كلّ فائدة اللوحة:**
+ *   • إخفاق زمنيّ (سندٌ لم يكن سارياً في تاريخ الإيداع) — **خطأ**.
+ *   • مصدرٌ ثانويّ عُومل معاملة النصّ — **خطأ**.
+ *   • سندٌ بلا مصدر رسمي — **ملاحظة**، تُعلَن ولا تُعرض كأنها محقَّقة.
+ * والفصل يقع بالمفتاحين: القائمة (`errors` / `notices`) و`kind` الآلي.
+ *
+ * ⚠️ **وبلا تاريخ إيداع لا يُدّعى انطباق**: الفحص يُبنى بحال `unverified` ونصّ
+ * «لم يُفحَص النفاذ»، **فلا تُقرأ شارةُ الفحص شهادةَ انطباق**.
+ */
+function AuthorityPanel({ frame }: { frame: AuthorityFrame | null }) {
+  if (!frame) return null;
+
+  const built = frame.built === true;
+  const checks = frame.checks ?? [];
+  const errors = frame.errors ?? [];
+  const notices = frame.notices ?? [];
+  const checkedSources = frame.checked_sources ?? [];
+
+  const renderFinding = (
+    item: FrameEntry,
+    index: number,
+    kind: "error" | "notice"
+  ) => (
+    <div
+      key={`${kind}-${item.kind}-${item.key}-${index}`}
+      className={
+        kind === "error"
+          ? "space-y-1 border border-red-200 border-s-4 border-s-red-400 bg-white p-3"
+          : "space-y-1 border border-slate-300 border-s-4 border-s-slate-400 bg-white p-3"
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={
+            kind === "error"
+              ? "border border-red-300 bg-red-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-red-700"
+              : "border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600"
+          }
+          dir="ltr"
+        >
+          {item.kind}
+        </span>
+        <span className="text-xs font-semibold text-slate-500" dir="auto">
+          {orNotReported(item.instrument)}
+        </span>
+        {item.article && (
+          <span className="text-xs text-slate-500" dir="auto">
+            المادة: {item.article}
+          </span>
+        )}
+        <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+          {item.key}
+        </span>
+      </div>
+      <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+        {orDash(item.message)}
+      </p>
+      {item.source && (
+        <p className="text-xs text-slate-500" dir="auto">
+          المصدر: {item.source}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 border-t border-slate-200 bg-slate-50 p-6">
+      <PanelHeading
+        built={built}
+        title="فحص الأسانيد"
+        detail={
+          built
+            ? `أخطاء تمنع: ${orDash(errors.length)} · ملاحظات: ${orDash(notices.length)} · فُحص ${orDash(checks.length)} سنداً`
+            : "لم يُبنَ سجلّ الأسانيد — لا يُقرأ فراغه سلامة."
+        }
+      />
+
+      <CheckedSources
+        sources={checkedSources}
+        missingNote={
+          built
+            ? "لم يُبلَّغ عن أيّ فحص جرى — وغيابه ليس نظافة."
+            : "لم يُبلَّغ عن فحوص، لأن السجلّ لم يُبنَ أصلاً."
+        }
+      />
+
+      {!built ? (
+        <NotBuiltNotice
+          message={frame.message}
+          why="الإطار يُبثّ دائماً — ولا يُحذف: حذفُه يُقرأ سكوتاً، والسكوت في موضع فحصٍ يُقرأ سلامة."
+        />
+      ) : (
+        <>
+          {checks.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-700">
+                حال كل سند — والشرط غير المستوفى يُقال
+              </h4>
+              {checks.map((check, index) => (
+                <div
+                  key={`${check.key}-${index}`}
+                  className="space-y-1 border border-slate-200 border-s-4 border-s-slate-300 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-500" dir="auto">
+                      {orNotReported(check.instrument)}
+                    </span>
+                    {check.article && (
+                      <span className="text-xs text-slate-500" dir="auto">
+                        المادة: {check.article}
+                      </span>
+                    )}
+                    <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+                      {check.key}
+                    </span>
+                    {/* الحال مفتاح آلي: `unverified` تعني لم يُفحَص، واللون لا يفرد. */}
+                    <span
+                      className={
+                        check.status === "applicable"
+                          ? "border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600"
+                          : check.status === "unverified"
+                            ? "border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-amber-800"
+                            : "border border-red-300 bg-red-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-red-700"
+                      }
+                      dir="ltr"
+                    >
+                      {check.status}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+                    {orDash(check.reason)}
+                  </p>
+                  {/* ⚠️ «غير مستوفى» تُعرض من `unmet` وحدها حين تكون الحال
+                      `applicable`: ولائحة فارغة في سندٍ لم يُفحَص ليست استيفاءً. */}
+                  {check.status === "applicable" && (check.unmet ?? []).length > 0 && (
+                    <p className="text-xs font-semibold text-red-700" dir="auto">
+                      شرط غير مستوفى: {(check.unmet ?? []).join(" · ")}
+                    </p>
+                  )}
+                  {check.status === "applicable" && (check.unmet ?? []).length === 0 && (
+                    <p className="text-xs text-slate-500" dir="auto">
+                      كل شروط الانطباق قائمة.
+                    </p>
+                  )}
+                  {(check.conditions ?? []).length > 0 && (
+                    <p className="text-xs text-slate-500" dir="auto">
+                      الشروط المُعلَنة: {check.conditions.join(" · ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {errors.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-red-700">
+                أخطاء تمنع الاعتماد — إخفاقٌ زمنيّ أو مصدرٌ ثانويّ عُومل كنصّ
+              </h4>
+              {errors.map((item, index) => renderFinding(item, index, "error"))}
+            </div>
+          )}
+
+          {notices.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-600">
+                ملاحظات — ومنها سندٌ بلا مصدر رسمي: يُعلَن ولا يُعرض كأنه محقَّق
+              </h4>
+              {notices.map((item, index) => renderFinding(item, index, "notice"))}
+            </div>
+          )}
+
+          {checks.length === 0 && errors.length === 0 && notices.length === 0 && (
+            <p className="text-sm text-slate-500" dir="auto">
+              بُني السجلّ ولم يُدرج فيه سند — فلا سند فُحص، وهذا ليس سلامة أسانيد.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * لوحة المواعيد — إطار `deadlines`، `_deadlines_frame` في main.py.
+ *
+ * ⚠️ **والمنصّة تحسب ولا تخترع**: القواعد يكتبها المحامي بمصادرها، والعدّ
+ * يُختار من `Convention` ولا يُخمَّن. فكل موعد هنا **منسوبٌ إلى قاعدته** —
+ * التسمية والقاعدة والمصدر والعدّ — لأن موعداً بلا قاعدته رقمٌ لا يُبنى عليه إجراء.
+ *
+ * ⚠️ **وبلا تاريخ في ملف القضية يُعلَن أن الحساب لم يجرِ** (`no_date`) — **وهو
+ * خيرٌ من موعدٍ مُخترع يتساقط به الإجراء**. والقاعدة بلا مصدر ملاحظةٌ تُعلَن.
+ */
+function DeadlinesPanel({ frame }: { frame: DeadlinesFrame | null }) {
+  if (!frame) return null;
+
+  const built = frame.built === true;
+  const items = frame.items ?? [];
+  const errors = frame.errors ?? [];
+  const notices = frame.notices ?? [];
+  const checkedSources = frame.checked_sources ?? [];
+
+  return (
+    <div className="space-y-4 border-t border-slate-200 bg-slate-50 p-6">
+      <PanelHeading
+        built={built}
+        title="المواعيد المحسوبة"
+        detail={
+          built
+            ? `حُسب ${orDash(items.length)} موعداً — ومنسوبةٌ إلى قواعدها`
+            : "لم تُحسَب المواعيد — ولا يُدّعى موعد."
+        }
+      />
+
+      <CheckedSources
+        sources={checkedSources}
+        missingNote={
+          built
+            ? "لم يُبلَّغ عن أيّ عملية حساب جرى — وغيابُها ليس موعداً."
+            : "لم يُبلَّغ عن حساب، لأن قواعد المواعيد لم تُدخَل أصلاً."
+        }
+      />
+
+      {!built ? (
+        <NotBuiltNotice
+          message={frame.message}
+          why="لا موعد بلا قاعدة يكتبها المحامي ولا بلا تاريخ في ملف القضية — والحساب لا يُخترع."
+        />
+      ) : (
+        <>
+          {items.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-700">
+                المواعيد — كل موعد بقاعدته ومصدره
+              </h4>
+              {items.map((item, index) => (
+                <div
+                  key={`${item.key}-${index}`}
+                  className="space-y-1 border border-slate-200 border-s-4 border-s-slate-300 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-900" dir="auto">
+                      {orDash(item.label)}
+                    </span>
+                    {/* ⚠️ التاريخ بالميلادي بأرقام لاتينية — والتاريخ قرار إجراء لا زينة. */}
+                    <span className="font-mono text-sm font-semibold text-slate-800" dir="ltr">
+                      {orDash(item.due)}
+                    </span>
+                    <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+                      {item.key}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-relaxed text-slate-600" dir="auto">
+                    {orDash(item.described)}
+                  </p>
+                  <p className="text-xs text-slate-500" dir="auto">
+                    من: <span className="font-mono" dir="ltr">{orDash(item.from)}</span>
+                    {" · "}
+                    المدّة: <span className="font-mono" dir="ltr">{orDash(item.amount)}</span>{" "}
+                    <span className="font-mono" dir="ltr">{orDash(item.unit)}</span>
+                    {" · "}
+                    العدّ: <span className="font-mono" dir="ltr">{orDash(item.convention)}</span>
+                  </p>
+                  <p className="text-xs text-slate-500" dir="auto">
+                    المصدر: {orDash(item.source)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {notices.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-600">
+                ملاحظات — تُعرَض ولا تمنع
+              </h4>
+              {notices.map((item, index) => (
+                <div
+                  key={`${item.kind}-${item.key ?? index}-${index}`}
+                  className="space-y-1 border border-slate-300 border-s-4 border-s-slate-400 bg-white p-3"
+                >
+                  <span
+                    className="border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600"
+                    dir="ltr"
+                  >
+                    {item.kind}
+                  </span>
+                  <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+                    {orDash(item.message)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/*
+            ⚠️ **ولا يُقال «لا مواعيد مستحقة» هنا.** الحساب الذي بلغ هذا الفرع لم
+            يُنتج بنداً، **ومعناه أن القاعدة لم تُدخَل أو أن التاريخ غاب** — لا أن
+            الإجراء سليم. ولذلك يُعلَن الفراغ بحدّه ولا يُقرأ سلامة.
+          */}
+          {items.length === 0 && (
+            <p className="text-sm text-slate-500" dir="auto">
+              بُنيت القواعد ولم يُحسَب موعد — إمّا بغياب تاريخ في ملف القضية
+              (وهو المُعلَن في الملاحظات أعلاه)، أو لأن المدخل لم يُنتج بنداً.
+              وهذا ليس «لا مواعيد»: هذا «لم يُحسَب».
+            </p>
+          )}
+
+          {/* `errors` تُبنى فارغةً في هذه الدالة دائماً — فالفارغ هنا يُقرأ بعدم
+              الحساب لا بسلامة المواعيد، ولا نعرض له قسماً أصلاً. */}
+          {errors.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-red-700">
+                أخطاء تمنع الاعتماد
+              </h4>
+              {errors.map((item, index) => (
+                <div
+                  key={`${item.kind}-${item.key ?? index}-${index}`}
+                  className="space-y-1 border border-red-200 border-s-4 border-s-red-400 bg-white p-3"
+                >
+                  <span
+                    className="border border-red-300 bg-red-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-red-700"
+                    dir="ltr"
+                  >
+                    {item.kind}
+                  </span>
+                  <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+                    {orDash(item.message)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * لوحة القواعد المتخصّصة — إطار `rules`، `_rules_frame` في main.py.
+ *
+ * ⚠️ **وقاعدتان لا تُخلطان**: ما يُفحص في المسودّة (`check_distinctions`)، وما
+ * يتغيّر بتغيّر التشريع (`conflicts` و`must_review`). والخلط بينهما هو العطب
+ * الذي بُنيت الوحدة لمنعه.
+ *
+ * ⚠️ **والسجلّ الفارغ يُعلَن فارغاً** (`empty_register`) — **ولا يُعرض كأنه فحصٌ
+ * تمّ**: فلا قاعدة تُطبَّق، وهذا ليس فحصاً ناجحاً.
+ */
+function RulesPanel({ frame }: { frame: RulesFrame | null }) {
+  if (!frame) return null;
+
+  const built = frame.built === true;
+  const rules = frame.rules ?? [];
+  const conflicts = frame.conflicts ?? [];
+  const mustReview = frame.must_review ?? [];
+  const findings = frame.findings ?? [];
+  const errors = frame.errors ?? [];
+  const notices = frame.notices ?? [];
+  const checkedSources = frame.checked_sources ?? [];
+
+  const renderEntry = (
+    item: FrameEntry,
+    index: number,
+    kind: "error" | "notice"
+  ) => (
+    <div
+      key={`${kind}-${item.kind}-${item.key ?? item.a ?? index}-${index}`}
+      className={
+        kind === "error"
+          ? "space-y-1 border border-red-200 border-s-4 border-s-red-400 bg-white p-3"
+          : "space-y-1 border border-slate-300 border-s-4 border-s-slate-400 bg-white p-3"
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={
+            kind === "error"
+              ? "border border-red-300 bg-red-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-red-700"
+              : "border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600"
+          }
+          dir="ltr"
+        >
+          {item.kind}
+        </span>
+        {/* طرفا التعارض بالمفتاحين — ولا يُختار بينهما تلقائياً. */}
+        {item.a && item.b && (
+          <span className="font-mono text-[11px] text-slate-500" dir="ltr">
+            {item.a} ↔ {item.b}
+          </span>
+        )}
+        {item.key && (
+          <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+            {item.key}
+          </span>
+        )}
+      </div>
+      {item.message && (
+        <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+          {item.message}
+        </p>
+      )}
+      {item.quote && (
+        <p
+          className="whitespace-pre-wrap border-s-2 border-slate-300 bg-slate-50 ps-3 text-xs leading-relaxed text-slate-600"
+          dir="auto"
+        >
+          {item.quote}
+        </p>
+      )}
+      {item.why && (
+        <p className="text-xs leading-relaxed text-slate-500" dir="auto">
+          لماذا: {item.why}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 border-t border-slate-200 bg-slate-50 p-6">
+      <PanelHeading
+        built={built}
+        title="القواعد المتخصّصة"
+        detail={
+          built
+            ? `قواعد: ${orDash(rules.length)} · تعارض: ${orDash(conflicts.length)} · تستلزم مراجعة: ${orDash(mustReview.length)}`
+            : "لم يُبنَ سجلّ القواعد — ولا قاعدة تُطبَّق."
+        }
+      />
+
+      <CheckedSources
+        sources={checkedSources}
+        missingNote={
+          built
+            ? "لم يُبلَّغ عن أيّ فحص جرى — وغيابه ليس نظافة."
+            : "لم يُبلَّغ عن فحوص، لأن السجلّ لم يُبنَ أصلاً."
+        }
+      />
+
+      {!built ? (
+        <NotBuiltNotice
+          message={frame.message}
+          why="القواعد يُدخلها المحامي بمصادرها — والمنصّة تطبّقها ولا تخترعها. فغيابُ السجلّ ليس سجلّاً فارغاً."
+        />
+      ) : (
+        <>
+          {rules.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-700">
+                ما ينطبق — كل قاعدة بنصّها ومصدرها
+              </h4>
+              {rules.map((rule, index) => (
+                <div
+                  key={`${rule.key}-${index}`}
+                  className="space-y-1 border border-slate-200 border-s-4 border-s-slate-300 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+                      {rule.key}
+                    </span>
+                    {rule.in_force_from && (
+                      <span className="text-xs text-slate-500" dir="auto">
+                        سارٍ من: <span className="font-mono" dir="ltr">{rule.in_force_from}</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm leading-relaxed text-slate-900" dir="auto">
+                    {rule.statement}
+                  </p>
+                  <p className="text-xs text-slate-500" dir="auto">
+                    المصدر: {orDash(rule.source)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ⚠️ والقاعدة بلا مصدر **ملاحظة** (`unsourced` في الإطار) لا خطأ —
+              وهي تُعرض في قسم الملاحظات أدناه بمفتاحها. */}
+
+          {mustReview.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-amber-700">
+                تستلزم مراجعة — تغيّر التشريع
+              </h4>
+              {mustReview.map((rule, index) => (
+                <div
+                  key={`review-${rule.key}-${index}`}
+                  className="space-y-1 border border-amber-300 border-s-4 border-s-amber-400 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+                      {rule.key}
+                    </span>
+                    {rule.in_force_from && (
+                      <span className="text-xs text-slate-500" dir="auto">
+                        سارٍ من: <span className="font-mono" dir="ltr">{rule.in_force_from}</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm leading-relaxed text-slate-800" dir="auto">
+                    {rule.statement}
+                  </p>
+                  {rule.source && (
+                    <p className="text-xs text-slate-500" dir="auto">
+                      المصدر: {rule.source}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {findings.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-700">
+                التمييز في المسودّة
+              </h4>
+              {findings.map((finding, index) => (
+                <div
+                  key={`finding-${finding.kind}-${index}`}
+                  className="space-y-1 border border-slate-200 border-s-slate-300 bg-white p-3"
+                >
+                  <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+                    {finding.kind}
+                  </span>
+                  {finding.quote && (
+                    <p
+                      className="whitespace-pre-wrap border-s-2 border-slate-300 bg-slate-50 ps-3 text-xs leading-relaxed text-slate-600"
+                      dir="auto"
+                    >
+                      {finding.quote}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {errors.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-red-700">
+                أخطاء تمنع الاعتماد — تعميمٌ أو تناقض أو تعارض قاعدتين
+              </h4>
+              {errors.map((item, index) => renderEntry(item, index, "error"))}
+            </div>
+          )}
+
+          {notices.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-600">
+                ملاحظات — ومنها سجلٌّ فارغ: يُعلَن ولا يُقرأ فحصاً ناجحاً
+              </h4>
+              {notices.map((item, index) => renderEntry(item, index, "notice"))}
+            </div>
+          )}
+
+          {rules.length === 0 && errors.length === 0 && notices.length === 0 && (
+            <p className="text-sm text-slate-500" dir="auto">
+              سجلّ القواعد فارغ — فلا قاعدة تُطبَّق. وهذا ليس فحصاً ناجحاً.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
@@ -1720,6 +2854,14 @@ export default function Workspace() {
   // الموحّدة تصل ثم تُسقَط. وترتيبه في `_stream_agent` قبل `briefing`، لأنّه
   // يُبنى بعد الفحوص وقبل التقرير الذي يجمعها.
   const [revisionFrame, setRevisionFrame] = useState<RevisionFrame | null>(null);
+  // ⚠️ وأربعة إطارات تُبثّ **بين `facts` و`revision`** وتُهمَل هنا بصمت:
+  // `claims` ثم `authority` ثم `deadlines` ثم `rules` (ترتيب `_stream_agent`).
+  // وكانت تصل ثم تُسقَط، فلا يرى المحامي عبء الإثبات ولا الفحص الزمنيّ ولا
+  // المواعيد المحسوبة ولا القواعد المنطبقة — وهي عملُ أربع وحدات كاملة.
+  const [claimsFrame, setClaimsFrame] = useState<ClaimsFrame | null>(null);
+  const [authorityFrame, setAuthorityFrame] = useState<AuthorityFrame | null>(null);
+  const [deadlinesFrame, setDeadlinesFrame] = useState<DeadlinesFrame | null>(null);
+  const [rulesFrame, setRulesFrame] = useState<RulesFrame | null>(null);
 
   // مراحل العمل — تُشغّل مشهد «فريق المكتب».
   // ⚠️ المفاتيح تأتي من الخادم (`stage` في إطار SSE) ولا تُخمَّن هنا. فالمشهد
@@ -1759,6 +2901,13 @@ export default function Workspace() {
     // ⚠️ وتُصفَّر معها قائمة الجولة السابقة: أخطاء مسودّة قديمة معروضةً فوق
     // مستندٍ جديد أسوأ من غيابها، لأن المحامي يقرأ عيوباً قد أُصلحت.
     setRevisionFrame(null);
+    // ⚠️ وتُصفَّر معها الإطارات الأربعة للسبب نفسه: عبءُ إثباتٍ أو موعدٌ من
+    // جولة سابقة معروضاً فوق مسودّة جديدة **أسوأ من غيابه** — يُقرأ إقراراً
+    // بأن الفحص جرى على هذا النصّ.
+    setClaimsFrame(null);
+    setAuthorityFrame(null);
+    setDeadlinesFrame(null);
+    setRulesFrame(null);
 
     // تصفير مشهد المكتب — وإلا ظهر الفريق وقد «أنجز» عمل الطلب السابق
     setActiveStage("");
@@ -1783,7 +2932,14 @@ export default function Workspace() {
       const response = await fetch(`${API_URL}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, doc_type: docType }),
+        body: JSON.stringify({
+          prompt,
+          doc_type: docType,
+          // ⚠️ وحملُ الفحوص الأربعة يُضمّ إلى الطلب من موضعٍ واحد معلوم
+          // (`buildGeneratePayload`). وهو فارغ اليوم — فالإطارات الأربعة تعود
+          // بـ`built: false` وبنصّ الخادم، **وتُعرض «لم تُبنَ» ولا تُسقَط**.
+          ...buildGeneratePayload(),
+        }),
         signal: controller.signal,
       });
 
@@ -1861,6 +3017,21 @@ export default function Workspace() {
             // بحذف اللوحة (انظر `_facts_frame` في main.py): حذفُها يُقرأ
             // سكوتاً، والسكوت في موضع فحصٍ يُقرأ سلامة.
             setFactsFrame(event.report);
+          } else if (event.type === "claims") {
+            // ⚠️ **والحكم على `built` وحده**: `false` تعني أن المصفوفة **لم
+            // تُبنَ** — فلا يُقرأ فراغ `errors` سلامةً، بل يُعرض نصّ الخادم.
+            setClaimsFrame(event.report);
+          } else if (event.type === "authority") {
+            // ⚠️ والإطار يُبثّ **دائماً** ولو غاب السجلّ (انظر `_authority_frame`):
+            // حذفُه يُقرأ سكوتاً، والسكوت في موضع فحصٍ يُقرأ سلامة.
+            setAuthorityFrame(event.report);
+          } else if (event.type === "deadlines") {
+            // ⚠️ وموعدٌ مُخترع يُبنى عليه إجراء يتساقط؛ فبغياب التاريخ يُقال
+            // «لم يُحسَب» ولا يُدّعى موعد.
+            setDeadlinesFrame(event.report);
+          } else if (event.type === "rules") {
+            // ⚠️ والسجلّ الفارغ يُعلَن فارغاً — **ولا يُعرض كأنه فحصٌ تمّ**.
+            setRulesFrame(event.report);
           } else if (event.type === "briefing") {
             // ⚠️ القاموس والنصّ معاً، والنصّ هو المعروض. ولماذا الاثنان؟
             // لأن `report.sources[].present` هو الوحيد الذي يقول أيّ فحص
@@ -2055,6 +3226,13 @@ export default function Workspace() {
                 {/* ⚠️ الوقائع آخر لوحة **حاكمة** على المسودّة، وآخر ما يجب أن
                     يُقرأ قبل اعتمادها: هي الوحيدة التي تقابل النصّ بسجلّ. */}
                 <FactsPanel frame={factsFrame} />
+                {/* ⚠️ وترتيب الأربعة هو ترتيب بثّها في `_stream_agent`: المصفوفة
+                    ← الأسانيد ← المواعيد ← القواعد. وعبءُ الإثبات **قبل**
+                    الأسانيد لأن الفحص الزمنيّ للأسانيد يُقرأ على طلباتٍ عُرفت. */}
+                <ClaimsPanel frame={claimsFrame} />
+                <AuthorityPanel frame={authorityFrame} />
+                <DeadlinesPanel frame={deadlinesFrame} />
+                <RulesPanel frame={rulesFrame} />
                 {/* والتقرير الداخلي آخر اللوحات — لأنه آخر إطار تقرير يُبنى،
                     ولأنه ورقة عمل تُقرأ بعد الفحوص لا قبلها. */}
                 <BriefingPanel frame={briefingFrame} />

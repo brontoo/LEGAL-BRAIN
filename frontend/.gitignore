@@ -41,3 +41,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# مخزن npm محلّي — استُخدم لأن مخزن المستخدم خارج مساحة الكتابة (ساندبوكس)
+/.npm-cache
