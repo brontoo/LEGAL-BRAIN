@@ -1,0 +1,27 @@
+# ⚠️ **ولا تُنسَخ إلى الصورة إلا ما يلزم للتشغيل.**
+# فبلا هذا الملف، **تدخل `node_modules` (٨٠٠ م.ب) و`.next` في الصورة**
+# ⇒ **بناءٌ أبطأ وصورةٌ أضخم، بلا فائدة.**
+
+.git
+.gitignore
+.vercel
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+.pytest_cache
+.mypy_cache
+
+# الواجهة تُبنى وتُستضاف في مكانٍ آخر — فلا تدخل صورة الخلفية
+frontend/node_modules
+frontend/.next
+frontend/out
+
+# بيانات وملفات محلية
+data/
+*.log
+.env
+.env.*
+!.env.example
+credentials.json
