@@ -1074,6 +1074,40 @@ class TestSSE(MainTestBase):
         self.assertTrue(notes[0]["source"].strip())
         self.assertTrue(notes[0]["limit"].strip())
 
+    def test_the_route_itself_starts_the_stream_with_the_case_frame(self):
+        """
+        🔑 **والوصل مفحوص من `generate` نفسها، لا من المساعد وحده.**
+
+        ⚠️ والفرق ليس شكلياً: بناء الإطار في `_case_frame` صحيح **ولا يثبت أن
+        `/generate` يمرّره إلى البثّ**. ولو نُسي التمرير لَما ظهر الإطار في
+        الواجهة أصلاً — **وتمرّ الاختبارات كلها**، لأنها تنادي أجزاءً منفصلة.
+        وهذا هو النوع نفسه من العطب الذي كُشف في `briefing.py`: أجزاءٌ
+        تُختبر منفصلةً والمسار الحقيقي **لم يُشغَّل قطّ**.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        response = asyncio.run(
+            main.generate(
+                main.GenerateRequest(
+                    prompt="صغ عقداً",
+                    doc_type="عقد",
+                    case=main.CasePayload(**INCOMPLETE_CASE),
+                )
+            )
+        )
+
+        async def collect() -> list:
+            return [frame async for frame in response.content]
+
+        events = parse_frames(asyncio.run(collect()))
+        kinds = [event["type"] for event in events]
+
+        self.assertEqual(kinds[0], "case", "المسار لم يبدأ بإطار ملف القضية")
+        report = case_events(events)[0]["report"]
+        self.assertTrue(report["established"])
+        self.assertFalse(report["is_complete"])
+        self.assertIn("stage", kinds)
+        self.assertIn("done", kinds)
+
     def test_frames_are_well_formed(self):
         """كل إطار `data: {...}\\n\\n` — العقد الذي تعتمد عليه الواجهة."""
         fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
