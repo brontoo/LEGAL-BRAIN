@@ -103,6 +103,7 @@ from facts import summarize as summarize_facts
 import revision_loop
 
 import claims as claims_module
+import authority as authority_module
 load_dotenv()
 
 # ==============================================================================
@@ -1453,7 +1454,7 @@ def _stream_agent(
     case_frame: Optional[dict] = None,
     ledger: Optional[FactLedger] = None,
     claims_matrix=None,
-
+    authority_register=None,
 ):
     """
     يولّد أحداث الوكيل خطوة بخطوة.
@@ -1569,6 +1570,10 @@ def _stream_agent(
         yield (
             "claims",
             _claims_frame(clean, claims_matrix, ledger, case_frame),
+        )
+        yield (
+            "authority",
+            _authority_frame(clean, authority_register, case_frame),
         )
 
         # ------------------------------------------------------------------
@@ -1779,7 +1784,7 @@ def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
     final_text = ""
     report: dict = {}
     language: dict = {}
-    for kind, payload in _stream_agent(messages):
+    for kind, payload in _stream_agent(messages, None):
         if kind == "citations":
             report = payload
         elif kind == "language":
@@ -1848,7 +1853,7 @@ async def _sse_generator(
             if case_frame is not None:
                 emit({"type": "case", "report": case_frame})
 
-            for kind, payload in _stream_agent(messages, case_frame, ledger, None):
+            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
                     emit(
@@ -1866,6 +1871,8 @@ async def _sse_generator(
                     emit({"type": "review", "report": payload})
                 elif kind == "facts":
                     emit({"type": "facts", "report": payload})
+                elif kind == "authority":
+                    emit({"type": "authority", "report": payload})
                 elif kind == "claims":
                     emit({"type": "claims", "report": payload})
                 elif kind == "revision":
@@ -2703,4 +2710,208 @@ def _party_of(name):
     raise ValueError(
         f"صفة غير معروفة: «{name}». والمقبول: "
         + " · ".join(p.value for p in claims_module.Party)
+    )
+
+
+
+
+# ==============================================================================
+# سجل الأسانيد — إطارٌ للبثّ
+# ==============================================================================
+
+AUTHORITY_NOT_BUILT = (
+    "لم يُبنَ سجلّ الأسانيد: لا حملَ وارد في الطلب. "
+    "والأسانيد يُدخلها المحامي بمصادرها وتواريخ نفاذها."
+)
+
+
+def _authority_from(raw, number):
+    """يبني ``Authority`` من قاموس، **أو يرفع برسالة صريحة**."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"السند {number}: يجب أن يكون كائناً.")
+    key = claims_module.normalize(raw.get("key") or "")
+    if not key:
+        raise ValueError(f"السند {number} بلا مفتاح. والمفتاح ما يُربط به الفحص.")
+    instrument = (raw.get("instrument") or "").strip()
+    if not instrument:
+        raise ValueError(f"السند «{key}» بلا اسم نظام. وبلا اسمٍ لا يُعرَف.")
+
+    def _tokens(field):
+        v = raw.get(field)
+        if v is None:
+            return ()
+        if isinstance(v, str):
+            return (v.strip(),) if v.strip() else ()
+        if isinstance(v, (list, tuple)):
+            return tuple(str(x).strip() for x in v if str(x).strip())
+        raise ValueError(f"السند «{key}»: الحقل «{field}» نصٌّ أو قائمة.")
+
+    return authority_module.Authority(
+        key=key,
+        instrument=instrument,
+        article=(raw.get("article") or "").strip(),
+        # ⚠️ **وعضو `SourceKind` لا سلسلة**: الوحدة ترفض النصّ الحرّ،
+        # **و`UNKNOWN` تعني «لم يُصنَّف» — لا «صنّفه لي».**
+        kind=_kind_of(raw.get("kind")),
+        official_source=(raw.get("official_source") or "").strip(),
+        in_force_from=(raw.get("in_force_from") or "").strip(),
+        in_force_to=(raw.get("in_force_to") or "").strip(),
+        amended_by=(raw.get("amended_by") or "").strip(),
+        retrieved_from=(raw.get("retrieved_from") or "").strip(),
+        conditions=_tokens("conditions"),
+        exceptions=_tokens("exceptions"),
+    )
+
+
+def _register_from_payload(payload):
+    """
+    يبني ``AuthorityRegister`` من حمل الطلب — أو ``None``.
+
+    ⚠️ **ويُنادى في رأس النقطة قبل أي نداء نموذج**، فالفاسد يُردّ ٤٠٠ **قبل**
+    أن يُدفع ثمن التوليد.
+    """
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("حمل الأسانيد يجب أن يكون كائناً.")
+    raw = payload.get("authorities") or ()
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("«authorities» يجب أن يكون قائمة.")
+    if not raw:
+        raise ValueError(
+            "حمل الأسانيد بلا سندات. والمنصّة لا تخترعها: الأسانيد يُدخلها المحامي."
+        )
+    return authority_module.AuthorityRegister(
+        tuple(_authority_from(r, i + 1) for i, r in enumerate(raw))
+    )
+
+
+def _authority_frame(draft, register, case_frame=None):
+    """
+    يبني إطار الأسانيد: **فحصٌ زمنيّ · وشروط انطباق · ومصدرٌ ثانويّ عُومل كنصّ**.
+
+    ⚠️ **وثلاثة أحكام لا تُدمج:**
+      • **الإخفاق الزمني** (سندٌ لم يكن سارياً) — **خطأ**.
+      • **مصدرٌ ثانويّ عُومل معاملة النصّ** — **خطأ**.
+      • **سندٌ بلا مصدر رسمي** — **ملاحظة**، تُعلَن ولا تُعرض كأنها محقَّقة.
+
+    ⚠️ **وبغياب السجلّ يُصدَر الإطار ويقول ذلك** — **ولا يُحذف: حذفُه يُقرأ
+    سكوتاً، والسكوتُ في موضع فحصٍ يُقرأ سلامة.**
+    """
+    if register is None:
+        return {
+            "built": False,
+            "message": AUTHORITY_NOT_BUILT,
+            "summary": {},
+            "checks": [],
+            "errors": [],
+            "notices": [],
+            "checked_sources": [],
+        }
+
+    errors = []
+    notices = []
+    checked = []
+    try:
+        date = ""
+        if case_frame:
+            date = (case_frame.get("key_dates") or {}).get("filing") or ""
+
+        checks = []
+        for a in register.authorities:
+            if not date:
+                # ⚠️ **وبلا تاريخ لا يُدّعى انطباق**: يُعلَن أن الفحص لم يجرِ.
+                checks.append({
+                    "key": a.key,
+                    "instrument": a.instrument,
+                    "article": a.article,
+                    "status": "unverified",
+                    "reason": "لم يُفحَص النفاذ: لا تاريخ في ملف القضية.",
+                    "conditions": list(a.conditions),
+                })
+                continue
+            verdict = authority_module.check_application(a, (), date)
+            checks.append({
+                "key": a.key,
+                "instrument": a.instrument,
+                "article": a.article,
+                "status": str(getattr(verdict.status, "value", verdict.status)),
+                "reason": verdict.reason,
+                "conditions": list(verdict.conditions),
+                "unmet": list(verdict.unmet),
+            })
+            if not authority_module.in_force_on(a, date):
+                errors.append({
+                    "kind": "out_of_force",
+                    "key": a.key,
+                    "instrument": a.instrument,
+                    "article": a.article,
+                    "message": authority_module.transitional_note(a, date),
+                })
+        checked.append("in_force_on")
+
+        findings = authority_module.secondary_as_primary(register.authorities, draft or "")
+        for f in findings:
+            errors.append({
+                "kind": f.kind,
+                "key": f.key,
+                "instrument": f.instrument,
+                "article": f.article,
+                "source": f.source,
+                "message": f.reason or f.detail,
+            })
+        checked.append("secondary_as_primary")
+
+        for a in authority_module.unsourced(register.authorities):
+            notices.append({
+                "kind": "unsourced",
+                "key": a.key,
+                "instrument": a.instrument,
+                "article": a.article,
+                "message": "سندٌ بلا مصدر رسمي — يُعلَن ولا يُعرض كأنه محقَّق.",
+            })
+        checked.append("unsourced")
+
+        summary = authority_module.summarize(
+            [], findings=findings, unsourced_authorities=()
+        )
+        return {
+            "built": True,
+            "message": "",
+            "summary": summary if isinstance(summary, dict) else {},
+            "checks": checks,
+            "errors": errors,
+            "notices": notices,
+            "checked_sources": checked,
+        }
+    except Exception as exc:  # noqa: BLE001
+        # ⚠️ **ولا يُبتلع الفشل**: يُعلَن بنصّه، فلا يبدو الفحص ناجحاً وهو لم يجرِ.
+        print(f"[Authority] ⚠️ تعذّر بناء إطار الأسانيد: {type(exc).__name__}: {exc}")
+        return {
+            "built": False,
+            "message": f"تعذّر بناء إطار الأسانيد: {type(exc).__name__}: {exc}",
+            "summary": {},
+            "checks": [],
+            "errors": [],
+            "notices": [],
+            "checked_sources": checked,
+        }
+
+
+def _kind_of(name):
+    """يحوّل نصّاً إلى ``SourceKind``، **أو يرفع برسالة الوحدة**.
+
+    ⚠️ **والوحدة ترفض النصّ الحرّ**: «النوع من `SourceKind` وحدها». فالنصّ
+    يُطابَق بقيم الأعضاء أو بأسمائها، **وما لا يُعرف يُعلَن ``UNKNOWN``**
+    — ولا يُخترع نوع.
+    """
+    if not name:
+        return authority_module.SourceKind.UNKNOWN
+    key = claims_module.normalize(name)
+    for k in authority_module.SourceKind:
+        if k.value == key or claims_module.normalize(k.name) == key:
+            return k
+    raise ValueError(
+        f"نوع سند غير معروف: «{name}». والمقبول: "
+        + " · ".join(k.value for k in authority_module.SourceKind)
     )
