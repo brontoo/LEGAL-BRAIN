@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import doctest
 import importlib
 import pathlib
 import re
@@ -314,6 +315,69 @@ class TestModulesImportCleanly(unittest.TestCase):
                         f"{name} لا يُستورد، والعطب ليس حزمةً غائبة: "
                         f"{type(exc).__name__}: {exc}"
                     )
+
+
+class TestDoctestsPass(unittest.TestCase):
+    """
+    **أمثلة التوثيق تُشغَّل — لأنها توثيق يكذب إن لم تُشغَّل.**
+    ========================================================================
+    ⚠️ **ولد هذا الصنف من عطب حقيقي لم يكشفه شيء.**
+
+    وحدة `claims.py` كُتبت وفيها **٢٢ مثالاً يستدعي دوالّ مساعدة غير موجودة**
+    (``_the_matrix`` · ``_the_setoff_defence`` …). و`test_claims` **كان يمرّ:
+    ٤٦ اختباراً `OK`** — **والسويت لا يرى العطب**، لأن `unittest` لا يُشغّل
+    الأمثلة، **ولا أحد يُشغّل `doctest` تلقائياً.**
+
+    ⚠️ **وهو نفس صنف عطب `maketrans` في `facts.py`:** شيء معطوب لا يُشغّله
+    شيء، **فالسويت الأخضر لا يقول عنه شيئاً.**
+
+    ⚠️ **وتوثيق يفشل أمثاله أسوأ من غياب التوثيق**: القارئ يثق به فلا يجرّب.
+
+    ⚠️ **والفحص على المُلتزَم به وحده** — فوحدة نصف مكتوبة لا تُحاسَب على
+    أمثلتها بعد.
+    """
+
+    #: ⚠️ **وحدات لا تُستورد في بيئة الاختبار** — تستدعي حزماً غير مثبّتة،
+    #: أو تقرأ اعتمادات عند الاستيراد. **تُترك لأمر التشغيل.**
+    NOT_IMPORTABLE: tuple[str, ...] = (
+        "app_chainlit", "ask_brain", "contracts_ingester", "drafts_ingester",
+        "drive_folders", "html_ingester", "ingest_documents", "legal_agent",
+        "main", "notices_ingester", "office_test", "pdf_ingester",
+        "poa_ingester", "smart_office", "test_groq",
+    )
+
+    def test_every_module_s_own_examples_run(self):
+        """🔑 كل مثال في التوثيق يُنفَّذ فعلاً — لا يُقرأ."""
+        failures: list[str] = []
+        attempted_total = 0
+
+        for name in _modules():
+            if name in self.NOT_IMPORTABLE:
+                continue
+            try:
+                module = importlib.import_module(name)
+            except ModuleNotFoundError:
+                continue
+            except Exception:  # noqa: BLE001
+                # عطب الاستيراد يُمسكه الصنف الآخر، فلا يُكرَّر هنا.
+                continue
+
+            # ⚠️ `testmod` يستعمل **فضاء أسماء الوحدة** — وتمرير `globs={}`
+            # يُجرّد الأمثلة من أسمائها **فيُفشلها كلها زوراً.** وقد وقع ذلك
+            # في تشخيص هذا العطب: **أنذرتُ عن أربع عشرة وحدة سليمة.**
+            result = doctest.testmod(module, verbose=False, report=False)
+            attempted_total += result.attempted
+            if result.failed:
+                failures.append(f"{name}: {result.failed} من {result.attempted}")
+
+        self.assertGreater(
+            attempted_total, 0, "لا أمثلة شُغّلت — الفحص لم يجرِ فعلاً"
+        )
+        self.assertEqual(
+            failures,
+            [],
+            f"أمثلة توثيق تفشل (مُلتزَم بها): {failures}",
+        )
 
 
 class TestTheModulesTheObjectiveNames(unittest.TestCase):
