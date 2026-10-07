@@ -285,7 +285,6 @@ class TestTheModulesTheObjectiveNames(unittest.TestCase):
         "case_file",
         "untrusted",
         "briefing",
-        "deadlines",
     )
 
     def test_the_named_modules_not_yet_committed_are_declared(self):
