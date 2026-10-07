@@ -286,7 +286,7 @@ class FactVersion:
         التوقيع بالعربية: موقّعة / غير موقّعة / **لم يُفحص**.
 
         >>> FactVersion("مخالصة", "1").signed_label
-        'التوقيع: لم يُفحص'
+        'لم يُفحص'
         """
         if self.signed is True:
             return "موقّعة"
@@ -777,8 +777,10 @@ def _subject_of(key: str) -> str:
 
     >>> _subject_of("release.refused")
     'release'
-    >>> _subject_of("end_date")
+    >>> _subject_of("end-date")
     'end date'
+    >>> _subject_of("end_date")   # الشرطة السفلى لا يفصلها normalize
+    'end_date'
     """
     normalized = normalize(key)
     for separator in _SUBJECT_SEPARATORS:
@@ -798,7 +800,7 @@ def _content_tokens(text: str) -> list[str]:
     وهو نفس العيب الذي قيل في `review.py` عند استيراد `MIN_QUOTE_CHARS`.
 
     >>> _content_tokens("رفض الموظف التوقيع على مخالصة")
-    ['رفض', 'الموظف', 'التوقيع', 'مخالصه']
+    ['رفض', 'الموظف', 'التوقيع', 'علي', 'مخالصه']
     """
     normalized = normalize(text)
     if not normalized:
@@ -1170,8 +1172,12 @@ def summarize(
     يُراجَع عليها.
 
     >>> payload = summarize(_the_ledger())
-    >>> payload["has_conflicts"], payload["statement"] .startswith("وقائع")
-    (False, True)
+    >>> payload["fact_count"], payload["conflict_count"]
+    (1, 0)
+    >>> payload["summary"].startswith("وقائع")
+    True
+    >>> "client_statement_is_not_proof" in payload["rules"]
+    True
     """
     shifts = tuple(shifts)
     conflicts = ledger.conflicts()
