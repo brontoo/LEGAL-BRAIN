@@ -67,7 +67,22 @@ STANDALONE_SCRIPTS: tuple[str, ...] = (
 SELF = "test_module_health"
 
 
-def _tracked() -> set[str] | None:
+#: ⚠️ **تخزين مؤقّت لعملية `git` — لأن نداءها لكل ملف كلّف ٢٥ ثانية.**
+#:
+#: و`_importers` تُنادى لكل وحدة، **وكانت تسأل git عن المُعدَّل في كل مرّة**،
+#: فصار التشغيل ٢٥ ثانية بدل ثانية. **والنتيجة لا تتغيّر داخل التشغيل الواحد**
+#: — فتكرار السؤال إسراف محض، وهو نفسه الصنف الذي نُحاسب الكود عليه.
+_GIT_CACHE: dict[str, object] = {}
+
+
+def _cached(key: str, fn):
+    """يُنادي `fn` **مرّة واحدة في عمر العملية**."""
+    if key not in _GIT_CACHE:
+        _GIT_CACHE[key] = fn()
+    return _GIT_CACHE[key]
+
+
+def _tracked_uncached() -> set[str] | None:
     """
     الملفات المُلتزَم بها في git — أو ``None`` إن تعذّر السؤال.
 
@@ -102,6 +117,52 @@ def _tracked() -> set[str] | None:
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
+def _dirty_uncached() -> set[str]:
+    """
+    الملفات المُلتزَم بها **والمُعدَّلة الآن** في شجرة العمل — أو مجموعة فارغة.
+
+    ⚠️ **وهذا إصلاح النصف الثاني من عطب، لا النصف الأول.**
+
+    صار الحارس يسأل git **أيّ ملفات تُفحَص** ✅ — لكنه كان يقرأ **محتواها**
+    من شجرة العمل. **فملفٌ مُلتزَم يُعدَّل الآن ويصير معطوباً لحظياً يُفشل
+    الحارس** — مع أن المُلتزَم به سليم.
+
+    ⚠️ **والنتيجة أن «فشل الحارس» صار له معنيان**، ولا يستطيع قارئه أن يفرّق:
+    أهو عطب في الالتزام، أم وكيل يكتب الآن؟ **وهما سؤالان متعاكسان.**
+
+    ⚠️ **والحلّ الكامل أن يُقرأ المحتوى من `git show HEAD:path`** — لكن
+    `TestModulesImportCleanly` **يستورد الوحدة فعلاً**، والاستيراد يحتاج ملفاً
+    على القرص. فالكامل يحتاج `git worktree` مؤقّتاً — **وهو أثقل من أن يحتمله
+    كل تشغيل.**
+
+    **فالحدّ يُعلَن بدل أن يُخفى:** الملف المُعدَّل **يُستثنى ويُعدّ**،
+    **ومرور الحارس معناه أن المُلتزَم به سليم.**
+    """
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=PROJECT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if result.returncode != 0:
+        return set()
+    changed: set[str] = set()
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:].strip()
+        # «R  old -> new» — نأخذ الاسم الجديد
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        changed.add(path.strip().strip('"'))
+    return changed
+
+
 def _modules() -> list[str]:
     """
     أسماء وحدات المشروع — **المُلتزَم بها وحدها** إن أمكن السؤال.
@@ -109,11 +170,14 @@ def _modules() -> list[str]:
     ⚠️ وملف نصف مكتوب لا يُفحَص: **لا يُقال عنه إنه معطوب، ولا إنه سليم.**
     """
     tracked = _tracked()
+    dirty = _dirty()
     return sorted(
         path.name[:-3]
         for path in PROJECT.glob("*.py")
         if not path.name.startswith("_")
         and (tracked is None or path.name in tracked)
+        # ⚠️ والمُعدَّل يُستثنى: محتواه لم يُلتزَم بعد، فلا يُشهَد عليه.
+        and path.name not in dirty
     )
 
 
@@ -131,7 +195,11 @@ def _importers(name: str) -> list[str]:
             continue
         # ⚠️ **والمُلتزَم به وحده**: فاختبار يُكتَب الآن **لا يُصلح وحدةً يتيمة**،
         # لأن ما لم يُلتزَم لم يصل إلى أحد.
-        if tracked is not None and path.relative_to(PROJECT).as_posix() not in tracked:
+        rel = path.relative_to(PROJECT).as_posix()
+        if tracked is not None and rel not in tracked:
+            continue
+        # ⚠️ ومُعدَّل الآن؟ **فاستيراده لم يُلتزَم بعد** — ولا يُشهَد به.
+        if rel in _dirty():
             continue
         try:
             source = path.read_text(encoding="utf-8", errors="ignore")
@@ -225,8 +293,13 @@ class TestModulesImportCleanly(unittest.TestCase):
         المُعلَن بـ`expectedFailure` **يُطالب بسداده من نفسه**، ولا يبقى بعد
         زوال سببه. **وهذا الفرق بين تسجيل عطبٍ وإخفائه.**
         """
+        dirty = _dirty()
+        skipped = []
         for name in _modules():
             with self.subTest(module=name):
+                if f"{name}.py" in dirty:
+                    skipped.append(name)
+                    continue
                 try:
                     importlib.import_module(name)
                 except ModuleNotFoundError as exc:
@@ -365,3 +438,13 @@ class TestTheModulesTheObjectiveNames(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _tracked() -> set[str] | None:
+    """المُلتزَم به — **مرّة واحدة لكل تشغيل**."""
+    return _cached("tracked", _tracked_uncached)  # type: ignore[return-value]
+
+
+def _dirty() -> set[str]:
+    """المُعدَّل الآن — **مرّة واحدة لكل تشغيل**."""
+    return _cached("dirty", _dirty_uncached)  # type: ignore[return-value]
