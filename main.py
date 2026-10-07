@@ -2456,7 +2456,7 @@ def _claims_frame(
         }
 
     try:
-        matrix = _matrix_from_payload(payload)
+        matrix = payload  # مبنية سلفاً في رأس النقطة
         stage = matrix.stage
         if stage is None and case_frame:
             stage = case_frame.get("stage")
@@ -2596,13 +2596,13 @@ def _item(raw, cls, label):
         return cls(
             key=key,
             label=statement,
-            claimed_by=raw.get("claimed_by") or "",
+            claimed_by=_party_of(raw.get("claimed_by")),
             elements=_tokens("elements"),
             supporting_facts=_tokens("supporting_facts"),
             opposing_facts=_tokens("opposing_facts"),
             evidence=_tokens("evidence"),
             axes_in_dispute=axes,
-            burden=raw.get("burden") or None,
+            burden=claims_module.Burden.UNKNOWN,
             response=raw.get("response") or "",
             outcome_sought=raw.get("outcome_sought") or "",
             documents_required=_tokens("documents_required"),
@@ -2611,13 +2611,13 @@ def _item(raw, cls, label):
     return cls(
         key=key,
         label=statement,
-        claimed_by=raw.get("claimed_by") or "",
+        claimed_by=_party_of(raw.get("claimed_by")),
         elements=_tokens("elements"),
         supporting_facts=_tokens("supporting_facts"),
         opposing_facts=_tokens("opposing_facts"),
         evidence=_tokens("evidence"),
         axes_in_dispute=axes,
-        burden=raw.get("burden") or None,
+        burden=claims_module.Burden.UNKNOWN,
         response=raw.get("response") or "",
         outcome_sought=raw.get("outcome_sought") or "",
         documents_required=_tokens("documents_required"),
@@ -2685,4 +2685,22 @@ def _matrix_from_payload(payload):
         ),
         stage=stage,
         our_party=our_party,
+    )
+
+
+def _party_of(name):
+    """يحوّل نصّاً إلى ``Party``، **أو يرفع برسالة الوحدة**.
+
+    ⚠️ **والوحدة تطلب عضواً لا سلسلة**: ``Party`` صنف تعديد، وقراءة
+    ``.value`` على سلسلة تسقط.
+    """
+    if not name:
+        return claims_module.Party.CLAIMANT
+    key = claims_module.normalize(name)
+    for p in claims_module.Party:
+        if p.value == key:
+            return p
+    raise ValueError(
+        f"صفة غير معروفة: «{name}». والمقبول: "
+        + " · ".join(p.value for p in claims_module.Party)
     )
