@@ -1608,7 +1608,10 @@ def _stream_agent(
                         language_report=audit_language(text),
                     )
 
-                clean, redraft_attempts = revision_loop.run_loop(
+                # ⚠️ **و`run_loop` تُعيد `LoopResult` لا زوجاً**: فكُّها
+                # كزوجٍ يرمي `TypeError` **لحظة وجود خطأ قابل للإصلاح** —
+                # **وقد مرّ ذلك تحت سويتٍ أخضر لأن المسار لم يُبلَغ.**
+                _loop = revision_loop.run_loop(
                     clean,
                     redraft,
                     _recheck,
@@ -1620,9 +1623,11 @@ def _stream_agent(
                         language_report=language_outcome,
                     ),
                 )
+                clean = _loop.final_draft
+                redraft_attempts = _loop.attempts_used
                 # ⚠️ **والإعادة لا تُدّعى إصلاحاً**: يُعاد الفحص على النصّ الجديد،
                 # **فإن زال الخطأ فذلك، وإلا فهو باقٍ** — **يُفحَص، لا يُفترَض.**
-                yield ("stage", StageEvent("redraft", STAGE_REVISING))
+                yield ("stage", StageEvent("redraft", STAGE_REVIEWING))
 
         facts_frame = _facts_frame(clean, ledger)
         yield ("facts", facts_frame)
@@ -1660,6 +1665,17 @@ def _stream_agent(
         # وُجد سجلّ؛ وبغيابه تُمرَّر ``None`` = «لم يُشغَّل» — **فلا يُدرَج
         # المصدر في ``checked_sources``**. ولو مُرّرت ``()`` لَقيل «شُغّل ولم
         # يجد شيئاً»، **ولَشهد النظام بفحص لم يقع**.
+        # ⚠️ **وتُعاد الحسابات الثلاث على النصّ **النهائي**.** فالإعادة قد
+        # تكون قد غيّرته، **وقراءة قيمٍ حُسِبت قبله تُنتج تقريراً يصف نصّاً
+        # لم يبقَ** — **وهو «أسوأ من عدم الإعادة» بنصّ البند.**
+        raw_shifts = (
+            tuple(check_fidelity(clean, ledger)) if ledger is not None else None
+        )
+        attribution_outcome = verify_attributions(
+            clean, evidence, lambda row: getattr(row, "text", "") or ""
+        )
+        language_outcome = audit_language(clean)
+
         yield (
             "revision",
             _revision_frame(
