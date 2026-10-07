@@ -49,6 +49,8 @@ from citations import (
     unbacked_article_refs,
     verify_citations,
 )
+from attribution import summarize as summarize_attribution
+from attribution import verify_attributions
 from legal_agent import SYSTEM_PROMPT_CITED, agent, collect_evidence, get_supabase, llm
 from language_audit import audit_language
 from language_audit import summarize as summarize_language_audit
@@ -470,6 +472,24 @@ def _verify_round(final_text: str, evidence: list) -> tuple[str, dict]:
         ],
         # أسطر أسانيد لم تُقرأ: سند ضائع، ويُعرَض للتشخيص لا يُسقَط.
         "malformed_lines": parsed.malformed,
+        # ⚠️ **وهذا فحصٌ ثالث لا يقيسه `verify_citations` ولا `unbacked_article_refs`.**
+        #
+        # الأول يسأل: هل النصّ المقتبس موجود في المقاطع؟ والثاني: هل المادة
+        # مذكورة في المقاطع أصلاً؟ **ولا واحد منهما يسأل: هل هذا النصّ هو نصّ
+        # المادة التي نُسب إليها؟**
+        #
+        # وقد وقع ذلك فعلاً: مذكرة قالت «المادة ٤٣/٢ تنصّ على…» ونقلت عبارة
+        # تعود إلى عقد محدد المدة، والمادة الحالية لا تحملها. **فمرّ الاقتباس
+        # من كل فحوصنا سالماً وهو ينسب إلى القانون ما ليس منه** — وقد قالها
+        # المُقيِّم بجملة تُثبَّت: **«إسناد صياغة غير صحيحة إلى مادة أخطر من عدم
+        # ذكر المادة أصلاً».**
+        #
+        # ⚠️ و`mismatched` خطأ و`absent` ملاحظة، والفرق مقصود: الأول **قولٌ
+        # خاطئ عن القانون**، والثاني **ثغرةٌ في الأرشيف** — ولا يُعاقَب المحامي
+        # على ما لم يُنتجه الاسترجاع.
+        "attribution": summarize_attribution(
+            verify_attributions(clean, evidence, lambda row: getattr(row, "text", "") or "")
+        ),
     }
     return clean, report
 
