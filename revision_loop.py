@@ -809,11 +809,18 @@ def _fixed_count(
     return fixed
 
 
-def _stop_text(code: str, max_attempts: int, used: int) -> str:
-    """نصّ سبب الإيقاف بالعربية، ومع السقف يُذكر العدد فلا يبقى الرقم مجهولاً."""
+def _stop_text(code: str, max_attempts: int, used: int, detail: str = "") -> str:
+    """
+    نصّ سبب الإيقاف بالعربية، ومع السقف يُذكر العدد فلا يبقى الرقم مجهولاً.
+
+    و``detail`` تفصيلٌ يُلحَق عند الحاجة (نوع استثناء نداء إعادة الصياغة مثلاً)،
+    **لأن الإيقاف يُعلَن بسببه**: سببٌ مجهول لا يستطيع المحامي أن يتصرّف فيه.
+    """
     text = STOP_MESSAGES[code]
     if code == STOP_CEILING:
-        return f"{text} (السقف المعلن: {max_attempts} محاولة · المستنفد: {used}.)"
+        text = f"{text} (السقف المعلن: {max_attempts} محاولة · المستنفد: {used}.)"
+    if detail:
+        text = f"{text} {detail}"
     return text
 
 
@@ -848,7 +855,7 @@ def run_loop(
     حلقة بلا سقف **إنفاق غير محدود من وقت المحامي ومال الموكّل**، ولا أحد يقول
     للمحامي إنها ما زالت تدور. والقيمة الافتراضية ٣.
 
-    ⚠️ **والتوقّفات أربعة**، وكلٌّ منها يُقال بالعربية في `stopped_reason`
+    ⚠️ **والتوقّفات خمسة**، وكلٌّ منها يُقال بالعربية في `stopped_reason`
     وتُقابله قيمة آلية في `stop_code`:
 
     * خلوص الفحص: لا خطأ في آخر فحص (`STOP_CLEAN`).
@@ -858,8 +865,19 @@ def run_loop(
     * **عدم التقارب**: عدد الأخطاء لم ينقص بعد إعادة الصياغة
       (`STOP_NO_PROGRESS`) — فيتوقّف المسار ولا يُنفق ما بقي من محاولات على
       مسودّة لا تتقارب.
-    * وإعادة صياغة لم تُنتج نصّاً (`STOP_REDRAFT_FAILED`) — فتُبقى آخر مسودّة
-      مفحوصة بدل استبدالها بفراغ.
+    * وإعادة صياغة لم تُنتج نصّاً — لفراغٍ أو لاستثناء في النداء
+      (`STOP_REDRAFT_FAILED`) — فتُبقى آخر مسودّة **مفحوصة** بدل استبدالها
+      بفراغ أو بإسقاط التوليد كلّه.
+
+    ⚠️ **والاستثناء في نداء إعادة الصياغة لا يُسقِط ما بُني، لكنه يُعلَن.** وهذا
+    هو سلوك `main.py::_review_round` نفسه: «الفشل هنا لا يُسقط التوليد أبداً —
+    لكنه يُعلَن ولا يُسكَت عنه». فالمحامي يستلم آخر مسودّة مفحوصة **ومعها أخطاؤها
+    وسبب التوقّف**، وهو خيرٌ من انقطاع بعد جولات، ومن صمتٍ يُقرأ نجاحاً.
+
+    ⚠️ **وحدّ هذا الباب معلن:** `collect` **لا يُلتقط استثناؤه هنا** — هو نداء
+    الفحص، وصاحبه هو من يُعلن فشله (كما يفعل `main.py::_review_round` بـ
+    ``failed: True``). فلو التقطناه لأنتجنا حصيلةً لا تعرف حالة المسودّة، وقائمةً
+    فارغة قد تُقرأ نظافة. والفشل الذي لا يُعرف موضعه لا يُخترع له حكم.
 
     ⚠️ **ولا طباعة ولا إدخال/إخراج هنا**: من أراد بثّ إطار في الواجهة يمرّر
     `on_progress`، فيُنادى بالمحاولة بعد تسجيلها ليبثّ ما يشاء. والحلقة نفسها
@@ -904,6 +922,7 @@ def run_loop(
     current = draft
     previous: tuple[LoopError, ...] = ()
     stop_code = STOP_NOTHING_FIXABLE
+    detail = ""
     number = 0
 
     while True:
@@ -947,7 +966,18 @@ def run_loop(
             stop_code = STOP_NO_PROGRESS
             break
 
-        new_draft = redraft(current, fixable, number)
+        # إعادة الصياغة: **الموضع الوحيد الذي ينفق محاولة**. ونتيجتها لا تصير
+        # نهائية هنا، بل تُفحص في الجولة التالية — فلا مسودّة تُسلَّم بلا فحص.
+        try:
+            new_draft = redraft(current, fixable, number)
+        except Exception as exc:  # noqa: BLE001
+            # ⚠️ وفشلُ النداء لا يُسقِط ما بُني، **لكنه يُعلَن بنوعه**: سببٌ
+            # مجهول لا يستطيع المحامي أن يتصرّف فيه. والمسودّة الباقية هي آخر
+            # مسودّة **فُحصت**، ومعها أخطاؤها — لا فراغ ولا انقطاع.
+            stop_code = STOP_REDRAFT_FAILED
+            detail = f"السبب: {type(exc).__name__}."
+            break
+
         if not isinstance(new_draft, str) or not new_draft.strip():
             # إعادة صياغة فارغة أو غير نصّية: تُبقى آخر مسودّة **مفحوصة**، لأن
             # تسليم فراغ أسوأ من تسليم مسودّة فيها خطأ معروف ومُعلَن.
@@ -968,7 +998,7 @@ def run_loop(
     return LoopResult(
         attempts=tuple(attempts),
         final_draft=final.draft,
-        stopped_reason=_stop_text(stop_code, max_attempts, len(attempts)),
+        stopped_reason=_stop_text(stop_code, max_attempts, len(attempts), detail),
         stop_code=stop_code,
         material_remaining=material,
         attempts_used=len(attempts),

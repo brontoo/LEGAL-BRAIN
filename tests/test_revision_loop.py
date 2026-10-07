@@ -882,6 +882,33 @@ class TestTheLoop(unittest.TestCase):
         self.assertEqual(result.attempts_used, 2)
         self.assertEqual(calls, [1])
 
+    def test_a_raising_redraft_is_announced_and_not_fatal(self):
+        """
+        نداء إعادة الصياغة يفشل (انقطاع شبكة مثلاً) ⇒ **لا يُسقِط ما بُني**.
+
+        وهذا سلوك `main.py::_review_round` نفسه: «الفشل لا يُسقط التوليد أبداً —
+        لكنه يُعلَن ولا يُسكَت عنه». فالمحامي يستلم آخر مسودّة **فُحصت** ومعها
+        أخطاؤها، **ويُذكر نوع الاستثناء** لأن سبباً مجهولاً لا يُتصرَّف فيه.
+        """
+
+        def explode(draft, errors, attempt):
+            raise RuntimeError("انقطع الاتصال")
+
+        result = run_loop(
+            BROKEN_DRAFT,
+            explode,
+            scripted_collect(
+                {BROKEN_DRAFT: review_errors(element("fact", SEVERITY_ERROR, Q_FACT))}
+            ),
+        )
+
+        self.assertEqual(result.stop_code, STOP_REDRAFT_FAILED)
+        self.assertIn("RuntimeError", result.stopped_reason)
+        self.assertEqual(result.final_draft, BROKEN_DRAFT)
+        self.assertEqual(len(result.material_remaining), 1)
+        self.assertFalse(result.can_be_called_verified)
+        self.assertIn("RuntimeError", describe(result))
+
     def test_max_attempts_below_one_raises(self):
         """⚠️ الحلقة بلا سقف إنفاق غير محدود — والسقف مفروض لا موعود."""
         for value in (0, -1, -100):
