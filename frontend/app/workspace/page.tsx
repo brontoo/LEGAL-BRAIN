@@ -300,6 +300,35 @@ type BriefingFrame = {
   markdown: string;
 };
 
+/**
+ * خطأ واحد في قائمة `revision` — **خمسة حقول نصّية لا كائن مُنمَّط**.
+ *
+ * ⚠️ وسبب بقائه نصّاً هو `_revision_frame` في main.py: الإطار يُسلسل إلى JSON
+ * ليُبثّ عبر SSE، فحُوّل الخام إلى حقول قبل البناء. ولذلك لا يوجد هنا
+ * `action` ولا `fixable_by_redraft` — وكلاهما قرار الحلقة لا عرضٌ للمحامي،
+ * ولو استُنتجا في الواجهة لصار في المشروع حاكمان يفترقان.
+ *
+ * ⚠️ و`source` و`kind` و`severity` **مفاتيح آليّة تُعرض كما هي**: لا تُترجم
+ * إلى عبارة عربية يُبنى عليها حكم. فالترجمة تنكسر بصمت في أول تعديل تحريري،
+ * والقاعدة نفسها معلنة في `FIELD_LABELS` أعلاه.
+ */
+type LoopError = {
+  source: string;
+  kind: string;
+  severity: string;
+  message: string;
+  quote: string;
+};
+
+/** إطار `revision` — قائمة الأخطاء المُوحَّدة، وما إذا جُمِعت أصلاً. */
+type RevisionFrame = {
+  errors: LoopError[];
+  checked_sources: string[];
+  redrafted: boolean;
+  collected: boolean;
+  message: string;
+};
+
 type StreamEvent =
   | { type: "stage"; stage?: string; message: string }
   | { type: "case"; report: CaseFrame }
@@ -308,6 +337,7 @@ type StreamEvent =
   | { type: "review"; report: ReviewReport }
   | { type: "facts"; report: FactsFrame }
   | { type: "briefing"; report: BriefingFrame["report"]; markdown: string }
+  | { type: "revision"; report: RevisionFrame }
   | { type: "done"; document: string }
   | { type: "error"; message: string };
 
@@ -1129,6 +1159,219 @@ function BriefingPanel({ frame }: { frame: BriefingFrame | null }) {
 }
 
 /**
+ * تسميات المصادر الأربعة — **المفتاح هو المدخل والعربية تسميةٌ له**.
+ *
+ * ⚠️ والقيمة غير المعروفة تُعرض **بمفتاحها** لا بتسمية مخترعة (القاعدة نفسها في
+ * `FIELD_LABELS` و`fieldLabel`): مفتاح جديد في الخادم يُقرأ كما هو، ولا ندّعي
+ * له اسماً لم نضعه.
+ */
+const SOURCE_LABELS: Record<string, string> = {
+  review: "المراجعة",
+  fidelity: "مطابقة الوقائع",
+  attribution: "العزو",
+  language: "اللغة",
+};
+
+/** اسم المصدر: تسميته العربية إن عُرفت، وإلا مفتاحه الآلي بلا اختراع اسم. */
+function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+/**
+ * لوحة إعادة الصياغة وقائمة الأخطاء.
+ *
+ * ⚠️ **وفائدتها كلّها في التمييز الذي لا تحمله قائمة الأخطاء وحدها**: فُحصت
+ * المسودّة فلم يُوجد عيب، ولم يُفحص شيء — **كلتاهما قائمة فارغة** في الإطار.
+ * وهذا نصّ `sources_checked` في revision_loop.py، وله وُلدت. فالحكم هنا على
+ * `collected` وحدها، وهي التي تقول: أَجُمِعت القائمة أم تعذّر جمعها.
+ *
+ * ⚠️ **و`collected: false` مع `errors: []` لا يُعرض «لا أخطاء» أبداً** — وهو
+ * العطب الوحيد الذي وُجدت هذه اللوحة لمنعه. فالقائمة الفارغة هناك ليست نتيجة
+ * فحص بل أثر انهيار في `collect_errors`، والقول «لا أخطاء» عنها **شهادة سلامة
+ * لم تُمنح**: الفحص الذي لم يجرِ ليس فحصاً نجح. فيُعرض نصّ الخادم وحده، ولا
+ * يُقرأ الفراغ.
+ *
+ * ⚠️ **والحكم على الخطورة بالمفتاح الآلي `severity`**: `"error"` خطأ، وما سواه
+ * ملاحظة (`"notice"` في مراجعة المشروع). ولا يُبنى الحكم على نصّ عربي — فالعربية
+ * عرضٌ للنتيجة لا مدخلٌ للحكم عليها. والمفتاح المجهول يُعرض بمفتاحه.
+ *
+ * ⚠️ **ولا «جاهز» ولا «مكتمل» في هذه اللوحة**: هي قائمة ما وجدته الفحوص، والختم
+ * للمحامي لا للواجهة. ولا شريط تقدّم ولا نسبة ولا درجة ثقة — كلّها أرقام لا
+ * تُحسب من هذا الإطار، وما لا يُحسب يُقال «—» أو لا يُقال.
+ *
+ * ⚠️ **والفقرة التي تحمل `message` من الخادم لا تُصاغ هنا**: جملة «لم تُجرَ
+ * إعادة صياغة» شرطُ سلامة عند الخادم — إعادة الصياغة تُنتج نصّاً آخر لم تجرِ
+ * عليه الفحوص، فيصير المستند وفحوصه يصفان نصّين مختلفين. فمن أعاد الصياغة
+ * لاحقاً **يجب أن يغيّر جملة الخادم بقصد**، لا أن يجد واجهةً تقول «تمّت».
+ */
+function RevisionPanel({ frame }: { frame: RevisionFrame | null }) {
+  if (!frame) return null;
+
+  // ⚠️ المفتاح هو `collected` — لا القائمة. وغيابه يُقرأ «لم تُجمع» لا «جُمِعت».
+  const collected = frame.collected === true;
+  const errors = frame.errors ?? [];
+  // والتصنيف بالمفتاح: `"error"` خطأ يمنع، وما سواه ملاحظة. والمجهول ملاحظة.
+  const blocking = errors.filter((item) => item.severity === "error");
+  const notices = errors.filter((item) => item.severity !== "error");
+  const checkedSources = frame.checked_sources ?? [];
+
+  /** سطر خطأ واحد: النصّ ثم الاقتباس، وكلاهما محتوى React لا HTML. */
+  const renderError = (item: LoopError, index: number, kind: "blocking" | "notice") => (
+    <div
+      key={`${kind}-${item.source}-${item.kind}-${index}`}
+      className={
+        kind === "blocking"
+          ? "space-y-1 border border-red-200 border-s-4 border-s-red-400 bg-white p-3"
+          : "space-y-1 border border-slate-300 border-s-4 border-s-slate-400 bg-white p-3"
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-slate-500">{sourceLabel(item.source)}</span>
+        {/* المفتاح الآلي في وسم اتجاهه محدد: خيط لاتيني داخل سطر عربي */}
+        <span className="font-mono text-[11px] text-slate-400" dir="ltr">
+          {item.kind}
+        </span>
+        <span
+          className={
+            kind === "blocking"
+              ? "border border-red-300 bg-red-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-red-700"
+              : "border border-slate-300 bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600"
+          }
+          dir="ltr"
+        >
+          {item.severity}
+        </span>
+      </div>
+      <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+        {item.message}
+      </p>
+      {/* الاقتباس موضع الخلل من المسودّة — يُعرض كما هو ليُقابله المحامي بنصّه. */}
+      {item.quote && (
+        <p
+          className="whitespace-pre-wrap border-s-2 border-slate-300 bg-slate-50 ps-3 text-xs leading-relaxed text-slate-600"
+          dir="auto"
+        >
+          {item.quote}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 border-t border-slate-200 bg-slate-50 p-6">
+      <div className="flex flex-wrap items-center gap-2">
+        {collected ? (
+          <FileText className="w-5 h-5 text-slate-600" />
+        ) : (
+          <AlertTriangle className="w-5 h-5 text-slate-500" />
+        )}
+        <h3 className="font-bold text-slate-900">قائمة الأخطاء الموحّدة</h3>
+      </div>
+
+      {/*
+        ⚠️ «أيّ فحص جرى» **قبل** الأخطاء، وللسبب نفسه الذي جعل BriefingPanel
+        يقدّم الفحوص الغائبة على النصّ: الغياب يُقرأ خطأً نظافة. فالفحص الذي لم
+        يُشغَّل لا يمنع التسليم ولا يجيزه — يمنع الاعتماد على صمتٍ لم يُقل.
+      */}
+      <div className="space-y-2">
+        {/* العنوان بالمفتاح لا بالدعوى: عند تعذّر الجمع لا يُقال «جرت فحوص». */}
+        <h4 className="text-sm font-semibold text-slate-700">
+          {collected ? "الفحوص المُبلَّغ عنها" : "الفحوص المُبلَّغ عنها — والقائمة لم تُجمع"} —{" "}
+          {orDash(checkedSources.length)}
+        </h4>
+        {checkedSources.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {checkedSources.map((source, index) => (
+              <span
+                key={`${source}-${index}`}
+                className="border border-slate-400 bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700"
+              >
+                {sourceLabel(source)}
+                {/* المفتاح الآلي بجانب تسميته: العرض لا يخفي المصدر الحقيقي. */}
+                <span className="ms-2 font-mono text-[11px] text-slate-500" dir="ltr">
+                  {source}
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500" dir="auto">
+            {collected
+              ? "لم يُبلَّغ عن أيّ فحص جرى — وغيابُه ليس نظافة."
+              : "لم يُبلَّغ عن فحوص، لأن القائمة لم تُجمع أصلاً."}
+          </p>
+        )}
+      </div>
+
+      {/* الحالة الأولى — لم تُجمع القائمة، فلا يُذكر «لا أخطاء» إطلاقاً. */}
+      {!collected ? (
+        <div className="flex items-start gap-2 border border-slate-300 border-s-4 border-s-slate-500 bg-white p-3">
+          <AlertTriangle className="mt-0.5 w-5 h-5 shrink-0 text-slate-500" />
+          <div className="min-w-0 space-y-1">
+            <p className="font-bold text-slate-700">{frame.message}</p>
+            <p className="text-xs text-slate-500">
+              تُعرض قائمة الأخطاء وحدها، فالقائمة الفارغة هنا ليست نتيجة فحص:
+              الفحص الذي لم يجرِ ليس فحصاً نجح.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* الحالة الثانية — شُغّلت الفحوص ولم تجد شيئاً. */}
+          {errors.length === 0 && (
+            <div className="flex items-start gap-2 border border-slate-300 border-s-4 border-s-slate-500 bg-white p-3">
+              <FileText className="mt-0.5 w-5 h-5 shrink-0 text-slate-600" />
+              <div className="min-w-0 space-y-1">
+                {/* «جرت» بالمفتاح: بلوغ هذا الفرع يعني `collected: true`. */}
+                <p className="font-bold text-slate-700">جرت الفحوص أعلاه ولم تجد ما يُدرج.</p>
+                <p className="text-xs text-slate-500" dir="auto">
+                  {frame.message}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* الحالة الثالثة — أخطاء وملاحظات. والخطأ هو `severity: "error"`. */}
+          {blocking.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-red-700">أخطاء تمنع الاعتماد</h4>
+              {blocking.map((item, index) => renderError(item, index, "blocking"))}
+            </div>
+          )}
+
+          {notices.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-600">ملاحظات — تُعرَض ولا تمنع</h4>
+              {notices.map((item, index) => renderError(item, index, "notice"))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/*
+        ⚠️ النصّ من الخادم (وحدة `revision_loop.py`)، ولا نصّ من عندنا في موضعه:
+        الجملة تحمل سبب الامتناع عن إعادة الصياغة، فصياغتها هنا تُفقدها سلطتها.
+      */}
+      <div className="space-y-1 border-t border-slate-200 pt-3">
+        <h4 className="text-sm font-semibold text-slate-700">إعادة الصياغة</h4>
+        {frame.redrafted === true ? (
+          <p className="text-xs text-slate-500" dir="auto">
+            أُعيدت الصياغة — ولم تعد الفحوص أعلاه وصفاً للنصّ المعروض.
+          </p>
+        ) : (
+          <p className="text-xs text-slate-500" dir="auto">
+            لم تُجرَ إعادة صياغة.
+          </p>
+        )}
+        <p className="text-sm leading-relaxed text-slate-700" dir="auto">
+          {orDash(frame.message)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * لوحة الأسانيد — تُعرض بعد كل مسودة.
  *
  * الغرض أن يرى المحامي **قبل أن يعتمد** المستند: ما ثبت أنه منقول حرفياً من
@@ -1468,6 +1711,10 @@ export default function Workspace() {
   const [caseFrame, setCaseFrame] = useState<CaseFrame | null>(null);
   const [factsFrame, setFactsFrame] = useState<FactsFrame | null>(null);
   const [briefingFrame, setBriefingFrame] = useState<BriefingFrame | null>(null);
+  // ⚠️ وإطار رابع كان يُبثّ (نوع `revision`) ويُهمَل هنا بصمت، فقائمة الأخطاء
+  // الموحّدة تصل ثم تُسقَط. وترتيبه في `_stream_agent` قبل `briefing`، لأنّه
+  // يُبنى بعد الفحوص وقبل التقرير الذي يجمعها.
+  const [revisionFrame, setRevisionFrame] = useState<RevisionFrame | null>(null);
 
   // مراحل العمل — تُشغّل مشهد «فريق المكتب».
   // ⚠️ المفاتيح تأتي من الخادم (`stage` في إطار SSE) ولا تُخمَّن هنا. فالمشهد
@@ -1504,6 +1751,9 @@ export default function Workspace() {
     setCaseFrame(null);
     setFactsFrame(null);
     setBriefingFrame(null);
+    // ⚠️ وتُصفَّر معها قائمة الجولة السابقة: أخطاء مسودّة قديمة معروضةً فوق
+    // مستندٍ جديد أسوأ من غيابها، لأن المحامي يقرأ عيوباً قد أُصلحت.
+    setRevisionFrame(null);
 
     // تصفير مشهد المكتب — وإلا ظهر الفريق وقد «أنجز» عمل الطلب السابق
     setActiveStage("");
@@ -1614,6 +1864,12 @@ export default function Workspace() {
               report: event.report,
               markdown: event.markdown,
             });
+          } else if (event.type === "revision") {
+            // ⚠️ **والحكم على `collected` وحده**: الإطار يحمل قائمة الأخطاء
+            // معاً، والقائمة الفارغة فيه لا تفرّق بين «فُحص فلم يُوجد عيب» و«لم
+            // يُفحص شيء» — وكلتاهما فارغة. ولا يُقرأ الفراغ سلامةً: اللوحة
+            // تعرض نصّ الخادم عند تعذّر الجمع، ولا تقول «لا أخطاء» أبداً.
+            setRevisionFrame(event.report);
           } else if (event.type === "done") {
             setFinalDocument(event.document);
             setStatus("done");
@@ -1797,6 +2053,9 @@ export default function Workspace() {
                 {/* والتقرير الداخلي آخر اللوحات — لأنه آخر إطار تقرير يُبنى،
                     ولأنه ورقة عمل تُقرأ بعد الفحوص لا قبلها. */}
                 <BriefingPanel frame={briefingFrame} />
+                {/* ⚠️ وقائمة الأخطاء الموحّدة بعد التقرير: هي حكم الفحوص على
+                    المسودّة مجتمعةً، وآخر ما يُقرأ قبل قرار الاعتماد. */}
+                <RevisionPanel frame={revisionFrame} />
                 <RevisionBar
                   generatedText={cleanDocument}
                   docType={docType}
