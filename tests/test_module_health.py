@@ -280,7 +280,6 @@ class TestTheModulesTheObjectiveNames(unittest.TestCase):
     #: ⚠️ **ولكن إغفالها صامتاً أسوأ**: فالهدف طلب هذه الوحدات بالاسم.
     #: فهي **مُعلَنة هنا حتى تُلتزَم، والقائمة تُفرَّغ ولا تزيد.**
     PENDING_COMMIT: tuple[str, ...] = (
-        "briefing",
     )
 
     def test_the_named_modules_not_yet_committed_are_declared(self):
