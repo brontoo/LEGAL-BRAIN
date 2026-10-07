@@ -630,6 +630,40 @@ class TestSensitiveShape(unittest.TestCase):
         self.assertNotIn("501234567", hits[0].sample)
         self.assertNotIn("1234567", hits[0].sample)
 
+    def test_mixed_separators_inside_one_number_are_handled(self):
+        """
+        خلط الفواصل (``+971-50 123 4567``) — يُقرأ رقماً واحداً.
+
+        وهذا ما يميّز الماسح عن الأنماط التي كانت تشترط فاصلاً **واحداً**
+        متكرّراً: هنا يُنزع الفاصل من الحكم أصلاً، فالمسافة والشرطة والنقطة
+        سواء. والرسم مختلف والمعنى واحد.
+
+        ⚠️ ومن هنا جاءت حاجة ``_digit_runs`` إلى ضبط ``separated``: الطرف
+        الخارجي يُقصّ، والداخلي يبقى. فالحكم على الداخل وحده.
+
+        ⚠️ و``+`` **يبقى** في المخرَج (``+[]``): هو علامة على أن الرقم كان
+        بصيغة دولة، وليس هو نفسه بيانات شخصية — فحجبه إفساد للسطر بلا فائدة.
+        والمحجوب هو الرقم.
+        """
+        for text in ("+971-50 123 4567", "+971 50-123-4567"):
+            with self.subTest(text=text):
+                hits = scan_sensitive(text)
+                self.assertEqual([item.kind for item in hits], ["phone"], text)
+                self.assertEqual(redact(text), "+[]", text)
+
+        for text in ("050-123-4567", "0501234567"):
+            with self.subTest(text=text):
+                self.assertEqual([item.kind for item in scan_sensitive(text)], ["phone"], text)
+                self.assertEqual(redact(text), "[]", text)
+
+    def test_a_phone_inside_a_sentence_is_cut_out_whole(self):
+        """وفي سياق نصّي: يُحجَب الرقم وحده، وتبقى الجملة مفهومة."""
+        text = "هاتف الموكل 050-123-4567 للتواصل في أوقات العمل الرسمية."
+        cleaned = redact(text)
+        self.assertNotIn("050-123-4567", cleaned)
+        self.assertIn("هاتف الموكل", cleaned)
+        self.assertIn("للتواصل في أوقات العمل الرسمية", cleaned)
+
     def test_hits_are_ordered_errors_first(self):
         text = "هاتفه 0501234567 وهويته 784-1985-1234567-1"
         severities = [item.severity for item in scan_sensitive(text)]
