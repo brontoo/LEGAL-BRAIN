@@ -104,6 +104,7 @@ import revision_loop
 
 import claims as claims_module
 import authority as authority_module
+import deadlines as deadlines_module
 load_dotenv()
 
 # ==============================================================================
@@ -1455,6 +1456,7 @@ def _stream_agent(
     ledger: Optional[FactLedger] = None,
     claims_matrix=None,
     authority_register=None,
+    deadline_rules=None,
 ):
     """
     يولّد أحداث الوكيل خطوة بخطوة.
@@ -1574,6 +1576,10 @@ def _stream_agent(
         yield (
             "authority",
             _authority_frame(clean, authority_register, case_frame),
+        )
+        yield (
+            "deadlines",
+            _deadlines_frame(clean, deadline_rules, case_frame),
         )
 
         # ------------------------------------------------------------------
@@ -1784,7 +1790,7 @@ def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
     final_text = ""
     report: dict = {}
     language: dict = {}
-    for kind, payload in _stream_agent(messages, None):
+    for kind, payload in _stream_agent(messages, None, None):
         if kind == "citations":
             report = payload
         elif kind == "language":
@@ -1853,7 +1859,7 @@ async def _sse_generator(
             if case_frame is not None:
                 emit({"type": "case", "report": case_frame})
 
-            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None):
+            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None, None):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
                     emit(
@@ -1871,6 +1877,8 @@ async def _sse_generator(
                     emit({"type": "review", "report": payload})
                 elif kind == "facts":
                     emit({"type": "facts", "report": payload})
+                elif kind == "deadlines":
+                    emit({"type": "deadlines", "report": payload})
                 elif kind == "authority":
                     emit({"type": "authority", "report": payload})
                 elif kind == "claims":
@@ -2915,3 +2923,151 @@ def _kind_of(name):
         f"نوع سند غير معروف: «{name}». والمقبول: "
         + " · ".join(k.value for k in authority_module.SourceKind)
     )
+
+
+
+
+# ==============================================================================
+# المواعيد — العدّ الذي لا يُخترع، والقاعدة التي لا يكتبها الكود
+# ==============================================================================
+
+DEADLINES_NOT_BUILT = (
+    "لم تُحسَب المواعيد: لا حملَ وارد في الطلب. "
+    "وقواعد المواعيد يكتبها المحامي بمصادرها — والمنصّة تحسب ولا تخترع."
+)
+
+
+def _deadline_from(raw, number):
+    """يبني ``DeadlineRule`` من قاموس، **أو يرفع برسالة صريحة**."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"القاعدة {number}: يجب أن تكون كائناً.")
+    key = claims_module.normalize(raw.get("key") or "")
+    if not key:
+        raise ValueError(f"القاعدة {number} بلا مفتاح.")
+    label = (raw.get("label") or "").strip()
+    if not label:
+        raise ValueError(f"القاعدة «{key}» بلا نصّ.")
+    try:
+        amount = int(raw.get("amount"))
+    except (TypeError, ValueError):
+        raise ValueError(f"القاعدة «{key}»: المقدار عددٌ صحيح موجب.")
+    if amount <= 0:
+        raise ValueError(f"القاعدة «{key}»: المقدار موجب، والوارد {amount}.")
+    unit = _unit_of(raw.get("unit"))
+    convention = deadlines_module.convention_for((raw.get("convention_key") or "").strip())
+    if convention is None:
+        raise ValueError(
+            f"القاعدة «{key}»: عدّ غير معروف «{raw.get('convention_key')}». "
+            "ولا يُخترع عدّ: العدّ يُختار من `Convention`."
+        )
+    return deadlines_module.DeadlineRule(
+        key=key,
+        label=label,
+        amount=amount,
+        unit=unit,
+        convention_key=convention.key,
+        source=(raw.get("source") or "").strip(),
+        note=(raw.get("note") or "").strip(),
+    )
+
+
+def _unit_of(name):
+    """يحوّل نصّاً إلى ``Unit``، **أو يرفع**."""
+    key = claims_module.normalize(name or "")
+    for u in deadlines_module.Unit:
+        if u.value == key or claims_module.normalize(u.name) == key:
+            return u
+    raise ValueError(
+        f"وحدة مدّة غير معروفة: «{name}». والمقبول: "
+        + " · ".join(u.value for u in deadlines_module.Unit)
+    )
+
+
+def _deadlines_from_payload(payload):
+    """يبني قائمة ``DeadlineRule`` من الحمل — أو ``None``."""
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("حمل المواعيد يجب أن يكون كائناً.")
+    raw = payload.get("rules") or ()
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("«rules» يجب أن تكون قائمة.")
+    if not raw:
+        raise ValueError(
+            "حمل المواعيد بلا قواعد. والمنصّة تحسب ولا تخترع: القواعد يكتبها المحامي."
+        )
+    return tuple(_deadline_from(r, i + 1) for i, r in enumerate(raw))
+
+
+def _deadlines_frame(draft, rules, case_frame=None):
+    """
+    يحسب مواعيد الإجراءات من قواعد المحامي ومن تاريخ في ملف القضية.
+
+    ⚠️ **وبلا تاريخ لا يُدّعى موعد**: يُعلَن أن الحساب لم يجرِ — **وهو خير من
+    موعدٍ مُخترع يُبنى عليه إجراء يتساقط.**
+    """
+    if rules is None:
+        return {
+            "built": False, "message": DEADLINES_NOT_BUILT, "items": [],
+            "errors": [], "notices": [], "checked_sources": [],
+        }
+
+    errors, notices, items, checked = [], [], [], []
+    try:
+        start = ""
+        if case_frame:
+            start = (case_frame.get("key_dates") or {}).get("filing") or ""
+
+        if not start:
+            notices.append({
+                "kind": "no_date",
+                "message": "لم تُحسَب المواعيد: لا تاريخ في ملف القضية.",
+            })
+        else:
+            base = _parse_date(start)
+            for rule in rules:
+                conv = deadlines_module.convention_for(rule.convention_key)
+                due = deadlines_module.add_period(base, rule.amount, rule.unit, conv)
+                items.append({
+                    "key": rule.key,
+                    "label": rule.label,
+                    "due": due.isoformat(),
+                    "from": base.isoformat(),
+                    "amount": rule.amount,
+                    "unit": str(getattr(rule.unit, "value", rule.unit)),
+                    "convention": rule.convention_key,
+                    "source": rule.source,
+                    "described": deadlines_module.describe_rule(rule),
+                })
+            checked.append("add_period")
+            checked.append("convention_for")
+
+        for rule in rules:
+            if not rule.source:
+                notices.append({
+                    "kind": "unsourced",
+                    "key": rule.key,
+                    "message": "قاعدة موعد بلا مصدر — تُعلَن ولا تُعرض كأنها محقَّقة.",
+                })
+        checked.append("source")
+
+        return {
+            "built": True, "message": "", "items": items,
+            "errors": errors, "notices": notices, "checked_sources": checked,
+        }
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Deadlines] ⚠️ تعذّر حساب المواعيد: {type(exc).__name__}: {exc}")
+        return {
+            "built": False,
+            "message": f"تعذّر حساب المواعيد: {type(exc).__name__}: {exc}",
+            "items": [], "errors": [], "notices": [], "checked_sources": checked,
+        }
+
+
+def _parse_date(value):
+    """يحوّل ``YYYY-MM-DD`` إلى تاريخ، **أو يرفع برسالة صريحة**."""
+    import datetime as _dt
+    try:
+        return _dt.date.fromisoformat(str(value).strip()[:10])
+    except ValueError:
+        raise ValueError(f"تاريخ غير صالح: «{value}». والصيغة المطلوبة YYYY-MM-DD.")
