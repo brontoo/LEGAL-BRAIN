@@ -381,6 +381,15 @@ class GenerateRequest(BaseModel):
     #: ⚠️ والعنصر الواحد `FactPayload` — والتحقّق **شكلُ نقلٍ لا حكم**: الحكم
     #: على معنى الواقعة في `facts.py` وحده.
     facts: Optional[list["FactPayload"]] = None
+    # ⚠️ **وأربعةُ حقول تُبنى في رأس النقطة قبل أي نداء نموذج** —
+    # فالفاسد منها يُردّ ٤٠٠ **قبل أن يُدفع ثمن التوليد**.
+    # ⚠️ **وبلا `Field`: عرفُ الملف في الاختيارية `= None`** — و`Field`
+    # في أداة الاختبار تُعيد **علامةً** لا قيمةً افتراضية، **فيسقط المحوّل**
+    # بـ«حمل المصفوفة يجب أن يكون كائناً» **والعطب في الاختبار لا الكود.**
+    claims: Optional[dict] = None
+    authority: Optional[dict] = None
+    deadlines: Optional[dict] = None
+    rules: Optional[dict] = None
 
 
 class RevisionRequest(BaseModel):
@@ -2016,6 +2025,10 @@ async def _sse_generator(
     case_frame: Optional[dict] = None,
     ledger: Optional[FactLedger] = None,
     redraft: Optional[object] = None,
+    claims_matrix: Optional[object] = None,
+    authority_register: Optional[object] = None,
+    deadline_rules: Optional[object] = None,
+    rule_set: Optional[object] = None,
 ) -> AsyncIterator[str]:
     """
     يحوّل مُولِّد الوكيل المتزامن (blocking) إلى بثّ غير متزامن.
@@ -2054,7 +2067,14 @@ async def _sse_generator(
                 emit({"type": "case", "report": case_frame})
 
             for kind, payload in _stream_agent(
-                messages, case_frame, ledger, None, None, None, None, redraft=redraft
+                messages,
+                case_frame,
+                ledger,
+                claims_matrix,
+                authority_register,
+                deadline_rules,
+                rule_set,
+                redraft=redraft,
             ):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
@@ -2164,9 +2184,29 @@ async def generate(req: GenerateRequest):
     """
     case_input = _case_from_payload(req.case)
     ledger = _facts_from_payload(req.facts)
+    # ⚠️ **وتُبنى هنا، قبل الخيط** — كما يُبنى سجلّ الوقائع: **وكحال `facts.py`
+    # قبلَه، كانت `claims` و`authority` و`deadlines` و`rules` مبنيّةً ومختبرةً
+    # **ولا تُنادى من أيّ موضع** — فيصل إطارُها `built: false` في كل طلب.**
+    # ⚠️ **والفاسد يُردّ ٤٠٠ برسالة الوحدة، قبل أن يُستدعى نموذج واحد.**
+    try:
+        claims_matrix = _matrix_from_payload(req.claims)
+        authority_register = _register_from_payload(req.authority)
+        deadline_rules = _deadlines_from_payload(req.deadlines)
+        rule_set = _rules_from_payload(req.rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     messages = _build_messages(req.prompt, req.doc_type, case_input)
     return StreamingResponse(
-        _sse_generator(messages, _case_frame(case_input), ledger, _redraft),
+        _sse_generator(
+            messages,
+            _case_frame(case_input),
+            ledger,
+            _redraft,
+            claims_matrix,
+            authority_register,
+            deadline_rules,
+            rule_set,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
