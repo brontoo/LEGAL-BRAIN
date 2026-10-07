@@ -12,6 +12,12 @@
 
 الاختبار الحاسم: ``test_evidence_is_registered_for_the_round`` — يُثبت أن
 عدد الأدلّة المسجَّلة أكبر من صفر، أي أن الجامع فُتح في الموضع الصحيح.
+
+⚠️ **والاختباران الحاسمان في وصل الوحدتين الأخيرتين** (القسمان ٩ و١٠):
+``test_a_changed_fact_reaches_the_frame`` — يُثبت أن **واقعةً غُيِّرت في
+المسودّة** تصل إلى إطار `facts` (وهو العيب الذي تكرّر في ثلاث مسودّات)،
+و``test_a_check_that_did_not_run_reaches_briefing_as_absent`` — يُثبت أن
+**مراجعةً لم تحدث** لا تُقرأ نظافةً في التقرير الداخلي.
 """
 
 import asyncio
@@ -2433,6 +2439,50 @@ class TestFactsFrame(MainTestBase):
         self.assertIn(
             "opponent_pleading_is_not_evidence", report["ledger"]["rules"]
         )
+
+    def test_the_route_itself_passes_the_ledger_to_the_stream(self):
+        """
+        🔑 **والوصل مفحوص من `generate` نفسها، لا من المولّد وحده.**
+
+        ⚠️ والفرق ليس شكلياً: بناء السجلّ في `generate` صحيح **ولا يثبت أنها
+        تمرّره إلى البثّ**. ولو نُسي التمرير لَما ظهر إطار `facts` في الواجهة
+        أصلاً — **وتمرّ الاختبارات كلها**، لأنها تنادي `_sse_generator` بسجلٍّ من
+        عندها. وهذا النوع نفسه من العطب كُشف في `briefing.py`: أجزاءٌ تُختبر
+        منفصلةً والمسار الحقيقي **لم يُشغَّل قطّ**.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
+        response = asyncio.run(
+            main.generate(
+                main.GenerateRequest(
+                    prompt="صغ عقداً",
+                    doc_type="عقد",
+                    case=main.CasePayload(**COMPLETE_CASE_ANSWERED),
+                    facts=FACTS,
+                )
+            )
+        )
+
+        async def collect() -> list:
+            return [frame async for frame in response.content]
+
+        events = parse_frames(asyncio.run(collect()))
+
+        # الواقعة المُغيَّرة وصلت الإطار **عبر النقطة نفسها**.
+        report = self.facts_of(events)
+        self.assertTrue(report["ran"], "لم يصل السجلّ إلى البثّ")
+        self.assertEqual(
+            [shift["fact_key"] for shift in report["shifts"]],
+            ["release.refused"],
+        )
+        # ⚠️ والتقرير الداخلي يقرأ **نفس** ملخّص الوحدة، فيظهر فحص الوقائع جارياً.
+        briefing_report = next(
+            event for event in events if event["type"] == "briefing"
+        )["report"]
+        source = next(
+            item for item in briefing_report["sources"] if item["kind"] == "facts"
+        )
+        self.assertTrue(source["present"])
+        self.assertIn("افتراقات المسودّة", source["summary"])
 
     def test_no_ledger_still_emits_a_facts_frame_saying_it_did_not_run(self):
         """

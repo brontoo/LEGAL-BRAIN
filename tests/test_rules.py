@@ -244,6 +244,52 @@ class TestTheTwoFamilies(unittest.TestCase):
         self.assertTrue(rule.source.strip())
         self.assertFalse(rule.is_verification)
 
+    def test_the_date_guard_is_at_construction_and_the_source_guard_is_at_review(self):
+        """
+        🔑 **والحرسان في طبقتين مختلفتين — وهذا فرق يُقرأ عكساً.**
+
+        ⚠️ وُجد هذا الاختبار لأن وصفاً خارجياً قال إنّ حكماً موضوعياً بمصدر
+        فارغ **يجب أن يرفع استثناءً عند البناء**، والقياس يقول غير ذلك:
+
+        * **التأريخ** يُفرض **في البناء**: فحصٌ بتاريخ يرفع، وحكمٌ بلا تاريخ
+          يرفع. والحكم بلا تاريخ **لا يصلح للوجود**، لأنه يصير قانوناً ملغى
+          يبدو سارياً — وهو أصل عيب الثمانية والعشرين في المئة.
+        * **المصدر** يُفرض **في المراجعة**: حكمٌ بتاريخه وبلا مصدر **يُبنى**،
+          ثم تُدرجه `must_review` بسببه («بلا مصدر»)، ويُبلّغ عنه `summarize`
+          بخطأ `substantive_rule_without_source`.
+
+        ⚠️ **والفصل مقصود لا سهو:** لو رُفع المصدر استثناءً في البناء **لضاع
+        التقرير الذي يُسمّي ما ينقص** واستُبدل به انهيار — فيصير النقص صامتاً
+        بعد أن كان مُعلَناً. ولو نُقل التأريخ إلى المراجعة لبقيت قاعدة ملغاة
+        **حيّة في الذاكرة** تُقرأ ساريةً إلى أن يراجعها أحد. فالاختبار يثبّت
+        الطبقتين معاً حتى لا يُنقل حرسٌ من طبقة إلى أخرى «تبسيطاً».
+        """
+        unsourced = Rule(
+            key="leave.basis",
+            family=RuleFamily.SUBSTANTIVE,
+            subject="leave",
+            statement="الأساس هو الأجر الأساسي.",
+            in_force_from="2021-01-01",
+        )
+        # المصدر الفارغ **لا يمنع البناء** — وهذا هو موضع الدقّة.
+        self.assertEqual(unsourced.source, "")
+
+        registry = RuleSet(rules=(unsourced,))
+        self.assertEqual([rule.key for rule in must_review(registry)], ["leave.basis"])
+        payload = summarize(registry)
+        self.assertEqual(
+            [error["code"] for error in payload["errors"]],
+            ["substantive_rule_without_source"],
+        )
+        self.assertFalse(payload["clean"])
+        self.assertEqual(payload["review"][0]["reason"], "بلا مصدر")
+
+        # والوجه الآخر: المصدر يُشفى بالمراجعة، فالسجلّ يصير نظيفاً بلا حرس
+        # بناء — ولو كان المصدر شرطاً في البناء لما أمكن لهذا السجلّ أن يوجد.
+        sourced = _substantive()
+        self.assertTrue(sourced.source.strip())
+        self.assertTrue(summarize(RuleSet(rules=(sourced,)))["clean"])
+
     def test_a_non_iso_date_raises(self):
         """
         التاريخ بصيغة ISO وحدها — وإلا رُفض.
@@ -500,6 +546,102 @@ class TestDistinctions(unittest.TestCase):
             [DistinctionKind.ENTITLEMENT_VS_QUANTUM],
         )
 
+    def test_the_canonical_denial_phrasing_is_caught(self):
+        """
+        🔑 **الصيغة القياسية للفرق الثالث — تُمسك، ولا تُسقطها كلمتها.**
+
+        ⚠️ وهذا عطل قائم قاسه فحص مستقلّ: كان الجدول يحمل «ينكر» **فاصلاً**،
+        وهي **صدر العلامة المطابقة** «ينكر الاستحقاق». فكان الطرف المنكِر
+        يُسقط الفحص على نفسه، والجملة التي تُنكر الاستحقاق وتُنازع في
+        المقدار — وهي الصيغة التي وُجد الفحص لها — تمرّ صامتة. فلم يكن
+        الفرق الثالث يُمسك إلا حيث يتجنّب النافي لفظ «ينكر»، أي أنّه كان
+        **ميّتاً في أشيع صوره**.
+
+        والعلاج: نزع لفظَي العلامتين قبل فحص الفصل (`_without_markers`)،
+        فلا يفصل اللفظ إلا إذا وقع **خارج** العلامة المطابقة.
+        """
+        findings = check_distinctions("ينكر الاستحقاق وينازع في المقدار.")
+        self.assertEqual(
+            [item.kind for item in findings],
+            [DistinctionKind.ENTITLEMENT_VS_QUANTUM],
+        )
+        self.assertIn("ينكر الاستحقاق", findings[0].why)
+
+    def test_a_separator_outside_the_matched_markers_still_separates(self):
+        """
+        ⚠️ **وحدّ الإصلاح: لفظ الفصل يفصل حيث وقع خارج العلامتين.**
+
+        فالعلاج **ليس** نزع «ينكر» من علامات الفصل — فلها مواضع تفصل فيها
+        حقاً (من نفى الحقّ في موضع آخر). والمطلوب أن يبقى الفحص ممتنعاً عن
+        الإنذار على النصّ الذي يفصل فعلاً، وإلا صار الإصلاح **توسيعاً**
+        يُنذر على الصواب — **وأداةٌ تُنذر دائماً لا تُنذر أبداً.**
+        """
+        self.assertEqual(
+            check_distinctions(
+                "ينكر المدعي وجود العقد، ولا استحقاق للعمولة، وينازع في المقدار."
+            ),
+            (),
+        )
+
+    def test_the_indefinite_leave_allowance_is_caught(self):
+        """
+        🔑 **والنكرة «بدل إجازة» تُمسك كما تُمسك المعرَّفة «بدل الإجازة».**
+
+        ⚠️ وهذا عطل ثانٍ قاسه الفحص المستقلّ: الجدول حمل الصور **المعرَّفة**
+        وحدها («بدل الاجازه»، «الرصيد المتراكم»)، فالجملة «يستحق المدعي
+        بدل إجازة عن الرصيد المتراكم» لم تكن تُنتج ملاحظة — لأن الطرف الأول
+        **نكرة لم تكن في القائمة**، لا لأن الفحص رأى فصلاً. والمطابقة على
+        اللفظ، واللفظ يتغيّر بأداة التعريف والمعنى واحد؛ فتُدرَج الصيغتان.
+        """
+        findings = check_distinctions(
+            "يستحق المدعي بدل إجازة عن الرصيد المتراكم."
+        )
+        self.assertEqual(
+            [item.kind for item in findings],
+            [DistinctionKind.LEAVE_DURING_VS_BALANCE],
+        )
+
+    def test_the_bare_accrued_balance_is_caught(self):
+        """
+        🔑 **و«رصيد متراكم» نكرةً تُمسك، كالمعرَّفة «الرصيد المتراكم».**
+
+        ⚠️ **والجملة السليمة التي تفصل تبقى بلا ملاحظة** («بدل الإجازة …
+        بدلٌ عن رصيد متراكم، **لا أجر** عن مدّة عمل»)، لأن «لا اجر» أُدرِجت
+        في علامات الفصل: من قال إنّ البدل **ليس أجراً** عن مدّة فقد فصل —
+        وهذا هو الفرق الثاني بعينه. فالعلامة الأوسع لا تُنذر على من أحسن.
+        """
+        findings = check_distinctions(
+            "يُصرف للمدعي رصيد متراكم عن مدة الخدمة، ويُحسب أجر الإجازة على "
+            "الأجر الأساسي."
+        )
+        self.assertEqual(
+            [item.kind for item in findings],
+            [DistinctionKind.LEAVE_DURING_VS_BALANCE],
+        )
+        self.assertEqual(
+            check_distinctions(
+                "بدل الإجازة الذي يُصرف عند انتهاء الخدمة بدلٌ عن رصيد متراكم، "
+                "لا أجر عن مدة عمل."
+            ),
+            (),
+        )
+
+    def test_the_plural_denial_and_the_possessive_amount_are_caught(self):
+        """
+        🔑 **و«ننكر» و«مقدارها» — الصيغتان اللتان يُكتب بهما الدفع فعلاً.**
+
+        ⚠️ وهذا العطل الثاني بصورة أخرى: الطرفان كانا **مجهولين** للجدول
+        («ننكر» ليست «ينكر الاستحقاق»، و«مقدارها» ليست «المقدار»)، فلم
+        يُمسك شيء. والجذر «مقدار» يُضاف **آخر القائمة** لا أوّلها، ليبقى
+        الدليل المعروض على النصّ المعرَّف هو «المقدار» كاملاً لا مقتطعاً.
+        """
+        findings = check_distinctions("ننكر استحقاق العمولة وننازع في مقدارها.")
+        self.assertEqual(
+            [item.kind for item in findings],
+            [DistinctionKind.ENTITLEMENT_VS_QUANTUM],
+        )
+        self.assertIn("مقدار", findings[0].why)
+
     def test_a_law_presented_as_a_fixed_check_is_caught(self):
         """
         🔑 **الفرق الرابع: نصّ تشريعي يُوصف بأنه لا يتبدّل.**
@@ -591,6 +733,64 @@ class TestDistinctions(unittest.TestCase):
         self.assertIn("قائمة تحقّق", source)
         self.assertIn("لا رأي قانوني", source)
         self.assertIn("ليس شهادة سلامة", source)
+
+
+class TestMarkerForms(unittest.TestCase):
+    """
+    ⚠️ **والعلامة تُكتب بالصيغة التي تُطابَق بها، وإلا لم تُطابق شيئاً.**
+
+    وهذا عطل **صامت** بقدر ما هو عطل: العلامة المكتوبة بغير صورتها المطويّة
+    لا تفشل ولا تُنذر — **تسكت**. والسكوت يُقرأ سلامةً، فيُظنّ أن الفحص
+    استقصى فلم يجد. وهو الفرق بين إنذار كاذب يُرى وعطب لا يُرى.
+
+    ⚠️ **والطيّان يُختبران معاً، والسبب مكتوب:** المطابقة في هذه الوحدة تجري
+    على ``_fold``، وهي **أوسع** من `citations.normalize` من جهة أن الترقيم
+    فيها **يبقى** (حدود الجملة هي التي يقوم عليها الفحص)، وهو ما لا تفعله
+    `normalize` لأنها تُذيب الترقيم إلى فراغ. أما صيغة الحروف والأرقام
+    والتشكيل فهما فيها سواء. فعلامةٌ تصلح للأولى ولا تصلح للثانية **تُكشف
+    هنا**، ولا يُترك الاختلاف صامتاً.
+    """
+
+    #: العلامات التي أُضيفت لعلّتي R2 — بصورتها المطويّة.
+    ADDED_MARKERS: tuple[str, ...] = (
+        "بدل اجازه",
+        "رصيد متراكم",
+        "ننكر",
+        "مقدار",
+    )
+
+    #: ولفظ الفصل المُضاف معها — يُختبر بالطيّ نفسه، فهو يُطابَق بها كلها.
+    ADDED_SEPARATORS: tuple[str, ...] = ("لا اجر",)
+
+    def test_every_added_marker_is_a_fixed_point_of_both_foldings(self):
+        """
+        🔑 **كل علامة مُضافة: نقطة ثابتة للطيّين — وإلا فهي معطّلة صامتة.**
+        """
+        for marker in self.ADDED_MARKERS + self.ADDED_SEPARATORS:
+            with self.subTest(marker=marker):
+                self.assertEqual(rules._fold(marker), marker)
+                self.assertEqual(citations.normalize(marker), marker)
+
+    def test_the_added_markers_are_declared_in_the_tables(self):
+        """
+        وحراسة للاختبار نفسه: العلامة **لا تُختبر في الفراغ**.
+
+        ⚠️ وبدون هذا الفحص يصير اختبار الطيّ أعمى: يمرّ على قائمة ثابتة في
+        الاختبار ولو حُذفت العلامة من الجدول — فيبقى الفحص يشهد لصيغةٍ لا
+        وجود لها. فالاختبار يُطالب بأن تكون العلامة **معلنة** حيث تُقرأ.
+        """
+        declared = (
+            set(rules._LEAVE_WAGE_MARKERS)
+            | set(rules._BALANCE_MARKERS)
+            | set(rules._DENY_MARKERS)
+            | set(rules._QUANTUM_MARKERS)
+        )
+        for marker in self.ADDED_MARKERS:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, declared)
+        for separator in self.ADDED_SEPARATORS:
+            with self.subTest(separator=separator):
+                self.assertIn(separator, rules._SEPARATORS)
 
 
 class TestApplicable(unittest.TestCase):
@@ -835,6 +1035,54 @@ class TestConflicts(unittest.TestCase):
             statement="الاحتساب على الأجر الشامل.",
         )
         self.assertEqual(conflicts(RuleSet(rules=(first, second))), (("calc.basis", "leave.basis"),))
+
+    def test_a_declared_type_and_a_declared_stage_overlap(self):
+        """
+        🔑 **وتصريحٌ بنوعٍ وحدَه وتصريحٌ بمرحلةٍ وحدَها: يتقاطعان.**
+
+        ⚠️ وهذا العطل الذي أبلغ عنه وكيلان في `_shares_scope`، وهو **مصلَح
+        ومُثبَّت هنا**: قاعدة صرّحت بنوع نزاع ولم تصرّح بمرحلة **تسري على كل
+        مرحلة**، وأخرى صرّحت بمرحلة ولم تصرّح بنوع **تسري على كل نوع** —
+        فبينهما تقاطع حقيقي. ولو قيل بلا تقاطع لسقط من التقرير تعارضٌ قائم،
+        وهو **إنذار ناقص** أخطر من الزائد لأن الزائد يُرى.
+
+        ⚠️ **و`_shares_scope` تُثبَّت بنفسها** — لا أثرها في `conflicts`
+        وحدها — فيكون العطل **مُسمّى في موضعه**: من أعاد اشتراط التصريح في
+        البُعدين معاً أسقط هذا الاختبار عند الدالّة لا عند أثرها البعيد.
+        وتُختبر الجهتان في الاتّجاهين، فالدالّة تبادلية في هذا الحكم.
+        """
+        labour_only = Rule(
+            key="check.labour",
+            family=RuleFamily.VERIFICATION,
+            subject="check",
+            applies_to=(DisputeType.LABOUR,),
+            statement="فحص يخصّ النزاع العمالي.",
+        )
+        appeal_only = Rule(
+            key="check.appeal",
+            family=RuleFamily.VERIFICATION,
+            subject="check",
+            stages=(CaseStage.APPEAL,),
+            statement="فحص يخصّ مرحلة الاستئناف.",
+        )
+        self.assertTrue(rules._shares_scope(labour_only, appeal_only))
+        self.assertTrue(rules._shares_scope(appeal_only, labour_only))
+        self.assertEqual(
+            conflicts(RuleSet(rules=(labour_only, appeal_only))),
+            (("check.appeal", "check.labour"),),
+        )
+
+        # وحراسة الطرف الآخر: نوعان مصرَّح بهما ولا تقاطع بينهما — فلا تعارض
+        # ولو اتّفق الموضوع والنصّ اختلف.
+        lease_only = Rule(
+            key="check.lease",
+            family=RuleFamily.VERIFICATION,
+            subject="check",
+            applies_to=(DisputeType.LEASE,),
+            statement="فحص يخصّ النزاع الإيجاري.",
+        )
+        self.assertFalse(rules._shares_scope(labour_only, lease_only))
+        self.assertEqual(conflicts(RuleSet(rules=(labour_only, lease_only))), ())
 
     def test_conflicts_does_not_invent_one_from_rules_of_different_families(self):
         """

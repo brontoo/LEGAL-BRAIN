@@ -818,7 +818,9 @@ class TestUnsourced(unittest.TestCase):
             [entry.key for entry in unsourced((without_source,))], ["no-source"]
         )
         payload = summarize((), unsourced_authorities=unsourced((without_source,)))
-        self.assertFalse(payload["clean"], "والمصدر الفارغ يُسقط clean")
+        # ⚠️ **و``clean`` تبقى صحيحة**: المصدر الفارغ **ملاحطة لا خطأ**، فلا يمنع التسليم.
+        self.assertTrue(payload["clean"], "والمصدر الفارغ ملاحطة فلا يُسقط clean")
+        self.assertFalse(payload["findings"][0]["is_error"], "والإعلان نفسه ليس خطأً")
         self.assertEqual(payload["error_count"], 0, "ولكنه ملاحظة لا خطأ")
         self.assertEqual(payload["notice_count"], 1)
         self.assertEqual(payload["findings"][0]["kind"], "unsourced")
