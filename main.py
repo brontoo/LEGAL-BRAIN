@@ -105,6 +105,7 @@ import revision_loop
 import claims as claims_module
 import authority as authority_module
 import deadlines as deadlines_module
+import rules as rules_module
 load_dotenv()
 
 # ==============================================================================
@@ -1457,6 +1458,7 @@ def _stream_agent(
     claims_matrix=None,
     authority_register=None,
     deadline_rules=None,
+    rule_set=None,
 ):
     """
     يولّد أحداث الوكيل خطوة بخطوة.
@@ -1580,6 +1582,10 @@ def _stream_agent(
         yield (
             "deadlines",
             _deadlines_frame(clean, deadline_rules, case_frame),
+        )
+        yield (
+            "rules",
+            _rules_frame(clean, rule_set),
         )
 
         # ------------------------------------------------------------------
@@ -1790,7 +1796,7 @@ def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
     final_text = ""
     report: dict = {}
     language: dict = {}
-    for kind, payload in _stream_agent(messages, None, None):
+    for kind, payload in _stream_agent(messages, None, None, None):
         if kind == "citations":
             report = payload
         elif kind == "language":
@@ -1859,7 +1865,7 @@ async def _sse_generator(
             if case_frame is not None:
                 emit({"type": "case", "report": case_frame})
 
-            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None, None):
+            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None, None, None):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
                     emit(
@@ -1877,6 +1883,8 @@ async def _sse_generator(
                     emit({"type": "review", "report": payload})
                 elif kind == "facts":
                     emit({"type": "facts", "report": payload})
+                elif kind == "rules":
+                    emit({"type": "rules", "report": payload})
                 elif kind == "deadlines":
                     emit({"type": "deadlines", "report": payload})
                 elif kind == "authority":
@@ -3071,3 +3079,173 @@ def _parse_date(value):
         return _dt.date.fromisoformat(str(value).strip()[:10])
     except ValueError:
         raise ValueError(f"تاريخ غير صالح: «{value}». والصيغة المطلوبة YYYY-MM-DD.")
+
+
+
+
+# ==============================================================================
+# القواعد المتخصّصة — **قاعدتان لا تُخلطان: ما يُفحص، وما يتغيّر بتغيّر التشريع**
+# ==============================================================================
+
+RULES_NOT_BUILT = (
+    "لم يُبنَ سجلّ القواعد المتخصّصة: لا حملَ وارد في الطلب. "
+    "والقواعد يكتبها المحامي بمصادرها — والمنصّة تطبّقها ولا تخترعها."
+)
+
+
+def _rule_from(raw, number):
+    """يبني ``Rule`` من قاموس، **أو يرفع برسالة صريحة**."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"القاعدة {number}: يجب أن تكون كائناً.")
+    key = claims_module.normalize(raw.get("key") or "")
+    if not key:
+        raise ValueError(f"القاعدة {number} بلا مفتاح.")
+    statement = (raw.get("statement") or "").strip()
+    if not statement:
+        raise ValueError(
+            f"القاعدة «{key}» بلا نصّ. والقاعدة بلا نصّ لا تُطبَّق على شيء."
+        )
+
+    def _tokens(field):
+        v = raw.get(field)
+        if v is None:
+            return ()
+        if isinstance(v, str):
+            return (v.strip(),) if v.strip() else ()
+        if isinstance(v, (list, tuple)):
+            return tuple(str(x).strip() for x in v if str(x).strip())
+        raise ValueError(f"القاعدة «{key}»: الحقل «{field}» نصٌّ أو قائمة.")
+
+    return rules_module.Rule(
+        key=key,
+        family=_family_of(raw.get("family")),
+        subject=(raw.get("subject") or "").strip(),
+        applies_to=_tokens("applies_to"),
+        stages=_tokens("stages"),
+        statement=statement,
+        source=(raw.get("source") or "").strip(),
+        in_force_from=(raw.get("in_force_from") or "").strip(),
+        supersedes=_tokens("supersedes"),
+        note=(raw.get("note") or "").strip(),
+    )
+
+
+def _rules_from_payload(payload):
+    """يبني ``RuleSet`` من الحمل — أو ``None``."""
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise ValueError("حمل القواعد يجب أن يكون كائناً.")
+    raw = payload.get("rules") or ()
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("«rules» يجب أن تكون قائمة.")
+    if not raw:
+        raise ValueError(
+            "حمل القواعد بلا قواعد. والمنصّة تطبّق ولا تخترع: القواعد يكتبها المحامي."
+        )
+    return rules_module.RuleSet(tuple(_rule_from(r, i + 1) for i, r in enumerate(raw)))
+
+
+def _rules_frame(draft, rule_set):
+    """
+    يعرض سجلّ القواعد: **ما ينطبق**، **وما يتعارض**، **وما يستلزم مراجعة**.
+
+    ⚠️ **والسجلّ الفارغ يُعلَن فارغاً** — **ولا يُعرض كأنه فحصٌ تمّ.** ⚠️ وهذا
+    مقتضى البند ٧: **القواعد تُحدَّث بمصادرها، والمنصّة لا تخترع قانوناً.**
+    """
+    if rule_set is None:
+        return {
+            "built": False, "message": RULES_NOT_BUILT, "rules": [],
+            "conflicts": [], "must_review": [], "findings": [],
+            "errors": [], "notices": [], "checked_sources": [],
+        }
+
+    errors, notices, checked = [], [], []
+    try:
+        try:
+            findings = rules_module.check_distinctions(draft or "")
+        except Exception:
+            findings = ()
+        checked.append("check_distinctions")
+
+        for f in findings:
+            kind = str(getattr(f.kind, "value", f.kind))
+            entry = {
+                "kind": kind,
+                "quote": (f.quote or "")[:400],
+                "why": f.why or "",
+            }
+            if kind in ("overgeneralised", "contradiction"):
+                errors.append(entry)
+            else:
+                notices.append(entry)
+
+        pairs = []
+        try:
+            for a, b in rules_module.conflicts(rule_set):
+                pairs.append({"a": a, "b": b})
+                errors.append({
+                    "kind": "conflict", "a": a, "b": b,
+                    "message": "قاعدتان متعارضتان — **ولا يُختار بينهما تلقائياً.**",
+                })
+        except Exception:
+            pass
+        checked.append("conflicts")
+
+        review = []
+        try:
+            for r in rules_module.must_review(rule_set):
+                review.append({"key": r.key, "statement": r.statement,
+                               "in_force_from": r.in_force_from})
+        except Exception:
+            pass
+        checked.append("must_review")
+
+        summary = {}
+        try:
+            s = rules_module.summarize(rule_set, findings)
+            summary = s if isinstance(s, dict) else {}
+        except Exception:
+            pass
+
+        items = [{"key": r.key, "statement": r.statement, "source": r.source,
+                  "in_force_from": r.in_force_from} for r in rule_set.rules]
+        if not items:
+            notices.append({
+                "kind": "empty_register",
+                "message": "سجلّ القواعد فارغ — **فلا قاعدة تُطبَّق، وهذا ليس فحصاً ناجحاً.**",
+            })
+
+        return {
+            "built": True, "message": "", "rules": items, "summary": summary,
+            "conflicts": pairs, "must_review": review,
+            "findings": [{"kind": str(getattr(f.kind, "value", f.kind)),
+                          "quote": (f.quote or "")[:400]} for f in findings],
+            "errors": errors, "notices": notices, "checked_sources": checked,
+        }
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Rules] ⚠️ تعذّر بناء إطار القواعد: {type(exc).__name__}: {exc}")
+        return {
+            "built": False,
+            "message": f"تعذّر بناء إطار القواعد: {type(exc).__name__}: {exc}",
+            "rules": [], "conflicts": [], "must_review": [], "findings": [],
+            "errors": [], "notices": [], "checked_sources": checked,
+        }
+
+
+def _family_of(name):
+    """يحوّل نصّاً إلى ``RuleFamily``، **أو يرفع برسالة الوحدة**.
+
+    ⚠️ **والعائلة تعديدٌ لا نصّ** — وهي **ثالث** حقلٍ من هذا الشكل:
+    ``burden`` في `claims` · و``kind`` في `authority` · و``family`` هنا.
+    ⚠️ **والافتراضي `VERIFICATION` — **مُكتشَفٌ من الوحدة لا مُخمَّن**.**
+    """
+    if not name:
+        return rules_module.RuleFamily.VERIFICATION
+    key = claims_module.normalize(name)
+    for f in rules_module.RuleFamily:
+        if f.value == key or claims_module.normalize(f.name) == key:
+            return f
+    raise ValueError(
+        f"عائلة غير معروفة: «{name}». والمقبول: VERIFICATION · SUBSTANTIVE"
+    )
