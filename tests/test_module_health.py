@@ -41,7 +41,6 @@ sys.path.insert(0, str(PROJECT))
 PENDING_WIRING: tuple[tuple[str, str], ...] = (
     ("case_file", "يُوصَل عند بناء مصفوفة الطلبات (البند ٥)"),
     ("facts", "يُوصَل عند فحص أمانة الوقائع في مسار التوليد (البند ٢)"),
-    ("untrusted", "يُوصَل عند تغليف نصّ المستندات قبل الموجّه (البند ١١)"),
 )
 
 #: ⚠️ **نصوص تُستورد عند التشغيل لا عند الفحص** — سكربتات ومسارات تستدعي
@@ -212,7 +211,7 @@ class TestTheModulesTheObjectiveNames(unittest.TestCase):
     #:
     #: والحارس يفشل إن بقي في هذه القائمة اسم **صارت له اختبارات**، فيُنقص
     #: الرقم ولا يزيد. **والغرض ألّا يُقال «بُني» عن وحدة لا يقيسها شيء.**
-    PENDING_TESTS: tuple[str, ...] = ("case_file", "facts", "untrusted")
+    PENDING_TESTS: tuple[str, ...] = ("case_file", "facts")
 
     def test_each_named_module_exists_and_has_a_test_file(self):
         for name in self.NAMED:
