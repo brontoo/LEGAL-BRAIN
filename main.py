@@ -12,6 +12,7 @@ LEGAL-BRAIN — خادم الـ API (FastAPI)
     uvicorn main:app --reload --port 8000
 
 عقد البث (SSE) الذي تتوقّعه الواجهة في frontend/app/workspace/page.tsx:
+    data: {"type": "case",  "report": {...}}     ملف القضية — يُبثّ **قبل أول مرحلة**
     data: {"type": "stage", "message": "..."}    مرحلة جارية
     data: {"type": "done",  "document": "..."}   المستند النهائي
     data: {"type": "error", "message": "..."}    فشل
@@ -43,6 +44,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+import case_file as case_file_module
+from case_file import CaseFile, CaseStage, DisputeType, Party
 from citations import (
     parse_citations,
     strip_citations_block,
@@ -230,10 +233,60 @@ class ChatRequest(BaseModel):
     )
 
 
+class CasePayload(BaseModel):
+    """
+    ملف القضية كما يصل من الواجهة — **كل حقل فيه اختياري على مستوى النقل**.
+
+    ⚠️ **والحمل الفارغ مقبول عن قصد، والفراغ ليس قيمة مفترضة:** هو «لم يُقل»
+    فيُقرأ في ``CaseFile.missing()`` ويُسأل عنه. والقاعدة التي تمنع الجواب
+    المفترض في `case_file.py` لا في هذا النموذج — فالتحقّق هنا **نقلٌ لا حكم**:
+    يترجم الحقول، ويردّ ما يرفضه الملف برسالة الملف نفسها.
+
+    ⚠️ **ولماذا لا تُشترط الحقول هنا؟** لو شُترطت لصار الملف الناقص — وهو
+    الواقع في كل قضية قبل مراجعة المحامي — **طلَباً مرفوضاً** بدل أن يُبثّ
+    تقريرُ نقصه. والملف الناقص **لا يوقف الصياغة**، بل يُبثّ ويُسأل عنه.
+
+    ⚠️ **والحقول بلا ``Field`` عن قصد، وبلا افتراضي غير ``None``:** الغياب
+    يجب أن يصل **غائباً** إلى ``CaseFile``، فحقوله بلا افتراضي هناك. ووصفُ
+    الحقل في `Field` لا يُقرأ في هذا المشروع (الواجهة تحدّد شكلها)، ووهميّ
+    `BaseModel` في الاختبار **لا يفكّ ``Field`` إلى قيمته الافتراضية** — فلو
+    كُتبت لصار الحقل الغائب علامةً داخليّة تُمرَّر إلى الملف وتُقرأ نصّاً.
+
+    Attributes:
+        emirate: نصّ الإمارة كما كتبه المحامي — يقبل صورته العربية
+            («أبوظبي»، «أبو ظبي»، «إمارة دبي») واللاتينية («dubai»).
+        dispute_type: قيمة آلية من ``DisputeType`` — ولا تُستنبط من نصّ الوقائع.
+        stage: قيمة آلية من ``CaseStage``.
+        our_party: صفتنا من ``Party`` — ولا قيمة محايدة فيها.
+        key_dates: أزواج (وصف التاريخ، التاريخ) — والتاريخ **نصّ** كما ورد،
+            فلا يُحوَّل هنا ولا يُقرَّب: التحويل موضع عدّ المدّة وحده.
+    """
+
+    country: Optional[str] = None
+    emirate: Optional[str] = None
+    forum: Optional[str] = None
+    dispute_type: Optional[str] = None
+    stage: Optional[str] = None
+    our_party: Optional[str] = None
+    claims: Optional[list] = None
+    key_dates: Optional[list] = None
+    likely_law: Optional[list] = None
+    # ⚠️ ``None`` تعني **لم يُنظر**، لا «لا». والفرق يُسأل عنه في
+    # `open_regime_questions` — ولو قُرئت ``None`` بمعنى النفي لسقط السؤال.
+    has_arbitration_clause: Optional[bool] = None
+    has_choice_of_law: Optional[bool] = None
+
+
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="الوقائع والمعطيات")
     doc_type: str = Field("مستند قانوني", description="نوع المستند المطلوب")
     session_id: Optional[str] = None
+    #: ملف القضية — **كل حقوله اختياريّة، والحمل الفارغ يعني «لم يُقل».**
+    #: وغيابه الكامل يعني «لم يُنشأ ملف قضية»، وهو ما يُقال صراحةً في الرسالة
+    #: وفي إطار `case` — فالغياب معلومة، لا فراغ يُسكت عنه.
+    #: ⚠️ والتصنيف **نصّاً لا كائناً** (كما في `_sessions` أعلاه): لا نُقيّم
+    #: ``Optional[CasePayload]`` عند التعريف، فيعمل الملف على أي إصدار بايثون.
+    case: Optional["CasePayload"] = None
 
 
 class RevisionRequest(BaseModel):
@@ -418,8 +471,487 @@ def _extract_text(message: Any) -> str:
     return ""
 
 
-def _build_messages(prompt: str, doc_type: Optional[str] = None) -> list:
-    """يبني الرسائل، مع حقن نوع المستند وتلميح الأداة المناسبة."""
+# ==============================================================================
+# ٥.٠ ملف القضية — ما يُثبَت قبل الصياغة، وما يُسأل عنه
+# ==============================================================================
+# ⚠️ **لماذا هنا، وما العطب الذي وُجد هذا القسم لمنعه؟**
+#
+# البنية كانت تصوغ من **الوقائع السائبة** وحدها: نصّ يكتبه المحامي، ثم مذكرة.
+# ولا يُسأل في أيّ إمارة القضية، ولا أمام أيّ جهة، ولا في أيّ مرحلة، ولا عن
+# أيّ طلبات — فتُبنى المسودّة على افتراضات **لم يكتبها أحد**. والافتراض
+# الصامت أخطر من الخطأ الصريح: الخطأ يُرى ولا يُسلَّم، والافتراض يمضي.
+#
+# و`case_file.py` بُني لذلك واختُبر — **ولم يكن يُنادى من أيّ موضع**، فلم
+# يُغيّر شيئاً. وهذا القسم هو الوصل: يحوّل الحمل إلى ملف، ويبثّه، ويدخله
+# الرسالة. **ولا يُعاد فيه شيء من منطق `case_file`** — لا اشتقاق مفتاح، ولا
+# تعريف «ناقص»، ولا قائمة أسئلة، ولا ترتيب: كلها تُنادى من الملف. وأيُّ نسخة
+# ثانية هنا **تنحرف عنه بصمت**، وهو العيب نفسه الذي أُصلح في مطابقة الجهة
+# (مفتاح لاتيني قِيس على نصّ عربي فصار التقاطع فراغاً يُقرأ سلامة).
+
+#: نصّ الصياغة عند غياب ملف القضية أصلاً.
+#:
+#: ⚠️ **ولا يُسكَت عن الغياب.** غياب الملف ليس «لا مشكلة» بل **«لم يُفحَص»**،
+#: وهما ليسا سواءً: الأول يُبنى عليه، والثاني لا. والقاعدة في هذا المشروع
+#: (`briefing.py`) أن **الفحص غير المُشغَّل ليس فحصاً ناجحاً** — فالفراغ يُقال
+#: صراحةً في الرسالة وفي إطار `case`، ولا يُفهم من سكوته أن الاختصاص مضبوط.
+CASE_BLOCK_ABSENT = """\
+ملف القضية: **لم يُنشأ ملف قضية لهذا الطلب.**
+
+⚠️ وغيابه **فحصٌ لم يُشغَّل، لا فحصٌ ناجح**: كل ما في المسودّة يتوقّف على
+الاختصاص أو التقادم أو المرحلة الإجرائية فهو **غير متحقَّق منه**، لأنه لا
+إمارة مسجَّلة ولا جهة ولا مرحلة ولا صفة. فصرّح بذلك في موضع الحاجة، ولا
+تُكمل النقص من عندك."""
+
+#: رأس كتلة القضية المُثبَتَة.
+CASE_BLOCK_HEADER = "ملف القضية (الحقول المُثبَتَة قبل الصياغة):"
+
+#: نصّ الأسئلة المفتوحة — وهو **أهمّ ما في الكتلة**.
+CASE_BLOCK_QUESTIONS_HEADER = (
+    "⚠️ **أسئلة لم يُجَب عنها بعد — والتي يتفرّع عليها القانون:**"
+)
+
+CASE_BLOCK_RULES = """\
+⚠️ **قواعد الصياغة عليها:**
+١. لا تفترض جواباً لأيّ سؤال منها — لا اختصاصاً ولا ميعاداً ولا صفةً ولا
+   طلباً. والافتراض الصامت أخطر من الخطأ الصريح: الخطأ يُرى، وهذا يمضي.
+٢. اصوغ الأجزاء التي **لا تتوقّف** على هذه الأسئلة ومضِ فيها؛ فالسؤال لا
+   يوقف العمل، لكنه يمنع الجزم بما لا يُجزم به.
+٣. حيث يمسّ سؤالٌ مفتوح جوهرَ الحكم أو الدفع أو الميعاد، فقُل في موضعه إنّ
+   الأمر موقوف على بيان لم يُسجَّل — ولا تُكمل النقص من عندك."""
+
+#: ما يُقال إن كان الملف قائماً. الترتيب هو ترتيب `BLOCKING_FIELDS` المانعة
+#: عمداً، على قاعدة «الحقول المانعة أولاً» في `case_file.py`.
+CASE_BLOCK_NO_QUESTIONS = (
+    "لا أسئلة مفتوحة: كل حقوق الملف مُثبَتة — فصرّح بما ثبت، ولا تُضف واقعة "
+    "لم تُسجَّل فيه."
+)
+
+
+#: الحقول التي **لا ملف بلاها** من `case_file.py`، وهي أوّل ``BLOCKING_FIELDS``.
+#:
+#: ⚠️ **ولماذا هذه الثلاثة وحدها تُمنع من الغياب؟** لأن حقول ``CaseFile``
+#: **بلا افتراضي عن قصد**، ومنها ثلاثة **غير نصّية**: ``dispute_type``
+#: و``stage`` و``our_party`` أعضاء تصنيفات مغلقة. أما ``emirate`` و``forum``
+#: و``claims`` فنصّها الفارغ هو «لم يُسجَّل» **في الملف نفسه** (``missing()``).
+#: فحملٌ لا يحمل هذه الثلاثة **لا يُبنى منه ملف**، ولا تُخترع له قيمة —
+#: والقيمة المخترعة هنا هي عين **الافتراض الصامت** الذي وُجد الملف لمنعه.
+#: والقائمة تُشتقّ من ترتيب ``BLOCKING_FIELDS`` لا تُكتب بترتيب آخر، فلا
+#: يفترق ترتيبُ السؤال عن ترتيب الملف.
+#: ⚠️ **والترتيب هو ترتيب ``BLOCKING_FIELDS``**، فترتيبُ السؤال عن الحقل
+#: يتبع ترتيب الملف — **وهو ليس ترتيب ``BLOCKING_FIELDS`` الدارج** بالضرورة:
+#: ``our_party`` يتقدّم ``stage`` لأن ترتيب الملف هكذا، ولا يُعاد ترتيبه هنا.
+CASE_SHAPE_FIELDS: tuple[str, ...] = tuple(
+    name
+    for name in case_file_module.BLOCKING_FIELDS
+    if name in ("dispute_type", "stage", "our_party")
+)
+
+#: ما يُقال حين يصل حملٌ لا يكفي لبناء ملف — **ولا يُسكَت عن حقوله.**
+#:
+#: ⚠️ **وهذا ليس رفضاً للطلب** (لا يُردّ ٤٠٠ ولا يوقف التوليد)، بل **إعلان**
+#: أنّ ما أُرسل لم يُبنَ منه ملف. والفرق جوهري: حملٌ يُتجاهَل صامتاً **أسوأ من
+#: حملٍ غائب**، لأن المستدعي يظنّ أن قيمته مرّت فتُبنى المسودّة على غير ما طلب.
+CASE_BLOCK_UNBUILDABLE = (
+    "⚠️ **وصل حمل ملف قضية، لكنه لم يكفِ لبناء ملف**: الحقول اللازمة لبنائه "
+    "لم تُرسَل ({fields})، وحقول ``CaseFile`` بلا قيمة افتراضية عن قصد — "
+    "فلا قيمة تُخترع لها. فاعتبر ملف القضية **غير منشأ**، وكل ما يتوقّف على "
+    "الاختصاص أو التقادم أو المرحلة الإجرائية **غير متحقَّق منه**، ولا "
+    "تُكمل النقص من عندك."
+)
+
+
+def _payload_case_value(payload: object, name: str) -> object:
+    """
+    يقرأ حقل ملف القضية من الحمل، أو ``None`` إن لم يُرسَل.
+
+    ⚠️ **الغياب يُعاد ``None`` ولا يُمنح قيمة مفترضة**: الحقل بلا افتراضي في
+    ``CaseFile`` عن قصد، فيجب أن يبقى الغائب غائباً حتى يُسأل عنه.
+    """
+    return getattr(payload, name, None)
+
+
+def _case_enum(raw: object, enum_class, label: str):
+    """
+    يحوّل قيمة آلية إلى عضو التصنيف، **ويرفض المجهول باسم القيم المتاحة**.
+
+    ⚠️ ولماذا لا يُمرَّر النصّ إلى `CaseFile` كما هو؟ لأن التصنيفات **مغلقة**
+    في الملف: `dispute_type` و`stage` و`our_party` أعضاء `Enum` لا نصوص. فلو
+    مرّ نصّ مجهول لَما صار خطأً ظاهراً بل قيمةً لا تُطابق شيئاً في الجدول —
+    **فيسأل الملف عن نقص لا وجود له**، أو أسوأ: يقبل نوعاً لم يُقصد.
+
+    ⚠️ **والرفض ٤٠٠ لا ٥٠٠**: الطلب نفسه غير صالح، لا الخادم. والأسوأ من
+    الاثنين أن يُبتلع الخطأ: **حملٌ يُتجاهَل صامتاً أسوأ من حملٍ غائب**، لأن
+    المستدعي يظنّ أنه مرّ فتُبنى المسودّة على غير ما طلب.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, enum_class):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return enum_class(raw.strip())
+        except ValueError:
+            pass
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"{label} غير معروف: {raw!r} — المتاح: "
+            f"{[member.value for member in enum_class]}"
+        ),
+    )
+
+
+def _case_text_list(raw: object, label: str) -> tuple[str, ...]:
+    """
+    يحوّل قائمةً نصّية: الطلبات، أو القانون المرجَّح.
+
+    ⚠️ **والعنصر الواحد يُبقي قائمةً** ولا يُدمج في نصّ: الطلب وحدةُ حكمٍ
+    ومطالبةٍ ودفع، فالدمج يُفقد القدرة على تتبّع أيّ طلبٍ أُجيب وأيّها أُغفل.
+    """
+    if raw is None:
+        return ()
+    if isinstance(raw, (str, bytes)) or not isinstance(raw, (list, tuple)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} يجب أن تكون قائمة، ووصل: {type(raw).__name__}",
+        )
+    return tuple(str(item).strip() for item in raw if str(item).strip())
+
+
+def _case_key_dates(raw: object) -> tuple[tuple[str, str], ...]:
+    """
+    يحوّل التواريخ إلى أزواج (الوصف، التاريخ) — **بلا تحويلٍ للتاريخ**.
+
+    ⚠️ والتاريخ يبقى **نصّاً** كما ورد، على قاعدة `labour_rules.py`: العدّ في
+    موضع واحد ويجري على ``date`` بعد تحقّق. فالتواريخ تصل هجريةً وميلاديةً
+    ومنقولةً بالعربية، وتحويلها هنا يعني **تقريباً صامتاً** في الحقل الذي يقوم
+    عليه عدّ المدّة — وقد وقع فعلاً: ١٢٧٨ يوماً والصحيح ١٣٠٧.
+    """
+    if raw is None:
+        return ()
+    if isinstance(raw, dict):
+        pairs = list(raw.items())
+    elif isinstance(raw, (list, tuple)):
+        pairs = list(raw)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "key_dates يجب أن تكون قائمة أزواج [الوصف, التاريخ]، "
+                f"ووصل: {type(raw).__name__}"
+            ),
+        )
+
+    dates: list[tuple[str, str]] = []
+    for item in pairs:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            label, value = item
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "كل تاريخ يجب أن يكون زوجاً [الوصف, التاريخ]، ووصل: "
+                    f"{item!r}"
+                ),
+            )
+        dates.append((str(label), str(value)))
+    return tuple(dates)
+
+
+@dataclass(frozen=True)
+class _CaseInput:
+    """
+    ما وصل من حمل ملف القضية بعد التحقّق: الملف — أو سببُ تعذّر بنائه.
+
+    ⚠️ **وهذا الصنف وُجد لعطبٍ صامت، فاقرأه قبل أن تُبسّطه.** حقول
+    ``CaseFile`` **بلا افتراضي عن قصد**، ومنها ثلاثة **غير نصّية**
+    (``dispute_type`` و``stage`` و``our_party``). فحملٌ يرسل الإمارة ويُسقط
+    نوع النزاع **لا يُبنى منه ملف** — ولو بنيناه بقيمة مخترعة لكان ذلك
+    الافتراض الصامت بعينه؛ ولو أسقطناه صامتاً لَظنّ المستدعي أن إمارته مرّت
+    **وهي لم تمرّ**. فالحالتان مرفوضتان، والثالثة هي هذه: **يُقال ما وصل وما
+    لم يصل**، ويُبثّ الإطار، **ويمضي التوليد** — فلا يُوقف نقصٌ العمل، ولا
+    يُسكَت عنه.
+
+    Attributes:
+        requested: هل أُرسل حمل أصلاً؟ (وهو ما يفرّق «لم يُنشأ ملف» عن «وصل
+            حمل لا يكفي» — والاثنان يُقالان، لكن لا يُقالان بعبارة واحدة).
+        case: الملف المبني، أو ``None`` إن لم يكفِ الحمل لبنائه.
+        unbuildable: أسماء الحقول التي منعت البناء — **من ``BLOCKING_FIELDS``
+            بترتيبها**، فلا يُكتب ترتيب ثانٍ.
+    """
+
+    requested: bool
+    case: Optional[CaseFile]
+    unbuildable: tuple[str, ...] = ()
+
+    def absent(self) -> bool:
+        """هل لم يُرسل حمل، أو أُرسل ولم يُبنَ منه ملف؟ — الحالتان تُقالان."""
+        return self.case is None
+
+
+def _case_from_payload(payload: object) -> _CaseInput:
+    """
+    يحوّل حمل النقل إلى `CaseFile` — أو يُعلن ما منع بنائه.
+
+    ⚠️ **والبناء مرة واحدة، قبل أن يجري الوكيل** — لا داخل البثّ: فالحمل
+    الفاسد يجب أن يُردّ **قبل أن يُستدعى نموذج واحد**، وإلا كان ٤٠٠ بعد أن
+    دُفع ثمن التوليد. وهذا فحص `test_an_invalid_case_never_starts_generation`.
+
+    ⚠️ **ورسالة الملف تبقى رسالة الملف.** `CaseFile.__post_init__` يرفع
+    ``ValueError`` على نصّ إمارة لا مفتاح له في ``EMIRATE_ALIASES`` — وهي
+    الرسالة التي تسمّي الموضع الذي تُضاف فيه الصورة. ولو ترجمناها إلى نصّ من
+    عندنا لضاع اسم الجدول، **وصار الإصلاح تخميناً**. فتُنقل كما هي، ويتغيّر
+    رمز الحالة وحده: ٤٠٠ لا ٥٠٠ — لأن العطب في الطلب لا في الخادم.
+
+    ⚠️ **والقيَم تُترجم هنا مرة واحدة**: التصنيفات تُرفض إن كانت مجهولة
+    (`_case_enum`)، والقوائم تُفحَص، والتواريخ تبقى **نصّاً** كما وردت.
+    """
+    if payload is None:
+        return _CaseInput(requested=False, case=None)
+
+    # ⚠️ الحقول تُقرأ مرة واحدة هنا، فلا يُقرأ الحمل مرتين بمعنيين مختلفين.
+    raw: dict[str, object] = {
+        name: _payload_case_value(payload, name)
+        for name in (
+            "country",
+            "emirate",
+            "forum",
+            "dispute_type",
+            "stage",
+            "our_party",
+            "claims",
+            "key_dates",
+            "likely_law",
+            "has_arbitration_clause",
+            "has_choice_of_law",
+        )
+    }
+
+    # ⚠️ والتصنيفات تُتحقَّق **قبل** فحص الشكل: قيمة مجهولة تُردّ ٤٠٠ برسالتها
+    # (وهي صريحة)، ولا تُبتلع في «حمل لا يكفي» فيقرأ المستدعي سبباً غير سببه.
+    dispute_type = _case_enum(raw["dispute_type"], DisputeType, "نوع النزاع")
+    stage = _case_enum(raw["stage"], CaseStage, "المرحلة")
+    our_party = _case_enum(raw["our_party"], Party, "الصفة")
+
+    # ⚠️ **ولا قيمة تُخترع**: بلا هذه الثلاثة لا ملف. والقوائم تُفحَص هنا
+    # أيضاً فيُردّ المشوّه منها ٤٠٠ ولو لم يُبنَ الملف — فالحمل الفاسد فاسد.
+    claims = _case_text_list(raw["claims"], "الطلبات")
+    key_dates = _case_key_dates(raw["key_dates"])
+    likely_law = _case_text_list(raw["likely_law"], "القانون المرجَّح")
+
+    try:
+        case = CaseFile(
+            country=str(raw["country"] or ""),
+            emirate=str(raw["emirate"] or ""),
+            forum=str(raw["forum"] or ""),
+            # ⚠️ والحقول الثلاثة تُملأ هنا بقيمة **معلَنة** حين تغيب، لا
+            # لتُستعمل: ``CaseFile`` يفحص الإمارة في ``__post_init__`` وحدها،
+            # فيجب أن يمرّ البناء ليُفحَص نصّ الإمارة. والحمل الذي لا يكفي
+            # **لا يُعاد منه ملف** (انظر أسفل) — فالقيمة لا تصل إلى مستدعٍ.
+            dispute_type=dispute_type or DisputeType.CIVIL,
+            stage=stage or CaseStage.FIRST_INSTANCE,
+            our_party=our_party or Party.CLAIMANT,
+            claims=claims,
+            key_dates=key_dates,
+            likely_law=likely_law,
+            has_arbitration_clause=raw["has_arbitration_clause"],
+            has_choice_of_law=raw["has_choice_of_law"],
+        )
+    except ValueError as exc:
+        # رسالة `case_file` بنصّها — انظر أعلاه لماذا لا تُترجم.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    shape = {
+        "dispute_type": dispute_type,
+        "stage": stage,
+        "our_party": our_party,
+    }
+    unbuildable = tuple(name for name in CASE_SHAPE_FIELDS if shape[name] is None)
+    if unbuildable:
+        # ⚠️ **ولا يُعاد الملف**: القيم المعلَنة أعلاه لم تكن إلا لتمرّ رسالة
+        # الإمارة من الفحص. وحملٌ بلا نوع نزاع **لا يُبنى منه ملف بقيمة
+        # مخترعة** — بل يُقال ما نقص، ويمضي التوليد، ويُسأل المحامي.
+        return _CaseInput(requested=True, case=None, unbuildable=unbuildable)
+
+    return _CaseInput(requested=True, case=case)
+
+
+def _case_absent_message(case_input: _CaseInput) -> str:
+    """
+    نصّ «لا ملف» — **بعبارتين لا بعبارة واحدة**.
+
+    ⚠️ **والفرق مقصود:** «لم يُرسل حمل» حالةٌ، و«أُرسل حمل ولم يُبنَ منه ملف»
+    حالةٌ أخرى **أخطر**: المستدعي أرسل قيماً يظنّها مرّت. فلو قيلت العبارة
+    الأولى في الثانية لَقُرأ حملُه مُهمَلاً وهو كذلك فعلاً — لكن بلا أن يعرف
+    سبباً، فيُعيد الكرّة بالخطأ نفسه.
+    """
+    if not case_input.requested:
+        return CASE_BLOCK_ABSENT
+    return CASE_BLOCK_UNBUILDABLE.format(
+        fields="، ".join(case_input.unbuildable)
+    )
+
+
+def _case_frame(case_input: _CaseInput) -> dict:
+    """
+    إطار `case` كما يُبثّ — **بقيم الوحدة وحدها، بلا إعادة حساب**.
+
+    والأسئلة **لا تُفرز هنا**: ترتيبها هو ترتيب ``QUESTIONS`` في `case_file.py`
+    (المانع أولاً)، وهو **مصدر الترتيب الوحيد**. ولو فُرزت على `BLOCKING_FIELDS`
+    هنا لصار للترتيب مصدران يفترقان عند أول تعديل — وهو التعليل نفسه المكتوب
+    في ``questions_for``.
+
+    ⚠️ **والأسئلة أسئلة النقص وحدها، ولا تُخترع لحقل لم يُسجَّل**: سؤال مخترع
+    يُجاب، وجوابُ سؤالٍ لم يُقصد يُكتب في المسودّة فيصير **افتراضاً صامتاً**.
+
+    ⚠️ **والغياب لا يُسكَت عنه**: بلا ملف تُبثّ إطارات ولا ``questions`` —
+    والواجهة تقرأ ``established: False`` فتعرف أن الفحص **لم يُشغَّل**، لا أنه
+    نجا. و«لم يُفحص» و«فُحص فسلم» ليسا سواءً، وهذا الفرق هو كل الفائدة.
+    """
+    case = case_input.case
+    if case is None:
+        return {
+            "established": False,
+            "requested": case_input.requested,
+            "message": _case_absent_message(case_input),
+            "case": None,
+            "confirmed": [],
+            "missing": [],
+            "is_complete": False,
+            "questions": [],
+            "regime_notes": [],
+            "summary": None,
+        }
+
+    # ⚠️ والأسئلة **صنفان لا صنف**: أسئلة حقول الملف الناقصة، وأسئلة الجدول
+    # التي **لم يُنظر فيها بعد** (``None``) — لا التي أُجيب عنها بنفي. والخلط
+    # بينهما يجعل السؤال يُطرح على من أجاب فيُهمَل، ثم يُهمَل معه السؤال
+    # الحقيقي حين يظهر. والملف نفسه هو الذي يفرّق (`open_regime_questions`).
+    questions = tuple(case.questions_for_missing()) + tuple(
+        case.open_regime_questions()
+    )
+    summary = case.summary()
+    # ⚠️ والوسم من الملف نفسه (`blocking_missing` المحسوب في `summary`)، لا من
+    # إعادة تعريف عندنا: حقلٌ مانع يُحسب في موضعين يفترقان عند أول تعديل.
+    blocking = set(summary["blocking_missing"])
+
+    return {
+        "established": True,
+        "requested": True,
+        "message": "",
+        "case": summary,
+        "confirmed": list(case.confirmed()),
+        "missing": list(case.missing()),
+        "is_complete": case.is_complete(),
+        "questions": [
+            {
+                "field": question.field,
+                "question": question.question,
+                "why": question.why,
+                "blocking": question.field in blocking,
+            }
+            for question in questions
+        ],
+        "regime_notes": case_file_module.notes_summary(
+            case_file_module.regime_notes(case)
+        ),
+        "summary": summary,
+    }
+
+
+def _case_facts_block(case: CaseFile) -> str:
+    """
+    الوقائع المُثبَتَة في صورة تُقرأ — **بلا آلية داخليّة**.
+
+    ⚠️ ولا يُعرَض ``emirate_key`` ولا ``forum_key`` ولا ``blocking_missing``:
+    مفاتيح لمطابقة الجدول لا لواقعة، وعرضُها في نصّ الصياغة يُقحم مصطلحات لم
+    يكتبها المحامي. وهي **باقية في إطار `case` للواجهة** — كل مخرَج في موضعه.
+    """
+    parts: list[str] = []
+    if case.country.strip():
+        parts.append(f"الدولة: {case.country}")
+    if case.emirate.strip():
+        parts.append(f"الإمارة: {case.emirate}")
+    if case.forum.strip():
+        parts.append(f"الجهة: {case.forum}")
+    parts.append(f"نوع النزاع: {case.dispute_type.value}")
+    parts.append(f"المرحلة: {case.stage.value}")
+    parts.append(f"صفتنا: {case.our_party.value}")
+    if case.claims:
+        parts.append("الطلبات: " + "؛ ".join(case.claims))
+    if case.key_dates:
+        parts.append(
+            "التواريخ: "
+            + "؛ ".join(f"{label}: {value}" for label, value in case.key_dates)
+        )
+    if case.likely_law:
+        parts.append("القانون المرجَّح: " + "؛ ".join(case.likely_law))
+    # ⚠️ ``False`` تُقال و``None`` تُسكت: من قال «لا شرط تحكيم» فقد أجاب
+    # فيُكتب جوابه، ومن لم يُنظر يُبقى سؤالاً في القسم الذي تحته.
+    if case.has_arbitration_clause is not None:
+        parts.append(
+            "شرط التحكيم في العقد: "
+            + ("نعم" if case.has_arbitration_clause else "لا")
+        )
+    if case.has_choice_of_law is not None:
+        parts.append(
+            "اتّفاق على قانون مختار: "
+            + ("نعم" if case.has_choice_of_law else "لا")
+        )
+    return "\n".join(f"- {part}" for part in parts)
+
+
+def _case_prompt_block(case_input: Optional[_CaseInput]) -> str:
+    """
+    كتلة ملف القضية في الرسالة — **الأسئلة المفتوحة أهمّ ما فيها**.
+
+    ⚠️ **ولماذا تُبنى دائماً، ولا تُحذف عند غياب الملف؟** لأن حذفها **يُقرأ
+    موافقةً صامتة**: النموذج يكتب عن الاختصاص والتقادم بلا تنبيه أن أحداً لم
+    يُسأل عنهما. فالغياب نفسه معلومة تُقال (`CASE_BLOCK_ABSENT`) — وهذا هو
+    الأصل الذي يقوم عليه `briefing.py`: **الفحص غير المُشغَّل ليس فحصاً ناجحاً.**
+
+    ⚠️ **وحملٌ لا يكفي لبناء ملف يُقال فيه إنه لا يكفي**، ولا تُبنى له كتلة
+    وقائع — فبناء كتلة من حملٍ نصفه غائب يُنتج مسودّة تُقرأ تامة وهي مبنية
+    على نصف استمارة.
+
+    ⚠️ **والأسئلة تُكتب بـ``why`` معها**: سؤال بلا سبب يُقرأ استيفاءً لشكليات،
+    وبسببه يُقرأ توقّياً لعيب — وهو التعليل المكتوب في ``Question`` نفسها.
+    """
+    if case_input is None or case_input.case is None:
+        return _case_absent_message(case_input or _CaseInput(requested=False, case=None))
+
+    case = case_input.case
+    # ⚠️ والأسئلة **صنفان لا صنف**: أسئلة حقول الملف الناقصة، وأسئلة الجدول
+    # التي **لم يُنظر فيها بعد** (``None``) — لا التي أُجيب عنها بنفي. والخلط
+    # بينهما يجعل السؤال يُطرح على من أجاب فيُهمَل، ثم يُهمَل معه السؤال
+    # الحقيقي حين يظهر. والملف نفسه هو الذي يفرّق (`open_regime_questions`).
+    questions = tuple(case.questions_for_missing()) + tuple(
+        case.open_regime_questions()
+    )
+    lines = [CASE_BLOCK_HEADER, _case_facts_block(case)]
+    if questions:
+        lines.append(CASE_BLOCK_QUESTIONS_HEADER)
+        lines.extend(
+            f"- [{question.field}] {question.question}\n  لماذا: {question.why}"
+            for question in questions
+        )
+        lines.append(CASE_BLOCK_RULES)
+    else:
+        lines.append(CASE_BLOCK_NO_QUESTIONS)
+    return "\n".join(lines)
+
+
+def _build_messages(
+    prompt: str,
+    doc_type: Optional[str] = None,
+    case_input: Optional[_CaseInput] = None,
+) -> list:
+    """
+    يبني الرسائل، مع حقن نوع المستند وتلميح الأداة، **وقضية الملف**.
+
+    ⚠️ و``case_input=None`` **لا تعني حذف الكتلة**، بل كتلة تقول إن الملف لم
+    يُنشأ — انظر `_case_prompt_block`.
+    """
     user_content = prompt
     if doc_type:
         hint = DOC_TYPE_TOOL_HINT.get(doc_type.strip())
@@ -428,6 +960,7 @@ def _build_messages(prompt: str, doc_type: Optional[str] = None) -> list:
             f"نوع المستند المطلوب: {doc_type}{hint_line}\n\n"
             f"الوقائع والمعطيات:\n{prompt}"
         )
+    user_content = f"{user_content}\n\n{_case_prompt_block(case_input)}"
     return [SystemMessage(content=SYSTEM_PROMPT_CITED), HumanMessage(content=user_content)]
 
 
@@ -678,7 +1211,20 @@ def _review_round(brief: str, draft: str, evidence_text: str) -> dict:
 
 
 def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
-    """ينفّذ الوكيل ويُرجع (النصّ, تقرير الأسانيد, تقرير الصياغة) — لـ /chat."""
+    """
+    ينفّذ الوكيل ويُرجع (النصّ, تقرير الأسانيد, تقرير الصياغة) — لـ /chat.
+
+    ⚠️ **ولا يمرّ ملف القضية من هنا، ولا يتغيّر شكل الثلاثي.**
+
+    وهذا قرار مقصود عند وصل `case_file`: `/chat` محادثة، ولا مدخل فيها لملف
+    قضية — فلا يُعاد تشكيل ثابتٍ يُبنى عليه مسارٌ لم يُطلب فيه ملف. ولو
+    مُرِّر الملف من هنا لصار الثلاثي رباعياً، **فانكسر كل مستدعٍ له بصمت** —
+    وهو العطب الذي يمنعه `test_run_agent_collect_shape_is_unchanged`.
+
+    ⚠️ **وإطار `case` لا يُنتج من هنا** بل من `_sse_generator` — لأن `/chat`
+    لا يبثّ SSE أصلاً. ولو أُنتج هنا لكان إطاره يُهمَل في `/chat` ويُبثّ في
+    `/generate` من موضعين يفترقان.
+    """
     final_text = ""
     report: dict = {}
     language: dict = {}
@@ -716,12 +1262,22 @@ async def health():
     }
 
 
-async def _sse_generator(messages: list) -> AsyncIterator[str]:
+async def _sse_generator(
+    messages: list,
+    case_frame: Optional[dict] = None,
+) -> AsyncIterator[str]:
     """
     يحوّل مُولِّد الوكيل المتزامن (blocking) إلى بثّ غير متزامن.
 
     agent.stream يستدعي الشبكة ويحجب حلقة الأحداث، لذا ننفّذه في خيط منفصل
     ونمرّر الأحداث إلى طابور asyncio عبر call_soon_threadsafe.
+
+    ⚠️ **وإطار `case` يُبثّ هنا أولاً، قبل أول مرحلة** — في الخيط العامل نفسه
+    وبنفس `emit`، فلا يسبقه شيء ولا يفترق شكله عن بقية الإطارات.
+
+    ⚠️ **ولماذا لا يُبثّ في `generate` قبل إرجاع البثّ؟** لأن `generate` يُرجع
+    ``StreamingResponse`` ولا يكتب فيه شيئاً؛ فالإطار الأول لا يُسلَّم إلا حين
+    يبدأ استهلاك المولّد — فلو بُثّ هناك لكان ترتيبه غير مضمون بالنسبة للمراحل.
     """
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
@@ -732,6 +1288,9 @@ async def _sse_generator(messages: list) -> AsyncIterator[str]:
 
     def worker() -> None:
         try:
+            if case_frame is not None:
+                emit({"type": "case", "report": case_frame})
+
             for kind, payload in _stream_agent(messages):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
@@ -783,10 +1342,25 @@ async def generate(req: GenerateRequest):
 
     هذه هي النقطة التي كانت غائبة تماماً: الواجهة كانت تنتظر بثّ SSE من
     عنوان لا وجود له، فلم يكن المستند يظهر أبداً.
+
+    ⚠️ **و`case_file` كان مبنياً ومختبراً ولا يُنادى من أيّ موضع** — فكان
+    يوجد ولا يُغيّر شيئاً. وهو يُنادى الآن **مرة واحدة هنا، قبل أن يجري
+    الوكيل**: فالحمل الذي يرفضه الملف يُردّ ٤٠٠ **قبل أن يُستدعى نموذج واحد**،
+    ولا يُبتلع صامتاً — لأن **حملاً يُتجاهَل أسوأ من حملٍ غائب**: المستدعي
+    يظنّ أن ملفه مرّ، فتُبنى المسودّة على غير ما طلب.
+
+    ⚠️ **والملف الناقص لا يوقف التوليد.** المطلوب أن يُسأل عن النواقص
+    **ويُكمل ما لا يتوقّف عليها** — فالنقص يُبثّ في إطار `case` ويُدخل في
+    الرسالة، ولا يُردّ الطلب. والردّ محصورٌ في حملٍ **يرفضه الملف** (إمارة لا
+    مفتاح لها، أو قيمة تصنيف مجهولة).
+
+    ⚠️ **والبناء قبل بناء الرسائل وقبل الخيط**: أي فشل هنا يرتفع من النقطة
+    نفسها فيردّه FastAPI ٤٠٠، ولا يُفتح بثّ ولا يُستدعى الوكيل.
     """
-    messages = _build_messages(req.prompt, req.doc_type)
+    case_input = _case_from_payload(req.case)
+    messages = _build_messages(req.prompt, req.doc_type, case_input)
     return StreamingResponse(
-        _sse_generator(messages),
+        _sse_generator(messages, _case_frame(case_input)),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

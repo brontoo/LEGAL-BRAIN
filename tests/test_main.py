@@ -26,6 +26,16 @@ from tests import fake_deps
 fake_deps.install()
 
 import main  # noqa: E402
+from case_file import (  # noqa: E402
+    BLOCKING_FIELDS,
+    ESTABLISHED_FIELDS,
+    CaseFile,
+    CaseStage,
+    DisputeType,
+    ForumKey,
+    Party,
+    RegimeArea,
+)
 from citations import CITATIONS_BEGIN, CITATIONS_END  # noqa: E402
 from revisions import STYLE_TARGET  # noqa: E402
 
@@ -54,13 +64,131 @@ def scripted_turn(quote: str, *, body: str = "عقد إيجار تجاري\nال
     ]
 
 
-def drain_sse(messages: list) -> list:
-    """يستهلك مولّد SSE ويُرجع الإطارات الخام."""
+def drain_sse(messages: list, case_frame: dict | None = None) -> list:
+    """
+    يستهلك مولّد SSE ويُرجع الإطارات الخام.
+
+    ⚠️ و``case_frame`` يُمرَّر كما يمرّره `/generate` — فالإطار الأول في البثّ
+    يأتي من المولّد نفسه، فلا يفترق الاختبار عن المسار الحقيقي.
+    """
 
     async def collect() -> list:
-        return [frame async for frame in main._sse_generator(messages)]
+        return [frame async for frame in main._sse_generator(messages, case_frame)]
 
     return asyncio.run(collect())
+
+
+def case_events(events: list) -> list:
+    """إطارات `case` وحدها — لتقرأها اختبارات القضية بلا تكرار الفلترة."""
+    return [event for event in events if event["type"] == "case"]
+
+
+def case_input(case: object) -> object:
+    """
+    يحوّل حملاً إلى ما يفهمه `/generate` — **عبر المسار نفسه لا عبر نسخة**.
+
+    ⚠️ ولا يُنادَى ``_case_from_payload`` بحملٍ من عندنا: هو يقرأ الحقول من
+    كائن النقل، فلو مرّرنا قاموساً لَقرأ الغياب من كل حقل ولبُني الإطار عن
+    «حملٍ لا يكفي» — أي لَما اختبرنا شيئاً. فالمسار: ``CasePayload`` ثم الملف.
+    """
+    if case is None or not isinstance(case, dict):
+        return case
+    return main.CasePayload(**case)
+
+
+def case_report(case: object) -> dict:
+    """تقرير إطار `case` لحملٍ ما — كما يُبنى في `generate` بالضبط."""
+    return main._case_frame(main._case_from_payload(case_input(case)))
+
+
+def case_block(case: object) -> str:
+    """كتلة القضية في الرسالة لحملٍ ما — كما تُبنى في `generate` بالضبط."""
+    return main._case_prompt_block(main._case_from_payload(case_input(case)))
+
+#: علامة مميّزة من نصّ «لا ملف قضية» — تُفحَص في الرسالة بلا نسخ النصّ كله.
+CASE_BLOCK_ABSENT_MARKER = "لم يُنشأ ملف قضية"
+
+#: حمل ملف قضية **كامل**: إيجار في دبي أمام مركز فضّ المنازعات الإيجارية،
+#: و``has_choice_of_law`` و``has_arbitration_clause`` متروكتان ``None`` عن
+#: قصد — «لم يُنظر»، وهي الحالة التي يجب أن **تُسأل** لا أن تُخمَّن.
+COMPLETE_CASE = {
+    "country": "الإمارات العربية المتحدة",
+    "emirate": "دبي",
+    "forum": "مركز فضّ المنازعات الإيجارية - دبي",
+    "dispute_type": "lease",
+    "stage": "first_instance",
+    "our_party": "claimant",
+    "claims": ["سداد الأجرة المتأخرة", "فسخ عقد الإيجار"],
+    "key_dates": [["تاريخ الواقعة", "2024-01-10"]],
+    "likely_law": ["قانون المعاملات المدنية"],
+}
+
+#: وما يجب أن يُنتجه الملف من ذلك الحمل — **يُبنى بكائن الوحدة، لا بقائمة
+#: مكتوبة هنا**. والفرق جوهري: قائمةٌ مكتوبة يدوياً تختبر نسخةً من الحقيقة،
+#: فلو تغيّر ترتيب الوحدة مرّ الاختبار وهما مختلفان — وهو الاختبار الذي
+#: **يشهد لشكل متخيَّل** (انظر `briefing.py`).
+COMPLETE_CASE_EXPECTED = CaseFile(
+    country="الإمارات العربية المتحدة",
+    emirate="دبي",
+    forum="مركز فضّ المنازعات الإيجارية - دبي",
+    dispute_type=DisputeType.LEASE,
+    stage=CaseStage.FIRST_INSTANCE,
+    our_party=Party.CLAIMANT,
+    claims=("سداد الأجرة المتأخرة", "فسخ عقد الإيجار"),
+    key_dates=(("تاريخ الواقعة", "2024-01-10"),),
+    likely_law=("قانون المعاملات المدنية",),
+)
+
+#: حمل **ناقص الحقول المانعة** — لا إمارة ولا جهة ولا طلبات.
+#:
+#: ⚠️ والنقص مكتوب صريحاً لا محذوفاً، كما في `test_case_file._incomplete`:
+#: حقول ``CaseFile`` بلا افتراضي، فمن أراد ملفاً ناقصاً كتب النقص.
+#:
+#: ⚠️ **والحقول الثلاثة غير النصّية حاضرة عن قصد** (``dispute_type``
+#: و``stage`` و``our_party``): هي **وحدها** لا يُبنى ملف بغيابها، لأن حقول
+#: ``CaseFile`` كلها بلا افتراضي. فالنقص المفحوص هنا هو نقصُ ما **يمكن أن
+#: يكون غائباً** (نصّ فارغ أو قائمة فارغة) — وهو الواقع الذي يُسأل عنه.
+INCOMPLETE_CASE = {
+    "country": "الإمارات العربية المتحدة",
+    "dispute_type": "lease",
+    "stage": "first_instance",
+    "our_party": "claimant",
+}
+
+#: ونظيره — النقص **مكتوب** لا محذوف، كما في `CaseFile` نفسها.
+INCOMPLETE_CASE_EXPECTED = CaseFile(
+    country="الإمارات العربية المتحدة",
+    emirate="",
+    forum="",
+    dispute_type=DisputeType.LEASE,
+    stage=CaseStage.FIRST_INSTANCE,
+    our_party=Party.CLAIMANT,
+    claims=(),
+    key_dates=(),
+    likely_law=(),
+)
+
+#: حملٌ **لا يكفي لبناء ملف**: فيه الإمارة، وغابت عنه الحقول الثلاثة التي
+#: لا افتراضي لها في ``CaseFile``. فيُقال ما لم يصل، ولا يُبنى شيء من عندنا.
+UNBUILDABLE_CASE = {"emirate": "دبي", "claims": ["سداد الأجرة"]}
+
+#: ملف قضية أمام مركز دبي المالي — **مركز مالي لا «دبي»**.
+#:
+#: ⚠️ وهذا القياس هو الذي يمنع تسرّب ملاحظة الدفاع الإيجاري ومسار الوزارة:
+#: مفتاح جهته ``difc`` ومفتاح إمارته ``dubai``، والشرط يقرأ الأول.
+DIFC_CASE = {
+    "country": "الإمارات العربية المتحدة",
+    "emirate": "دبي",
+    "forum": "محاكم مركز دبي المالي العالمي (DIFC Courts)",
+    "dispute_type": "commercial",
+    "stage": "first_instance",
+    "our_party": "defendant",
+    "claims": ["رفض المطالبة"],
+    "key_dates": [["تاريخ الواقعة", "2025-04-01"]],
+    "likely_law": ["قوانين مركز دبي المالي العالمي"],
+    "has_arbitration_clause": False,
+    "has_choice_of_law": False,
+}
 
 
 def parse_frames(frames: list) -> list:
@@ -170,7 +298,186 @@ class TestMessages(MainTestBase):
 # ==============================================================================
 
 
-class TestVerifyRound(MainTestBase):
+class TestCaseFilePayload(MainTestBase):
+    """
+    حمل ملف القضية على `/generate` — **يُبنى مرة واحدة قبل الوكيل**.
+    ========================================================================
+    ⚠️ **والخطر الذي تمنعه هذه المجموعة ليس الفشل بل الصمت.**
+
+    الوحدة `case_file.py` كانت مبنية ومختبرة **ولا يُناديها أيّ موضع**، فكانت
+    توجد ولا تُغيّر شيئاً. ووصلها بمسار التوليد يفتح بابين: أن يُقبل حملٌ
+    فاسد فيُبنى عليه، أو أن يُبتلع حملٌ فاسد فيظنّ المستدعي أنه مرّ —
+    **وحملٌ يُتجاهَل صامتاً أسوأ من حملٍ غائب**، لأن المستدعي لا يعلم فيُعيد
+    الكرّة على يقين.
+
+    فالفحص هنا على ثلاث: يُبنى صحيحاً، ويُرفض فاسداً **برسالة الملف**،
+    و**لا يُستدعى نموذج** إن كان فاسداً.
+    """
+
+    def test_a_valid_payload_becomes_the_module_object(self):
+        """الحمل الصالح يُبنى ملفاً — والقيم كما وردت لا كما فُسّرت."""
+        case_input = main._case_from_payload(main.CasePayload(**COMPLETE_CASE))
+        case = case_input.case
+        self.assertIsInstance(case, CaseFile)
+        self.assertEqual(case.dispute_type, DisputeType.LEASE)
+        self.assertEqual(case.stage, CaseStage.FIRST_INSTANCE)
+        self.assertEqual(case.our_party, Party.CLAIMANT)
+        self.assertEqual(case.claims, ("سداد الأجرة المتأخرة", "فسخ عقد الإيجار"))
+        # والمفتاح مشتقّ في الوحدة لا هنا — وهذا الفحص يمنع نسخةً ثانية منه.
+        self.assertEqual(case.emirate_key, "dubai")
+        self.assertEqual(case.forum_key, ForumKey.ONSHORE.value)
+
+    def test_the_incomplete_payload_is_reported_as_missing(self):
+        """
+        🔑 **الحمل الناقص لا يُرفض — يُبنى ويُقال نقصه.**
+
+        وهذا الفرق هو الذي لا يوقف الصياغة: النقص **مخرَج** يُسأل عنه، لا
+        سبباً لردّ الطلب. ولو رُدّ لَما أمكن أن تُصاغ مذكرة قبل استيفاء
+        الاستمارة كلها — وهو نقيض المطلوب: أن تسأل وتمضي.
+        """
+        case = main._case_from_payload(main.CasePayload(**INCOMPLETE_CASE)).case
+        self.assertIsInstance(case, CaseFile)
+        self.assertFalse(case.is_complete())
+        # والمانعة النصّية الثلاث غائبة — والقائمة هي قائمة الوحدة نفسها.
+        self.assertEqual(
+            case.missing(blocking_only=True), ("emirate", "forum", "claims")
+        )
+        self.assertEqual(case.claims, ())
+
+    def test_a_payload_too_empty_to_build_is_declared_not_ignored(self):
+        """
+        🔑 **وحملٌ لا يكفي لبناء ملف يُعلَن ولا يُمرّ صامتاً.**
+
+        ⚠️ وهذا أخطر ما في الوصل: المستدعي أرسل الإمارة والطلبات، ولو أسقطناه
+        صامتاً لَظنّ أنهما مرّا **وبُنيت المسودّة على غير ما طلب**. ولا يُبنى
+        الملف بقيمة مخترعة إنقاذاً له، لأن القيمة المخترعة هي **الافتراض
+        الصامت** الذي وُجد `case_file.py` لمنعه. فيُقال: وصل حمل، ولم يكفِ.
+        """
+        case_input = main._case_from_payload(main.CasePayload(**UNBUILDABLE_CASE))
+
+        self.assertTrue(case_input.requested, "حملٌ وصل ولم يُعلَم به")
+        self.assertIsNone(case_input.case, "بُني ملف بقيم لم تُرسل")
+        # ⚠️ والحقول الناقصة **بترتيب ملف القضية** لا بترتيب نكتبه هنا، ولا
+        # بترتيب ``BLOCKING_FIELDS`` الدارج: ``our_party`` يتقدّم ``stage``.
+        self.assertEqual(
+            case_input.unbuildable, ("dispute_type", "our_party")
+        )
+        self.assertEqual(
+            set(case_input.unbuildable), {"dispute_type", "our_party"}
+        )
+        message = main._case_absent_message(case_input)
+        self.assertIn("لم يكفِ", message)
+        self.assertIn("dispute_type", message)
+
+    def test_no_payload_means_no_case_file(self):
+        """وغياب الحمل يعني «لم يُنشأ ملف» — ولا يُبنى ملف فارغ عن لسانه."""
+        case_input = main._case_from_payload(None)
+        self.assertFalse(case_input.requested)
+        self.assertIsNone(case_input.case)
+        self.assertIsNone(case_report(None)["summary"])
+
+    def test_an_unknown_emirate_is_rejected_with_the_modules_own_message(self):
+        """
+        🔑 **نصّ الإمارة المجهول يوقف البناء — وبرسالة الوحدة نفسها.**
+
+        ولو ترجمناها إلى نصّ من عندنا لضاع اسم ``EMIRATE_ALIASES``، وهو
+        **الموضع الوحيد الذي تُضاف فيه الصورة** — فيصير الإصلاح تخميناً.
+        """
+        with self.assertRaises(main.HTTPException) as caught:
+            main._case_from_payload(
+                main.CasePayload(dispute_type="lease", emirate="دولة قطر")
+            )
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("دولة قطر", caught.exception.detail)
+        self.assertIn("EMIRATE_ALIASES", caught.exception.detail)
+
+    def test_an_unknown_enum_names_the_accepted_values(self):
+        """
+        ⚠️ **وقيمة التصنيف المجهولة تُرفض بأسماء القيم المتاحة.**
+
+        ولو مرّت لَما ظهرت خطأً بل قيمةً لا تُطابق شيئاً في الجدول — فلا
+        تُفتح ملاحظة، ويُقرأ الفراغ سلامة. وهذا هو العطب نفسه الذي أُصلح في
+        مطابقة الجهة: نصٌّ لا يُطابق شيئاً **يمرّ صامتاً**.
+        """
+        for field_name, raw, accepted in (
+            ("dispute_type", "إيجاري", "lease"),
+            ("stage", "التمييز", "cassation"),
+            ("our_party", "الطرفان", "claimant"),
+        ):
+            with self.subTest(field=field_name):
+                with self.assertRaises(main.HTTPException) as caught:
+                    main._case_from_payload(main.CasePayload(**{field_name: raw}))
+                self.assertEqual(caught.exception.status_code, 400)
+                self.assertIn(raw, caught.exception.detail)
+                self.assertIn(accepted, caught.exception.detail)
+
+    def test_malformed_lists_are_rejected_not_reinterpreted(self):
+        """والمعطى المشوّه يُردّ ولا يُعاد تفسيره إلى معنى لم يُقصد."""
+        with self.assertRaises(main.HTTPException) as caught:
+            main._case_from_payload(main.CasePayload(key_dates=["2024-01-10"]))
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_an_invalid_case_never_starts_generation(self):
+        """
+        🔑 **الحمل الفاسد يُردّ قبل أن يُستدعى نموذج واحد.**
+
+        ولو بُني الملف داخل البثّ لكان الردّ ٤٠٠ **بعد** أن دُفع ثمن التوليد،
+        ولظهرت مراحل في الواجهة ثم اختفت. فالفحص: لا خطوة وكيل، ولا نموذج
+        تضمين، ولا نداء أداة — أي أن المسار **لم يبدأ أصلاً**.
+
+        ⚠️ و``doc_type`` ممرَّر صريحاً كما في `test_generate_returns_streaming_response`:
+        فقيمته في ``GenerateRequest`` وسمٌ من ``Field``، والوهميّ في
+        `fake_deps` **لا يفكّه** إلى نصّ (وهو حدّ فيه لا في `main.py`).
+        """
+        with self.assertRaises(main.HTTPException) as caught:
+            asyncio.run(
+                main.generate(
+                    main.GenerateRequest(
+                        prompt="صغ عقداً",
+                        doc_type="عقد",
+                        case=main.CasePayload(emirate="دولة قطر"),
+                    )
+                )
+            )
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(fake_deps.AGENT_SCRIPT, [])
+        self.assertEqual(fake_deps.FakeEmbedder.instances, [], "استُدعي النموذج")
+        self.assertEqual(fake_deps.FAKE_SUPABASE.calls, [], "جرت أداة استرجاع")
+
+
+class TestRunAgentCollectShape(MainTestBase):
+    """
+    `/chat` يعتمد على الثلاثي — فلا يُعاد تشكيله عند وصل ملف القضية.
+    ========================================================================
+    ⚠️ **وهذا القرار مفحوص لا موصوف.** البديل كان تمرير الملف من
+    ``_run_agent_collect``، وهو يعني رابعاً في الثلاثي **فينكسر كل مستدعٍ له
+    بصمت** — وهو النوع نفسه من العطب الذي حرسه `test_all_routes_still_registered`
+    في المسارات. فالشكل يُثبَّت هنا بالعدد والأنواع معاً.
+    """
+
+    def test_run_agent_collect_shape_is_unchanged(self):
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        collected = main._run_agent_collect(main._build_messages("صغ عقداً"))
+
+        self.assertIsInstance(collected, tuple)
+        self.assertEqual(len(collected), 3)
+        final_text, citations, language = collected
+        self.assertIn("عقد إيجار", final_text)
+        self.assertTrue(citations["has_evidence"])
+        self.assertIn("summary", language)
+
+    def test_chat_accepts_no_case_at_all(self):
+        """/chat لا مدخل لملف قضية فيه — ولا يُطلب منه ما ليس له."""
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        payload = asyncio.run(main.chat_endpoint(main.ChatRequest(prompt="صغ عقداً")))
+        self.assertEqual(
+            set(payload), {"response", "session_id", "citations", "language"}
+        )
+
+
+
     """`_verify_round` — فصل المستند النظيف عن تقرير الأسانيد."""
 
     def _evidence(self):
@@ -381,12 +688,391 @@ class TestStreamAgent(MainTestBase):
 
 
 # ==============================================================================
+# ٤-ب. إطار `case` — ما يُثبَت وما يُسأل عنه، قبل أول مرحلة
+# ==============================================================================
+# ⚠️ **والقيم تُقارَن بمخرَج الوحدة نفسه لا بنسخة مكتوبة في الاختبار.**
+# والسبب أن الكتابة اليدوية تختبر نسخةً من الحقيقة: لو تغيّر ترتيب الأسئلة
+# في `case_file.py` لمرّ الاختبار وهما مختلفان — وهو الاختبار الذي **يشهد
+# لشكل متخيَّل**، وهو العيب المسجَّل في `briefing.py`. فالمفحوص هنا **الوصل**
+# لا منطق الوحدة: هل يصل ما تُنتجه الوحدة كما هو؟
+
+
+class TestCaseFrame(MainTestBase):
+    """إطار `case`: موضعه، وقيمه، وما يقوله عند غياب الملف."""
+
+    def payload(self, case: object = None) -> dict:
+        """إطار `case` لحملٍ ما، عبر مسار `generate` نفسه."""
+        return case_report(case)
+
+    def test_a_valid_case_frame_carries_the_modules_own_values(self):
+        """
+        🔑 الإطار يحمل ``confirmed`` و``missing`` و``is_complete`` — **من الوحدة**.
+
+        ⚠️ ولا يُعاد تعريف «ثابت» ولا «ناقص» هنا: الوحدة هي التي تعرف، ونسخةٌ
+        ثانية في `main.py` **تنحرف عنها بصمت** فيُعرض للمحامي خلاف ما جرى.
+        """
+        report = self.payload(COMPLETE_CASE)
+
+        self.assertTrue(report["established"])
+        self.assertEqual(report["confirmed"], list(COMPLETE_CASE_EXPECTED.confirmed()))
+        self.assertEqual(report["missing"], list(COMPLETE_CASE_EXPECTED.missing()))
+        self.assertEqual(report["is_complete"], COMPLETE_CASE_EXPECTED.is_complete())
+        self.assertEqual(report["summary"], COMPLETE_CASE_EXPECTED.summary())
+
+    def test_the_frame_is_json_serializable(self):
+        """الإطار يُبثّ بـ ``json.dumps`` — فلا كائنات غريبة فيه."""
+        report = self.payload(COMPLETE_CASE)
+        json.dumps(report, ensure_ascii=False)
+
+    def test_an_incomplete_case_is_reported_and_not_complete(self):
+        """والملف الناقص **يُقال نقصه** ولا يُجمَّل: ``is_complete`` كاذبةٌ لو قيلت."""
+        report = self.payload(INCOMPLETE_CASE)
+
+        self.assertTrue(report["established"])
+        self.assertFalse(report["is_complete"])
+        self.assertIn("emirate", report["missing"])
+        self.assertNotIn("emirate", report["confirmed"])
+        self.assertTrue(report["questions"], "نقص بلا سؤال يُقرأ سلامة")
+
+    def test_no_case_supplied_still_emits_a_case_frame(self):
+        """
+        🔑 **ولا يُحذف الإطار عند غياب الملف — ولا يدّعي اكتمالاً.**
+
+        وهذا هو الأصل الذي يقوم عليه `briefing.py`: **الفحص غير المُشغَّل ليس
+        فحصاً ناجحاً.** فالإطار يقول ``established: False`` صراحةً، ويحمل النصّ
+        الذي يمنع قراءة السكوت موافقةً على الاختصاص والتقادم.
+        """
+        report = self.payload(None)
+
+        self.assertFalse(report["established"])
+        self.assertFalse(report["is_complete"], "غياب الملف ليس اكتمالاً")
+        self.assertEqual(report["confirmed"], [])
+        self.assertEqual(report["missing"], [])
+        self.assertIsNone(report["summary"])
+        self.assertIn("لم يُنشأ", report["message"])
+        self.assertIn("غير متحقَّق", report["message"])
+
+    def test_the_absent_block_says_which_checks_did_not_run(self):
+        """
+        ⚠️ ونصّ الغياب **يسمّي ما سقط** لا يقول «لا مشكلة».
+
+        ولو قال «لا ملف قضية» وسكت لَقُرئ فراغاً محايداً، والمطلوب أن يُقرأ
+        **تنبيهاً**: كل ما يتوقّف على الاختصاص أو التقادم أو المرحلة غير
+        متحقَّق منه، لأن لا إمارة ولا جهة ولا مرحلة سُجّلت.
+        """
+        message = main._case_prompt_block(None)
+        for expected in ("الاختصاص", "التقادم", "المرحلة"):
+            with self.subTest(word=expected):
+                self.assertIn(expected, message)
+
+    def test_the_open_questions_keep_the_modules_order(self):
+        """
+        🔑 **الأسئلة بترتيب الوحدة، والمانع أولاً — وبلا فرز ثانٍ هنا.**
+
+        والترتيب **مصدره الواحد** ``QUESTIONS`` في `case_file.py`؛ ولو فُرز في
+        `main.py` على ``BLOCKING_FIELDS`` لصار للترتيب مصدران يفترقان عند أول
+        تعديل — وهو التعليل المكتوب في ``questions_for`` نفسه.
+        """
+        report = self.payload(INCOMPLETE_CASE)
+        fields = [question["field"] for question in report["questions"]]
+
+        # ⚠️ مقارنة بمخرَج الوحدة، لا بقائمة مكتوبة هنا.
+        expected = [q.field for q in INCOMPLETE_CASE_EXPECTED.questions_for_missing()]
+        expected += [q.field for q in INCOMPLETE_CASE_EXPECTED.open_regime_questions()]
+        self.assertEqual(fields, expected)
+
+        # والمانع أولاً: كل حقل مانع قبل كل حقل غير مانع.
+        positions = {name: index for index, name in enumerate(fields)}
+        blocking = [positions[name] for name in BLOCKING_FIELDS if name in positions]
+        others = [
+            positions[name]
+            for name in fields
+            if name not in BLOCKING_FIELDS
+        ]
+        self.assertEqual(blocking, sorted(blocking), "ترتيب المانعة انقلب")
+        if blocking and others:
+            self.assertLess(max(blocking), min(others), "سؤال مانع بعد غير مانع")
+        # والوسم من الوحدة أيضاً (`blocking_missing` المحسوب في `summary`).
+        for question in report["questions"]:
+            with self.subTest(field=question["field"]):
+                self.assertEqual(
+                    question["blocking"],
+                    question["field"]
+                    in INCOMPLETE_CASE_EXPECTED.summary()["blocking_missing"],
+                )
+        # ⚠️ و«لم يُنظر» (`None`) سؤالٌ، و«لا» (`False`) جوابٌ لا سؤال: لو خُلطا
+        # لطُلب من المحامي ما أجاب عنه، فيُقرأ السؤال استيفاءً ويُهمَل.
+        self.assertIn("has_choice_of_law", fields)
+        self.assertIn("has_arbitration_clause", fields)
+
+    def test_regime_notes_appear_with_their_sources(self):
+        """
+        ⚠️ **وملاحظة بلا مصدر رأيٌ يتنكّر في هيئة مرجع.**
+
+        والمفحوص هنا أن المصدر **وحدّه** يصلان إلى الإطار كما في الوحدة —
+        فحقل ``limit`` ليس ترفاً: الملاحظة التي تُقرأ أوسع مما هي عليه تُنتج
+        النصّ الصحيح في الموضع الخاطئ.
+        """
+        payload = dict(COMPLETE_CASE)
+        payload["forum"] = "محاكم مركز دبي المالي العالمي (DIFC Courts)"
+        payload["dispute_type"] = "commercial"
+        payload["has_choice_of_law"] = False
+        payload["has_arbitration_clause"] = False
+        report = self.payload(payload)
+
+        notes = report["regime_notes"]
+        self.assertTrue(notes, "قضية في مركز مالي بلا ملاحظة — الجدول صامت")
+        for note in notes:
+            with self.subTest(area=note["area"]):
+                self.assertTrue(note["source"].strip(), "ملاحظة بلا مصدر")
+                self.assertTrue(note["limit"].strip(), "ملاحظة بلا حدّ")
+                self.assertTrue(note["note"].strip())
+        # ⚠️ والملاحظات هي ملاحظات الوحدة بنفس ترتيب جدولها — لا نسخةً عندنا.
+        self.assertEqual(
+            [note["area"] for note in notes],
+            [
+                note.area.value
+                for note in main.case_file_module.regime_notes(
+                    main._case_from_payload(case_input(DIFC_CASE)).case
+                )
+            ],
+        )
+        self.assertEqual(notes[0]["area"], RegimeArea.FREE_ZONE.value)
+
+    def test_notes_are_the_ones_the_case_actually_triggers(self):
+        """
+        ⚠️ **والقياس السالب:** قضية على البرّ لا تجرّ ملاحظة مركز مالي.
+
+        ولو جرّتها لَظهر في المسودّة تنبيه عن نظام عمالي خاصّ بمركز لا شأن
+        للقضية به — وهو **النصّ الصحيح في الموضع الخاطئ** بعينه.
+        """
+        areas = {
+            note["area"] for note in self.payload(COMPLETE_CASE)["regime_notes"]
+        }
+        self.assertNotIn(RegimeArea.FREE_ZONE.value, areas)
+        self.assertIn(RegimeArea.EMIRATE.value, areas)
+
+
+class TestCasePrompt(MainTestBase):
+    """
+    كتلة القضية في الرسالة — **والأسئلة المفتوحة أهمّ ما فيها**.
+    ========================================================================
+    ⚠️ **الإطار يُعلن للمحامي، والرسالة تمنع النموذج من الافتراض.** فالاثنان
+    ضروريان: تقريرٌ يُقرأ ولا يُقيَّد به النموذج يُنتج مسودّة تجزم بما لم
+    يُسجَّل، وهي أخطر من المسودّة الناقصة لأنها تبدو تامة.
+    """
+
+    def user_content(self, case: object = None) -> str:
+        """نصّ رسالة المستخدم كما يُبنى — وكتلة القضية داخله لا منفصلة."""
+        messages = main._build_messages(
+            "وقائع القضية", "مذكرة دفاع", main._case_from_payload(case_input(case))
+        )
+        return messages[1].content
+
+    def test_the_established_facts_are_in_the_prompt(self):
+        """الوقائع المُثبَتَة تُدخل الرسالة — والقيم كما سُجّلت."""
+        content = self.user_content(COMPLETE_CASE)
+        for expected in ("دبي", "مركز فضّ المنازعات الإيجارية - دبي", "lease",
+                         "first_instance", "claimant", "فسخ عقد الإيجار"):
+            with self.subTest(value=expected):
+                self.assertIn(expected, content)
+
+    def test_the_open_questions_are_in_the_prompt_with_their_reason(self):
+        """
+        🔑 **والسؤال يُكتب بـ``why`` معه.**
+
+        فسؤال بلا سبب يُقرأ استيفاءً لشكليات فلا يُجاب جواباً واعياً — وهو
+        التعليل المكتوب في ``Question`` نفسها.
+        """
+        content = self.user_content(INCOMPLETE_CASE)
+        question = INCOMPLETE_CASE_EXPECTED.questions_for_missing()[0]
+
+        self.assertIn(question.question, content)
+        self.assertIn(question.why, content)
+        self.assertIn(question.field, content)
+
+    def test_the_prompt_forbids_assuming_an_answer(self):
+        """
+        ⚠️ **ومنع الافتراض مكتوب صراحةً لا مفهوماً من السياق.**
+
+        والمطلوب اثنان: ألّا يُفترض جواب، **وأن يُقال في موضعه** حين يمسّ
+        السؤالُ المفتوح جوهرَ الحكم. الأول يمنع الخطأ الصامت، والثاني يجعله
+        مرئياً لمن يقرأ المسودّة.
+        """
+        content = self.user_content(INCOMPLETE_CASE)
+        self.assertIn("لا تفترض", content)
+        self.assertIn("قُل في موضعه", content)
+
+    def test_the_case_does_not_block_the_rest_of_the_draft(self):
+        """
+        ⚠️ **والنقص لا يوقف العمل — وهذا نصّ لا نيّة.**
+
+        المطلوب أن يُسأل عن النواقص **ويمضي فيما لا يتوقّف عليها**؛ ولو قيل
+        للنموذج «توقّف» لَما خرج مستند أصلاً، وهو خلاف المطلوب صراحةً.
+        """
+        content = self.user_content(INCOMPLETE_CASE)
+        self.assertIn("اصوغ الأجزاء", content)
+
+    def test_no_case_supplied_still_says_so_in_the_prompt(self):
+        """
+        🔑 **ولا تُحذف الكتلة عند غياب الملف — فحذفها يُقرأ موافقةً صامتة.**
+
+        وهذا نقيض القاعدة: الفحص غير المُشغَّل ليس فحصاً ناجحاً، والسكوت عنه
+        يجعل مسودّةً عن الاختصاص تبدو مبنية على سؤال سُئل.
+        """
+        content = self.user_content(None)
+        self.assertIn(CASE_BLOCK_ABSENT_MARKER, content)
+        self.assertIn("لم يُنشأ", content)
+
+    def test_the_block_is_built_even_without_a_doc_type(self):
+        """والكتلة تُبنى في كل الأحوال — ولو لم يُرسل نوع مستند."""
+        messages = main._build_messages("وقائع")
+        self.assertIn(CASE_BLOCK_ABSENT_MARKER, messages[1].content)
+
+    def test_a_complete_case_does_not_invent_questions(self):
+        """
+        ⚠️ **ولا يُسأل عن حقل ثابت** — سؤالٌ عن مُثبَت يُقرأ استيفاءً.
+
+        والمتبقّي في ملف كامل هو أسئلة «لم يُنظر» في الجدول وحدها، ولا واحد
+        منها عن نقصٍ في الملف: المانعة كلها ثابتة، فلا يظهر لها سؤال.
+        """
+        content = self.user_content(COMPLETE_CASE)
+        self.assertIn(main.CASE_BLOCK_QUESTIONS_HEADER, content)
+        self.assertNotIn(main.CASE_BLOCK_NO_QUESTIONS, content)
+
+        # ⚠️ والمانعة **ثابتة** في هذا الحمل — فالفحص أن الوحدة لا تسأل عنها.
+        self.assertEqual(COMPLETE_CASE_EXPECTED.missing(blocking_only=True), ())
+        for field_name in BLOCKING_FIELDS:
+            with self.subTest(field=field_name):
+                self.assertNotIn(f"- [{field_name}]", content)
+        # وكل حقل مسجَّل إمّا ثابت وإمّا مسؤول عنه سؤالٌ — ولا يُسكَت عنه.
+        self.assertEqual(
+            set(COMPLETE_CASE_EXPECTED.confirmed())
+            | set(COMPLETE_CASE_EXPECTED.missing()),
+            set(ESTABLISHED_FIELDS),
+        )
+
+
+# ==============================================================================
 # ٥. بثّ SSE
 # ==============================================================================
 
 
 class TestSSE(MainTestBase):
     """إطارات SSE: الشكل، والترتيب، ومسار الفشل."""
+
+    # -- إطار `case` — الأول في البثّ ولا يُحذف -------------------------------
+
+    def test_the_case_frame_precedes_the_first_stage(self):
+        """
+        🔑 **إطار `case` قبل أول مرحلة — وهذا هو موضعه لا غير.**
+
+        ولو جاء بعد المرحلة الأولى لَبدأت الواجهة في العرض ثم عادت لتُصحّح:
+        فيُبنى المشهد على ناقص، ويُقرأ التأخّر عطباً في الاتصال. والفحص على
+        **الموضع** لا على الوجود.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        events = parse_frames(
+            drain_sse(
+                main._build_messages(
+                    "صغ عقداً",
+                    None,
+                    main._case_from_payload(case_input(COMPLETE_CASE)),
+                ),
+                case_report(COMPLETE_CASE),
+            )
+        )
+        kinds = [event["type"] for event in events]
+
+        self.assertEqual(kinds[0], "case", "أول إطار ليس ملف القضية")
+        self.assertLess(
+            kinds.index("case"), kinds.index("stage"), "الملف بعد أول مرحلة"
+        )
+
+    def test_the_case_frame_carries_the_module_values_over_the_wire(self):
+        """وما يصل الواجهة هو ما تُنتجه الوحدة — بعد التسلسل وإعادة القراءة."""
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        report = case_events(
+            parse_frames(
+                drain_sse(main._build_messages("صغ عقداً"), case_report(COMPLETE_CASE))
+            )
+        )[0]["report"]
+
+        self.assertTrue(report["established"])
+        self.assertEqual(report["confirmed"], list(COMPLETE_CASE_EXPECTED.confirmed()))
+        self.assertEqual(report["is_complete"], COMPLETE_CASE_EXPECTED.is_complete())
+        self.assertEqual(report["summary"], COMPLETE_CASE_EXPECTED.summary())
+
+    def test_no_case_still_emits_a_case_frame_saying_so(self):
+        """
+        ⚠️ **والغياب يُبثّ ولا يُسكَت عنه.**
+
+        ولو لم يُبثّ إطار لَما فرّقت الواجهة بين «لم يُنشأ ملف» و«ملف مكتمل
+        لا ملاحظات فيه» — وهما ليسا سواءً: الأول فحصٌ لم يُشغَّل، والثاني
+        فحصٌ جرى. والسكوت يخلط بينهما، وهو خلطٌ يُبنى عليه قرار.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        events = parse_frames(
+            drain_sse(main._build_messages("صغ عقداً"), case_report(None))
+        )
+        report = case_events(events)[0]["report"]
+
+        self.assertFalse(report["established"])
+        self.assertFalse(report["is_complete"], "غياب الملف ادُّعي اكتمالاً")
+        self.assertIn("لم يُنشأ", report["message"])
+        self.assertLess(
+            [event["type"] for event in events].index("case"),
+            [event["type"] for event in events].index("stage"),
+        )
+
+    def test_an_incomplete_case_does_not_block_generation(self):
+        """
+        🔑 **والملف الناقص لا يوقف الصياغة — المراحل تتبع الإطار.**
+
+        وهذا هو المطلوب صراحةً: أن **يُسأل** عن النواقص **ويمضي** فيما لا
+        يتوقّف عليها. فلو أوقف النقصُ البثَّ لَما خرج مستند، ولو سكت لَما
+        عُرف النقص — والمفحوص هنا أن الاثنين يقعان معاً: إطارٌ يقول النقص،
+        ثم مراحل، ثم مستند.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE)
+        events = parse_frames(
+            drain_sse(
+                main._build_messages("صغ عقداً"),
+                case_report(INCOMPLETE_CASE),
+            )
+        )
+        kinds = [event["type"] for event in events]
+
+        self.assertIn("case", kinds)
+        self.assertIn("stage", kinds, "الملف الناقص أوقف المراحل")
+        self.assertIn("done", kinds, "الملف الناقص أوقف التوليد")
+        report = case_events(events)[0]["report"]
+        self.assertFalse(report["is_complete"])
+        self.assertTrue(report["questions"])
+
+    def test_the_open_questions_in_the_frame_keep_the_modules_order(self):
+        """
+        ⚠️ **والأسئلة بترتيب الوحدة، المانع أولاً — بلا فرز هنا.**
+
+        والفرز الثاني يجعل للترتيب مصدرين يفترقان عند أول تعديل، فيُسأل
+        المحامي عن الحقل الذي يُكمل البيان قبل الذي يُغيّر الاختصاص.
+        """
+        report = case_report(INCOMPLETE_CASE)
+        fields = [question["field"] for question in report["questions"]]
+
+        expected = [q.field for q in INCOMPLETE_CASE_EXPECTED.questions_for_missing()]
+        expected += [q.field for q in INCOMPLETE_CASE_EXPECTED.open_regime_questions()]
+        self.assertEqual(fields, expected)
+        self.assertEqual(fields[0], "emirate", "أول سؤال ليس مانعاً")
+
+    def test_regime_notes_reach_the_frame_with_their_sources(self):
+        """⚠️ والملاحظة تصل بمصدرها وحدّها — وإلا صارت رأياً بلا مرجع."""
+        notes = case_report(DIFC_CASE)["regime_notes"]
+
+        self.assertTrue(notes)
+        self.assertEqual(notes[0]["area"], RegimeArea.FREE_ZONE.value)
+        self.assertTrue(notes[0]["source"].strip())
+        self.assertTrue(notes[0]["limit"].strip())
 
     def test_frames_are_well_formed(self):
         """كل إطار `data: {...}\\n\\n` — العقد الذي تعتمد عليه الواجهة."""
