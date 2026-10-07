@@ -2253,6 +2253,19 @@ class TestFactPayload(MainTestBase):
         self.assertIsInstance(ledger, main.FactLedger)
         self.assertEqual(ledger.keys(), ())
 
+    def test_the_raw_json_shape_is_read_too(self):
+        """
+        ⚠️ **والواقعة تُقرأ بصورتيها**: كائنَ نقل (وهو ما يُنتجه بيدانتيك)،
+        وقاموساً خاماً (وهو ما يصل في جسم JSON). والقراءة واحدة، فلا يفترق ما
+        يُختبر عمّا يخدم.
+        """
+        ledger = main._facts_from_payload([dict(RELEASE_FACT)])
+
+        self.assertEqual(ledger.keys(), ("release.refused",))
+        self.assertEqual(
+            ledger.of_key("release.refused").standing, Standing.CLAIMED
+        )
+
     def test_a_ledger_that_is_not_a_list_is_rejected(self):
         with self.assertRaises(main.HTTPException) as caught:
             main._facts_from_payload(fact_input("وقائع"))
@@ -2355,24 +2368,32 @@ class TestFactPayload(MainTestBase):
             )
 
         self.assertEqual(caught.exception.status_code, 400)
+        # ⚠️ والردّ من موضع السجلّ لا من موضع آخر: الرسالة تسمّي الدرجة.
+        self.assertIn("درجة الواقعة", caught.exception.detail)
         self.assertEqual(fake_deps.AGENT_SCRIPT, [])
         self.assertEqual(fake_deps.FakeEmbedder.instances, [], "استُدعي النموذج")
         self.assertEqual(fake_deps.FAKE_SUPABASE.calls, [], "جرت أداة استرجاع")
 
-    def test_the_ledger_is_built_before_the_messages_and_the_thread(self):
+    def test_a_valid_ledger_is_built_before_the_agent_runs(self):
         """
-        ⚠️ **وموضع البناء مفحوص لا موصوف**: يُبنى السجلّ في `generate` **قبل**
-        بناء الرسائل، فلا يفترق الاختبار عن المسار إذا نُقل البناء لاحقاً.
-        والفحص بمقارنة الحالتين: حملٌ صالح يمرّ، وحملٌ فاسد يرفع — والحمل
-        الصالح يُبنى ولو لم يُنادَ الوكيل أصلاً.
+        ⚠️ **والبناء قبل الخيط، والبثّ بعد النداء**: نداء `/generate` بحملٍ صالح
+        يُرجع بثّاً **ولا يكون الوكيل قد جرى بعد** — فالسجلّ بُني، والرسائل بُنيت،
+        ولم يُضمَّن نصّ ولم يُسترجَع سند. والمفحوص أنّ الردّ لا ينتظر التوليد: لو
+        جرى الوكيل داخل النقطة لظهر أثرُه قبل أن يُستهلك البثّ.
         """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
+
         response = asyncio.run(
             main.generate(
                 main.GenerateRequest(prompt="صغ عقداً", doc_type="عقد", facts=FACTS)
             )
         )
-        # لم يُستهلك البثّ بعد — ومع ذلك لم يرفع الطلب: البناء وقع قبله.
+
         self.assertEqual(response.media_type, "text/event-stream")
+        self.assertEqual(
+            fake_deps.FakeEmbedder.instances, [], "جرى الوكيل قبل إرجاع البثّ"
+        )
+        self.assertEqual(fake_deps.FAKE_SUPABASE.calls, [], "جرت أداة قبل البثّ")
 
 
 class TestFactsFrame(MainTestBase):

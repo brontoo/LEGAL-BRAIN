@@ -101,7 +101,7 @@ FACTS_STILL_VALID_SENTINEL = "قام الطرف الثاني بإخطار كتا
 
 #: مسودّة تستشهد بمصدر ثانوي بتمهيد استشهاد — **العيب الثالث في سطر واحد**.
 DRAFT_CITING_A_SECONDARY = (
-    "وفقا لتعليق على قانون المعاملات المدنية المدنية فإن الإخطار واجب قبل الإنهاء."
+    "وفقا لتعليق على قانون المعاملات المدنية فإن الإخطار واجب قبل الإنهاء."
 )
 
 
@@ -155,7 +155,7 @@ def the_secondary_source() -> Authority:
     """
     return Authority(
         key="commentary-1",
-        instrument="تعليق على قانون المعاملات المدنية المدنية",
+        instrument="تعليق على قانون المعاملات المدنية",
         article="1",
         kind=SourceKind.SECONDARY,
         official_source="",
@@ -647,7 +647,7 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         """وأخطرها: التعليق **صدر جملةً تُنقل حرفياً** بين علامتَي تنصيص."""
         # ⚠️ والاسم مكتوبٌ في المتن **بنصّه الخام** لا برسم مطبّع: الشاهد يُبنى على
         # النصّ الذي يفتحه المحامي، فلا تُطبّع الأسماء في متن الاختبار.
-        draft = "ويقول تعليق على قانون المعاملات المدنية المدنية: «الإخطار واجب»."
+        draft = "ويقول تعليق على قانون المعاملات المدنية: «الإخطار واجب»."
         findings = secondary_as_primary((the_secondary_source(),), draft)
         self.assertEqual(len(findings), 1)
 
@@ -657,14 +657,14 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         «وفقاً لما ورد في التعليق…». ولو لم تُدرَج في القائمة لَمرّ التعليق
         مستشهداً به كأنه نصّ — **وهو العيب الثالث نفسه في ثوبه الأشيع**.
         """
-        draft = "وفقا لما ورد في تعليق على قانون المعاملات المدنية المدنية فإن الإخطار واجب."
+        draft = "وفقا لما ورد في تعليق على قانون المعاملات المدنية فإن الإخطار واجب."
         self.assertEqual(
             len(secondary_as_primary((the_secondary_source(),), draft)), 1
         )
 
     def test_a_secondary_source_used_as_a_document_reference_is_caught(self):
         """وإذا صار التعليق موضع الإحالة على القانون، فهو سندٌ في غير موضعه."""
-        draft = "المرجع: تعليق على قانون المعاملات المدنية المدنية رقم 5 لسنة 1985."
+        draft = "المرجع: تعليق على قانون المعاملات المدنية رقم 5 لسنة 1985."
         self.assertEqual(
             len(secondary_as_primary((the_secondary_source(),), draft)), 1
         )
@@ -681,7 +681,7 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         silent = "ولم نقف في هذا الموضع على نصّ يحكم الواقعة."
         self.assertEqual(secondary_as_primary((the_secondary_source(),), silent), ())
 
-        named = "وقد ناقش تعليق على قانون المعاملات المدنية المدنية هذه المسألة."
+        named = "وقد ناقش تعليق على قانون المعاملات المدنية هذه المسألة."
         self.assertEqual(secondary_as_primary((the_secondary_source(),), named), ())
 
     def test_a_primary_source_is_never_flagged_however_it_is_used(self):
@@ -708,7 +708,7 @@ class TestSecondaryAsPrimary(unittest.TestCase):
         ولو طُوبق حرفياً لسقط الإعلان عند أول اختلاف رسم.
         """
         draft = (
-            "وفقا لتعليق على قانون المعاملات المدنية المدنية (طبعة ثانية) "
+            "وفقا لتعليق على قانون المعاملات المدنية (طبعة ثانية) "
             "فإن الإخطار واجب."
         )
         self.assertEqual(
@@ -769,6 +769,59 @@ class TestUnsourced(unittest.TestCase):
     def test_a_fully_sourced_register_reports_nothing(self):
         """وسجلّ كلّه بمصادر رسمية: لا إعلان — فلا تُنذر الأداة بلا سبب."""
         self.assertEqual(unsourced((the_amended_authority(),)), ())
+
+    def test_the_constructor_forces_dating_and_the_review_forces_sourcing(self):
+        """
+        🔑🔑 **تقسيمٌ غير ظاهر من الخارج، فيُثبَّت في اختبار:**
+
+        * **المُنشئ يفرض التأريخ والتصنيف** — مفتاحٌ لا يكون فارغاً، ونوعٌ من
+          المغلقة. فما لا يُقابَل بشيء لا يُدرج.
+        * **والمراجعة تفرض المصدر** — `unsourced` تُعلن ما لا مصدر له،
+          و`summarize` يُبطل ``clean`` لأجله.
+
+        ⚠️⚠️ **وهذا الفرق مهمّ لأنّ اختباراً يتوقّع رفعًا عند عدم المصدر**
+        يكون **خاطئاً**: لا رفع هنا. ولو رفع المُنشئ، لَما أمكن إدراج سندٍ لم
+        يُتحقَّق بعد — **وقد يكون مفيداً في الفحص الزمني وفحص الشروط، وهما لا
+        يحتاجان رابطاً**.
+        """
+        # (١) المُنشئ يرفع: مفتاح فارغ.
+        with self.assertRaises(ValueError):
+            Authority(
+                key="",
+                instrument="سند بلا مفتاح",
+                article="1",
+                kind=SourceKind.FEDERAL_LAW,
+                official_source="جهة",
+                in_force_from="2020-01-01",
+            )
+        # (٢) المُنشئ يرفع: تصنيف نصّي حرّ.
+        with self.assertRaises(ValueError):
+            Authority(
+                key="k",
+                instrument="سند",
+                article="1",
+                kind="قانون",  # type: ignore[arg-type]
+                official_source="جهة",
+                in_force_from="2020-01-01",
+            )
+
+        # (٣) ولا يرفع على سندٍ **بلا مصدر** — بل يُدرَج ويُعلَن.
+        without_source = Authority(
+            key="no-source",
+            instrument="سند بلا مصدر مُدرَج",
+            article="1",
+            kind=SourceKind.FEDERAL_LAW,
+            official_source="",
+            in_force_from="2020-01-01",
+        )
+        self.assertEqual(
+            [entry.key for entry in unsourced((without_source,))], ["no-source"]
+        )
+        payload = summarize((), unsourced_authorities=unsourced((without_source,)))
+        self.assertFalse(payload["clean"], "والمصدر الفارغ يُسقط clean")
+        self.assertEqual(payload["error_count"], 0, "ولكنه ملاحظة لا خطأ")
+        self.assertEqual(payload["notice_count"], 1)
+        self.assertEqual(payload["findings"][0]["kind"], "unsourced")
 
     def test_unsourced_is_a_notice_not_an_error(self):
         """
