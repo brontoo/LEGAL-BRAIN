@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   Archive,
   Clock,
@@ -183,6 +183,27 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
   const done = phase === "done";
   const Icon = worker.icon;
 
+  /*
+   * ⚠️ **وهنا موضع `motion` في دليل الأنماط: تفضيل المستخدم.**
+   *
+   * نصّ الدليل: «In most operating systems, users may opt out of motion from
+   * their accessibility settings… it is crucial to respect the choice of the
+   * user».
+   *
+   * و`MotionConfig reducedMotion="user"` في `components/motion-preference.tsx`
+   * يوقف **الانتقالات الموضعية** (`y`)، وهما الانتقالان أدناه. لكن **الهالة
+   * النابضة ليست انتقالاً موضعياً**: هي `opacity` متكرّرة إلى ما لا نهاية،
+   * وهي **الحركة الوحيدة المستمرّة في المشروع كلّه**. وهي بالضبط ما تصفه
+   * الحجّة في الدليل («can even trigger physical reactions such as nausea and
+   * dizziness») — نبضٌ لا ينقطع في زاوية النظر.
+   *
+   * ⚠️ ولا تُحذف الهالة عند تعطيل الحركة: **ثباتها هو الحلّ لا غيابها**.
+   * فالهالة هي العلامة على «من يعمل الآن» حين تتشابه صور الفريق (وهو سببها
+   * المعلن في التعليق أدناه)؛ فتُثبَّت عند وهجٍ متوسّط ثابت بدل أن تُطفأ —
+   * فيبقى المعنى ويزول النبض.
+   */
+  const reduceMotion = useReducedMotion();
+
   // هل توجد صورة مولَّدة لهذا الموظّف؟
   //
   // نحاول `/agents/<key>.jpg` ثم `.png`، وإن فشل الاثنان نرجع إلى الأيقونة.
@@ -204,6 +225,12 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
        * والبديل **حالة منفصلة** على نمط محرّكات الروايات البصرية: انتقال واحد
        * عند تغيّر الحالة ثم ثبات. و`key={phase}` يُجبر React على إعادة التركيب
        * فيُشغَّل الانتقال **مرة واحدة لكل تغيّر** لا في حلقة لا تنتهي.
+       *
+       * ⚠️ **ولماذا بقي `spring` بلا مدّة مكتوبة؟** لأن الدليل يستثني النوابض
+       * من المدّة صراحةً: «motion in general does not adhere to the concept of
+       * durations and curves, but rather physical properties such as mass and
+       * tension». فكتابة `duration` على نابضٍ **تناقض نوعه** وتُلغي السبب الذي
+       * وُجد له. والإيقاع هنا مضبوط بالصلابة والتخميد لا بالزمن.
        */
       key={phase}
       initial={{ opacity: 0.4, y: -6 }}
@@ -224,9 +251,16 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
              * وسببها وظيفي لا تجميلي: هي العلامة على «من يعمل الآن» حين
              * تتشابه الصور. ولذلك **واحدة، وبطيئة (٢.٨ ثانية)، وعلى العنصر
              * الفعّال وحده** — بخلاف اثنتَي عشرة حركة متوازية.
+             *
+             * ⚠️ وعند تعطيل الحركة تُثبَّت عند وهجٍ متوسّط `0.55` — أي منتصف
+             * المدى `0.35↔0.75` — بدل أن تختفي: المعنى يبقى والنبض يزول.
              */
-            animate={{ opacity: [0.35, 0.75, 0.35] }}
-            transition={{ repeat: Infinity, duration: 2.8, ease: "easeInOut" }}
+            animate={reduceMotion ? { opacity: 0.55 } : { opacity: [0.35, 0.75, 0.35] }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : { repeat: Infinity, duration: 2.8, ease: "easeInOut" }
+            }
           />
         )}
 

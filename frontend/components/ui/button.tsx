@@ -19,11 +19,24 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
+        /*
+         * ⚠️ **وأصناف الأيقونة منطقيّة لا فيزيائيّة.**
+         *
+         * كان: `has-data-[icon=inline-end]:pr-2` و`…inline-start…:pl-2`. وهي
+         * **تسمية منطقيّة بصنف فيزيائيّ** — أظهرُ صورةٍ لهذا الفخّ: `inline-end`
+         * تعني «آخر السطر»، وفي العربية آخرُ السطر **يساره**. فالحشو كان يُقلَّص
+         * في الطرف الذي لا أيقونة فيه، وتبقى الأيقونة ملتصقة بالحدّ.
+         *
+         * و`ps`/`pe` تنقلبان مع `dir` بلا شرط، فلا نسخة ثانية للاتجاه الآخر.
+         * (ولا مستدعيَ لهذه الأصناف اليوم — لا موضع في المشروع يضع
+         * `data-icon` — فهذا إصلاح عطبٍ كامنٍ في مكوّنٍ سيُستعمل، وهو أهون من
+         * اكتشافه بعد أن يُبنى عليه.)
+         */
         default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
+        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pe-1.5 has-data-[icon=inline-start]:ps-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pe-1.5 has-data-[icon=inline-start]:ps-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Send,
@@ -2823,6 +2823,29 @@ function RulesPanel({ frame }: { frame: RulesFrame | null }) {
    حقل تعديدٍ نصّاً حرّاً**، والخادم يردّه ٤٠٠.
    ============================================================================== */
 
+/*
+ * ==============================================================================
+ *   ربط التسمية بالحقل — قاعدة من `textfield` في دليل الأنماط، وهي **عطب حقيقي**
+ *   لا تحسين شكليّ.
+ *
+ *   ⚠️ ما كان: `<label>` مجرّدة فوق الحقل بلا `htmlFor`، والحقل بلا `id`. وهذا
+ *   يُقرأ بالعين سليماً، ويقرؤه قارئ الشاشة **حقلاً بلا اسم**: التركيز يقع على
+ *   الحقل فيقول «مربّع تحرير» ولا يقول «المفتاح الآلي». والضغط على التسمية لا
+ *   ينقل التركيز إلى الحقل (وهو نصف مساحة الهدف على الجوّال).
+ *
+ *   ⚠️ و`useId` لا عدّاد يدوي: المكوّن يُستدعى في **قوائم متكرّرة** (طلبٌ ودفعٌ
+ *   وسندٌ وقاعدة، كلٌّ بحقوله)، فمعرّف ثابت يُنتج `id` مكرّراً في الصفحة —
+ *   فيشير `htmlFor` إلى أول حقلٍ وقع، **وهو أسوأ من غياب الربط**: يقرأ القارئ
+ *   تسمية حقلٍ آخر. و`useId` يُنتج معرّفاً فريداً لكل نسخة، ويطابق بين الخادم
+ *   والعميل فلا ينكسر الترطيب.
+ *
+ *   ⚠️ **والتلميح يُربط بـ`aria-describedby` لا يُترك نصّاً حرّاً**: الدليل
+ *   يشترط «Announce the hint» — والتلميح هنا ليس تجميلاً، بل شرطُ صحّة
+ *   («سطر لكل عنصر» · «والفراغ يعني: كل المراحل»)، فمن لا يسمعه يكتب سطراً
+ *   واحداً فيطلب الخادم ما لا يفهمه.
+ * ==============================================================================
+ */
+
 /** حقل نصّي بعنوان — على نمط `label` + `Input` في نموذج الصياغة القائم. */
 function Field({
   label,
@@ -2832,7 +2855,10 @@ function Field({
   className,
   dir,
   type,
-  min,
+  inputMode,
+  pattern,
+  /** نصّ العلّة — وحضوره يجعل الحقل معلَناً غير صالح للقارئ لا للعين وحدها. */
+  error,
 }: {
   label: string;
   value: string;
@@ -2841,20 +2867,44 @@ function Field({
   className?: string;
   dir?: "rtl" | "ltr";
   type?: string;
-  min?: number;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  pattern?: string;
+  error?: string;
 }) {
+  const fieldId = useId();
+  const errorId = `${fieldId}-error`;
+
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-slate-400">{label}</label>
+      {/* التسمية صارت قرينة الحقل — بالضغط عليها يُركَّز الحقل. */}
+      <label
+        htmlFor={fieldId}
+        className="text-xs font-medium text-slate-400"
+      >
+        {label}
+      </label>
       <Input
+        id={fieldId}
         className={`h-auto py-2 bg-slate-950 border-slate-800 text-white text-sm focus-visible:ring-amber-500 ${className ?? ""}`}
         dir={dir}
         type={type}
-        min={min}
+        inputMode={inputMode}
+        pattern={pattern}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        /* ⚠️ `aria-invalid` مع `aria-describedby` معاً — كما يشترط الدليل
+           («Announce the error»): الأوّل يقول «هذا الحقل غير صالح»، والثاني
+           يقرأ **سبب** عدم الصلاح. وأحدهما بلا الآخر ناقص. */
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
       />
+      {error ? (
+        /* و«العلّة» توضع حيث يضعها الدليل: تحت الحقل، مكان التلميح. */
+        <p id={errorId} className="text-xs leading-relaxed text-red-300">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -2873,13 +2923,27 @@ function LinesField({
   onChange: (value: string) => void;
   placeholder?: string;
 }) {
+  const fieldId = useId();
+  const hintId = `${fieldId}-hint`;
+
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-slate-400">
+      <label
+        htmlFor={fieldId}
+        className="text-xs font-medium text-slate-400"
+      >
         {label}
-        {hint ? <span className="text-slate-600"> — {hint}</span> : null}
       </label>
+      {/* التلميح **وصفٌ للحقل** لا جزءٌ من تسميته: تسميةٌ تصل إلى قارئ الشاشة
+          مقطوعةً عند الشرط («سطر لكل عنصر») تجعل الحقل يُنطق مرّتين. */}
+      {hint ? (
+        <span id={hintId} className="block text-slate-600 text-xs">
+          {hint}
+        </span>
+      ) : null}
       <Textarea
+        id={fieldId}
+        aria-describedby={hint ? hintId : undefined}
         className="min-h-[64px] bg-slate-950 border-slate-800 focus-visible:ring-amber-500 text-white text-sm resize-y"
         placeholder={placeholder}
         value={value}
@@ -2887,6 +2951,21 @@ function LinesField({
       />
     </div>
   );
+}
+
+/**
+ * هل المقدار مقدارٌ يقبله الخادم؟ (نفس شرط `_deadline_from`: عددٌ صحيح موجب)
+ *
+ * ⚠️ والفراغ **صالح** هنا: الحقل الذي لم يبدأه المحامي لا يُعلَن خطأً عليه —
+ * وهذا هو «التحقّق عند الفراغ من التفاعل» في الدليل (لا تعرض الخطأ على من لم
+ * يكتب بعد). وأما «٠» فمقدارٌ مكتوبٌ يردّه الخادم، فيُعلَن.
+ */
+function isAmountValid(amount: string): boolean {
+  const text = amount.trim();
+  if (text === "") return true;
+  // ⚠️ `[0-9]` لا `\d` — ليطابق ما يقبله `pattern="[0-9]*"` على الحقل نفسه،
+  // فلا يُعلَن حقلٌ صالحاً ثم يقول المتصفّح إنه غير صالح (أو العكس).
+  return /^[0-9]+$/.test(text) && Number(text) > 0;
 }
 
 /**
@@ -2911,10 +2990,18 @@ function EnumField({
   emptyLabel?: string;
   className?: string;
 }) {
+  const fieldId = useId();
+
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-slate-400">{label}</label>
+      <label
+        htmlFor={fieldId}
+        className="text-xs font-medium text-slate-400"
+      >
+        {label}
+      </label>
       <select
+        id={fieldId}
         className={`w-full p-2 bg-slate-950 border border-slate-800 text-white text-sm focus:ring-amber-500 ${className ?? ""}`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -2948,19 +3035,44 @@ function ToggleGroup({
   onChange: (values: string[]) => void;
   options: EnumOption[];
 }) {
+  const groupId = useId();
+  const labelId = `${groupId}-label`;
+  const hintId = `${groupId}-hint`;
+
   return (
     <div className="space-y-1">
-      <label className="text-xs font-medium text-slate-400">
+      {/*
+        ⚠️ **والتسمية هنا `<span>` لا `<label>`** — وهذا تصحيح لا تحسين.
+
+        `<label>` بلا `htmlFor` لا يقابل عنصراً واحداً، بل **يُقترن بأوّل عنصر
+        قابل للتسمية داخله**؛ وهذه المجموعة أزرارٌ متعدّدة، فيُقرأ الزرّ الأول
+        وعليه تسمية المجموعة، وتُسقَط التسمية عن الباقي. والصواب ما يقوله الدليل
+        في موضع التجميع: **دورٌ يعلن المجموعة، وتسميةٌ تُربط بها** —
+        `role="group"` + `aria-labelledby`، والتلميح `aria-describedby` تقرؤه
+        المجموعة مرّة واحدة قبل أوّل زرّ.
+      */}
+      <span id={labelId} className="block text-xs font-medium text-slate-400">
         {label}
-        {hint ? <span className="text-slate-600"> — {hint}</span> : null}
-      </label>
-      <div className="flex flex-wrap gap-1">
+      </span>
+      {hint ? (
+        <span id={hintId} className="block text-xs text-slate-600">
+          {hint}
+        </span>
+      ) : null}
+      <div
+        role="group"
+        aria-labelledby={labelId}
+        aria-describedby={hint ? hintId : undefined}
+        className="flex flex-wrap gap-1"
+      >
         {options.map((option) => {
           const chosen = values.includes(option.value);
           return (
             <button
               key={option.value}
               type="button"
+              /* `aria-pressed` هو ما يجعل «مختار» تُنطق حالاً للحالة، بدل لونٍ
+                 وحده يفترق فيه المختار عن غيره. */
               aria-pressed={chosen}
               onClick={() =>
                 onChange(
@@ -3053,7 +3165,16 @@ function AddRowButton({ label, onClick }: { label: string; onClick: () => void }
       onClick={onClick}
       className="w-full border-dashed border-slate-700 bg-transparent text-slate-300 hover:bg-slate-900"
     >
-      <Plus className="ml-1 h-4 w-4" /> {label}
+      {/*
+        ⚠️ **`ms-1` لا `ml-1`** — وهذا هو ما يفرق في العربية.
+
+        `ml-1` هامشٌ من **اليسار** أبداً؛ وفي RTL يجيء الزرّ في أوّل السطر
+        (أقصى اليمين) والعربية بعده، فالهامش الأيسر يقع **بين النصّ ونهاية
+        الزرّ** لا بين الأيقونة والكلمة — فتلتصق الأيقونة بالكلمة وتبقى فرجةٌ
+        في الطرف. و`ms-*` هامش «بداية السطر»، يتّبع `dir` فيصحّ في الاتجاهين.
+        والأيقونة `aria-hidden` لأنها زينة: «إضافة طلب» هو الاسم، والشكل يعيده.
+      */}
+      <Plus className="ms-1 h-4 w-4" aria-hidden="true" /> {label}
     </Button>
   );
 }
@@ -3485,16 +3606,45 @@ function GenerateInputsSection({
               />
             </div>
             <div className="grid grid-cols-2 gap-2">
+              {/*
+                ⚠️ **`type="text"` + `inputMode="numeric"` لا `type="number"`** —
+                وهو نصّ `textfield` في الدليل حرفياً (وقصّته مع GOV.UK).
+
+                و`type="number"` يُظهر أسهم زيادة/نقصان **بلا معنى في مقدار
+                المدّة** (لا أحد يزيد ميعاد الاستئناف بالنقر)، ويُحوّل الأرقام
+                الكبيرة أو يقصّها في بعض المتصفحات، ويلفظ المقدار الذي لم يكتمل
+                قراءته رقماً. و`inputMode` **لا يغيّر شيئاً في RTL**: هو إشارة
+                إلى لوحة المفاتيح لا إلى الاتجاه، و`dir="ltr"` أدناه يبقى لأن
+                المقدار عددٌ لاتينيّ يُقرأ من اليسار.
+              */}
               <Field
                 label="المقدار"
                 value={item.amount}
                 onChange={(amount) =>
-                  setDeadlines(patchAt(inputs.deadlines, index, { amount }))
+                  setDeadlines(
+                    patchAt(inputs.deadlines, index, {
+                      // ⚠️ ويُصفّى المدخل إلى **أرقام لاتينية وحدها**: `type="text"`
+                      // يقبل أيّ شيء، و`_deadline_from` تنادي `int(amount)`.
+                      // و`[^0-9]` لا `[^\d]` — و`\d` في جافاسكربت تطابق
+                      // **العربية-الهندية أيضاً** («٣»)، فتمرّ «٣٠» من التصفية
+                      // ويقبلها `Number` فيصل ٣٠ صحيحاً، لكن **ما يُعرض لا يطابق
+                      // ما يقبله `pattern="[0-9]*"` أدناه**: حقلٌ يقول «غير
+                      // صالح» ويُرسل صالحاً. فالمطابقة هنا صريحة.
+                      amount: amount.replace(/[^0-9]/g, ""),
+                    })
+                  )
                 }
-                type="number"
-                min={1}
+                inputMode="numeric"
+                pattern="[0-9]*"
                 dir="ltr"
                 placeholder="30"
+                /* التحقّق عند الفراغ/الاكتمال لا عند كل ضغطة: «٠» هو الوحيد
+                   الذي يُعلَن فورَ كتابته. */
+                error={
+                  isAmountValid(item.amount)
+                    ? undefined
+                    : "المقدار عددٌ صحيح موجب — و«٠» يردّه الخادم."
+                }
               />
               <EnumField
                 label="الوحدة"
@@ -3657,6 +3807,14 @@ function GenerateInputsSection({
 export default function Workspace() {
   const [prompt, setPrompt] = useState("");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
+  /*
+   * معرّفا الحقلين الأعلى في النموذج — لأن تسميتيهما كانتا `<label>` مجرّدة
+   * بلا `htmlFor`، وهذا **عطب القاعدة نفسه** الذي أُصلح في `Field` و`LinesField`
+   * أدناه: قارئ الشاشة يسمع «مربّع تحرير» ولا يسمع «نوع المستند».
+   * و`useId` لا نصّ ثابت، فلا يصطدم المعرّفان بمعرّفات الحقول المتكرّرة.
+   */
+  const docTypeId = useId();
+  const promptId = useId();
   const [status, setStatus] = useState<Status>("idle");
   const [liveMessage, setLiveMessage] = useState("");
   const [finalDocument, setFinalDocument] = useState("");
@@ -3947,8 +4105,9 @@ export default function Workspace() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">نوع المستند</label>
+                <label htmlFor={docTypeId} className="text-sm font-medium text-slate-300">نوع المستند</label>
                 <select 
+                  id={docTypeId}
                   className="w-full p-3 bg-slate-950 border border-slate-800 text-white focus:ring-amber-500"
                   value={docType}
                   onChange={(e) => setDocType(e.target.value)}
@@ -3961,8 +4120,9 @@ export default function Workspace() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">الوقائع والمعطيات</label>
+                <label htmlFor={promptId} className="text-sm font-medium text-slate-300">الوقائع والمعطيات</label>
                 <Textarea 
+                  id={promptId}
                   placeholder="مثال: مطالبة مالية بقيمة 20,000 درهم عن فواتير غير مسددة..." 
                   className="min-h-[200px] bg-slate-950 border-slate-800 focus-visible:ring-amber-500 text-white resize-none"
                   value={prompt}
@@ -3980,11 +4140,22 @@ export default function Workspace() {
                 setOpenGroup={setOpenInputGroup}
               />
 
-              {/* ⚠️ **والمنع معلنٌ قبل الإرسال لا بعده**: المدخل الذي يردّه
-                  الخادم ٤٠٠ يُقال هنا بنصّه («حكمٌ موضوعي بلا تاريخ نفاذ» ·
-                  «العدّ غير مختار») — فلا يكتب المحامي وقائعه ثم يضيع النداء. */}
+              {/*
+                ⚠️ **والمنع معلنٌ قبل الإرسال لا بعده**: المدخل الذي يردّه
+                الخادم ٤٠٠ يُقال هنا بنصّه («حكمٌ موضوعي بلا تاريخ نفاذ» ·
+                «العدّ غير مختار») — فلا يكتب المحامي وقائعه ثم يضيع النداء.
+
+                ⚠️ و«الإعلان» هنا **سمعيٌّ لا بصريّ**: كان النصّ يظهر على الشاشة
+                وحده، ومن يستعمل قارئ الشاشة يكتب مدخلاته ويضغط الزرّ فلا يقع
+                شيء ولا يُقال له لماذا. و`role="alert"` هو ما يقابل حال الإطار
+                نفسه في دليل الأنماط: هذا **خطأٌ يمنع المتوسّط عن التقدّم** لا
+                إشعار «حُفظ التغيير»، فيُنطق مقاطعاً لا منتظراً.
+                (والدليل يفرّق بين `status` و`alert` بهذا المعيار بعينه،
+                و«في الانتظار…» في `app/chat/page.tsx` بقي `status` لأنه ليس خطأً.)
+              */}
               {inputProblem ? (
                 <p
+                  role="alert"
                   className="border border-amber-900/60 bg-amber-950/30 p-3 text-xs leading-relaxed text-amber-300"
                   dir="auto"
                 >
@@ -3997,11 +4168,26 @@ export default function Workspace() {
                 disabled={status === "processing" || !prompt.trim()}
                 className="w-full bg-amber-600 hover:bg-amber-700 text-white py-6 text-lg transition-all"
               >
-                {status === "processing" ? (
-                  <><Loader2 className="ml-2 h-5 w-5 animate-spin" /> جاري الصياغة...</>
-                ) : (
-                  <><Send className="ml-2 h-5 w-5" /> ابدأ الصياغة</>
-                )}
+                {/*
+                  ⚠️ **ولا يتغيّر عرض الزرّ في حالة التحميل** — وهذا نصّ `button`
+                  في الدليل: «Make sure that the button itself is not expanding
+                  in width or height while in this state».
+
+                  والسبب عمليّ: كان الزرّ ينطق «جاري الصياغة...» بدل «ابدأ
+                  الصياغة»، والنصّان مختلفا الطول، فيتغيّر عرض الزرّ **في اللحظة
+                  التي ينظر فيها المحامي إليه** بعد أن ضغطه. و`min-w` يحجز أوسع
+                  الحالتين فلا يقفز شيء.
+
+                  ⚠️ و`ms-2` لا `ml-2` للسبب نفسه: أيقونةٌ **بعد** النصّ في
+                  العربية، و`ml` يضع الهامش في الطرف الآخر من الاتجاه.
+                */}
+                <span className="inline-flex min-w-[11rem] items-center justify-center">
+                  {status === "processing" ? (
+                    <><Loader2 className="ms-2 h-5 w-5 animate-spin" aria-hidden="true" /> جاري الصياغة...</>
+                  ) : (
+                    <><Send className="ms-2 h-5 w-5" aria-hidden="true" /> ابدأ الصياغة</>
+                  )}
+                </span>
               </Button>
             </CardContent>
           </Card>
@@ -4009,6 +4195,29 @@ export default function Workspace() {
 
         {/* العمود الأيسر: المكتب الذكي والمستند النهائي */}
         <div className="lg:col-span-2">
+          {/*
+            ⚠️ **والمدّة معلنة في كل انتقال لا متروكة للافتراضيّ** — وهذا نصّ
+            `motion` في دليل الأنماط: «the duration should be in the range of
+            100–500ms… For bigger changes, such as notifications or modals,
+            where elements are entering or exiting the screen, a duration of
+            200–300ms is suitable».
+
+            وهذه اللوحات **تدخل الشاشة وتخرج منها** (تبديل كامل بين أربع حالات:
+            فراغٌ ← عملٌ ← خطأٌ ← مستند)، فهي من صنف 200–300 لا من صنف الـ100ms
+            الذي للتحويم والنقر. و200ms هي الطرف الأدنى للصنف، وهي المقصودة في
+            **واجهة قانونية**: التأخير الذي يُقرأ كبطء يُقرأ كتردّد في منصّة
+            يُراجَع فيها نصّ، والحركة هنا **خبر** («تغيّرت الحال») لا استعراض.
+
+            ⚠️ ولماذا لم تُترك الافتراضيّة (وهي ~300ms)؟ لأن تركها يعني ألّا
+            يُعرَف الرقم من الكود أصلاً: يُغيَّر في إصدارة مكتبة فيتغيّر إيقاع
+            المنصّة كلها بلا سطر يُراجَع. والرقم المكتوب قرارٌ يُقرأ.
+
+            ⚠️ **وأما الاتجاه:** `y: 20 → 0` انزياحٌ رأسّي لا أفقيّ — **يصحّ في
+            RTL كما هو**، ولو كان `x` لكان لزم قلبه (في العربية «يدخل من جهة
+            البداية» = من اليمين). فلا تصحيح اتجاهيّ هنا، وهذا مقصود: اخترنا
+            المحور الرأسّي ليكون المعنى واحداً في الاتجاهين. و`opacity` و`scale`
+            لا اتجاه لهما أصلاً.
+          */}
           <AnimatePresence mode="wait">
             {status === "idle" && (
               <motion.div
@@ -4016,6 +4225,7 @@ export default function Workspace() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
               >
                 {/* الفريق حاضر من البداية: يرى المحامي من سيعمل على مستنده
                     قبل أن يكتب حرفاً. والوضع الافتراضي ليس فراغاً. */}
@@ -4033,6 +4243,7 @@ export default function Workspace() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
               >
                 <OfficeScene
                   activeStage={activeStage}
@@ -4049,6 +4260,7 @@ export default function Workspace() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
                 className="h-full min-h-[500px] flex flex-col items-center justify-center bg-slate-900 border border-red-900/50 p-8"
               >
                 <AlertTriangle className="w-16 h-16 mb-6 text-red-500" />
@@ -4068,6 +4280,12 @@ export default function Workspace() {
                 key="done"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
+                /* ⚠️ والخروج **مكتوبٌ صراحةً**: بـ`AnimatePresence mode="wait"`
+                   يحجب العنصر الجديد حتى ينتهي خروج القديم، وغياب `exit` يعني
+                   خروجاً فوريّاً (0ms) — أي قطعٌ مفاجئ، وهو ما يسمّيه الدليل
+                   «visually and psychologically jarring». */
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
                 className="bg-white text-slate-900 overflow-hidden"
               >
                 <div className="bg-slate-100 p-4 border-b flex justify-between items-center">
