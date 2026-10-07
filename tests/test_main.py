@@ -2831,7 +2831,6 @@ class TestRevisionFrame(MainTestBase):
         """
         fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=CLEAN_DRAFT)
         self.swap_review_llm(_CleanReviewLLM())
-        self.swap_review_llm(_CleanReviewLLM())
         report = self.revision_of(
             parse_frames(
                 drain_sse(
@@ -2846,14 +2845,63 @@ class TestRevisionFrame(MainTestBase):
             ["attribution", "fidelity", "language", "review"],
         )
         self.assertIsInstance(report["errors"], list)
+        # ⚠️ **وهذه «أفضل حال» فعلاً: الفحوص الأربعة جرت ولم تجد شيئاً.** ولا
+        # تُقرأ القائمة الفارغة سلامةً بنفسها، وإنّما تُقرأ بها **مع**
+        # ``checked_sources`` أعلاه — فالفراغ ومعه قائمةُ فحوصٍ ناقصة هو
+        # «لم يُفحص» لا «فُحص فلم يوجد».
+        #
+        # ⚠️ **وشكل الخطأ لا يُفحص هنا عن قصد**: القائمة فارغة، فالدوران عليها
+        # **لا ينفّذ ولا دورة** — وفحصٌ على لا شيء يمرّ بأيّ شكل. وشكل الخطأ
+        # يُفحص حيث يوجد خطأ (`test_a_populated_error_list_carries_the_shape`).
+        self.assertEqual(
+            report["errors"],
+            [],
+            "حالٌ جرت فيها الفحوص الأربعة نظيفةً — فخطأٌ هنا إنذارٌ بلا سبب",
+        )
+        # ⚠️ ولا قرارَ الحلقة في العرض: `action` و`fixable_by_redraft` شأنها.
+        self.assertNotIn("action", json.dumps(report, ensure_ascii=False))
+
+    def test_a_populated_error_list_carries_the_shape(self):
+        """
+        🔑 **وشكل الخطأ يُفحص على قائمةٍ مملوءة — لا على فارغة.**
+
+        ⚠️ **وهذا الفرق ليس تجميلاً**: الاختبار السابق يبني «أفضل حال»، فقائمته
+        فارغة، فالدوران على شكل الخطأ فيه **لا ينفّذ دورةً واحدة** — أي يشهد على
+        شكلٍ لم يرَه. ولو وُضع كائن مُنمَّط في عنصر خطأ لَما كشفه ذلك الدوران
+        أصلاً. فهنا تُبنى حالٌ **فيها خطأ حقيقي**: الواقعة رُفِض **استلام المبلغ**
+        في المسوّدة، وهي في السجلّ رفضُ **التوقيع** — وهي الواقعة المعطوبة نفسها
+        التي وُلد `facts.py` لأجلها.
+
+        ⚠️ **والمصدر والدرجة يُقرآن من مفردات الوحدة** لا من قائمةٍ مكتوبة هنا،
+        وإلا صار في المشروع حاكمٌ ثانٍ يفترق عن الأول عند أوّل تعديل.
+        """
+        fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
+        report = self.revision_of(
+            parse_frames(
+                drain_sse(main._build_messages("صغ عقداً"), None, ledger_of(FACTS))
+            )
+        )
+
+        # ⚠️ والحال ليست نظيفة: القائمة يجب أن تحمل الخطأ، وإلا كان الفحص على فراغ.
+        self.assertTrue(
+            report["errors"],
+            "واقعةٌ مُغيَّرة في المسوّدة ولم تُنتج خطأً — فلا يشهد الفحص على شيء",
+        )
+        self.assertIn(
+            "fidelity",
+            {error["source"] for error in report["errors"]},
+            "الواقعة المُغيَّرة لم يُبلَّغ عنها من مصدرها",
+        )
         for error in report["errors"]:
             self.assertEqual(
                 sorted(error),
                 ["kind", "message", "quote", "severity", "source"],
                 "الإطار يحمل حقلاً زائداً — وقد يكون كائناً لا يُسلسل",
             )
-        # ⚠️ ولا قرارَ الحلقة في العرض: `action` و`fixable_by_redraft` شأنها.
-        self.assertNotIn("action", json.dumps(report, ensure_ascii=False))
+            self.assertIn(error["source"], main.revision_loop.SOURCES)
+            self.assertIn(error["severity"], main.revision_loop.SEVERITY_LABELS)
+            # ⚠️ والنصّ المنقول ليس فراغاً: الخطأ بلا موضعه لا يُراجَع.
+            self.assertTrue(error["message"].strip())
 
     def test_a_source_that_did_not_run_is_not_listed(self):
         """
@@ -2882,6 +2930,15 @@ class TestRevisionFrame(MainTestBase):
             "review",
             report["checked_sources"],
             "فحصٌ لم يجرِ أُدرج في «ما جرى» — شهادة بفحص لم يقع",
+        )
+        # ⚠️ **وهذا هو ``()`` بعينه، لا ``None``**: `check_fidelity` شُغّلت فعلاً
+        # وقابلت المسودّة بالسجلّ فلم تجد افتراقاً. فالبرهان على أنّها جرت
+        # **لا** يكون بوجود خطأ — بل بغيابه مع إدراجها في ``checked_sources``:
+        # لو سُوّي بين ``None`` و``()`` لَما ظهر هذا الفرق أصلاً.
+        self.assertEqual(
+            report["errors"],
+            [],
+            "الفحص جرى ولم يجد عيباً — فخطأٌ هنا حالٌ ليست حال هذا الاختبار",
         )
 
     def test_no_ledger_means_fidelity_is_absent_not_empty(self):
@@ -2946,7 +3003,15 @@ class TestRevisionFrame(MainTestBase):
                 self.assertNotIn(phrase, everything)
 
     def test_the_frame_is_json_serializable(self):
-        """⚠️ الإطار يُبثّ بـ ``json.dumps`` — وإلا انكسر البثّ صامتاً."""
+        """
+        🔑 **ولا كائن مُنمَّط في الإطار — وهذا العطب وقع هنا فعلاً.**
+
+        ⚠️ **ووضع ``FactShift`` في الإطار أسقط أربعة اختبارات**، أحدها هذا
+        باسمه. ⚠️ **و``json.dumps`` على الإطار المُحلَّل لا يكفي وحده**: الإطار
+        سبق أن سُلِّس في المولّد قبل أن يصلنا، فقد يكون العطب ظهر هناك لا هنا.
+        فيُنادى **الباني مباشرةً** بكائنات ``FactShift`` خام ويُسلسل ناتجه —
+        فيبقى الحارس على الباني نفسه، لا على نقلٍ سبق أن سلّس.
+        """
         fake_deps.AGENT_SCRIPT = scripted_turn(GENUINE_QUOTE, body=FLAWED_DRAFT)
         report = self.revision_of(
             parse_frames(
@@ -2956,7 +3021,21 @@ class TestRevisionFrame(MainTestBase):
         json.dumps(report, ensure_ascii=False)
         # ⚠️ والافتراق هنا حقيقي، فالقائمة ليست فارغة — والاختبار يشهد على
         # مسارٍ فيه خطأ فعلاً، لا على مسارٍ نظيف يمرّ بأي حال.
+        self.assertTrue(
+            report["errors"], "قائمةٌ فارغة — فلا يشهد التسلسل على محتوى"
+        )
         self.assertIn("fidelity", report["checked_sources"])
+
+        # ⚠️ **والحارس على الباني وحده**: كائنات ``FactShift`` خام تدخله، وناتجه
+        # يُسلسل. ولو عاد كائنٌ إلى الإطار لَسقط هنا في موضعه لا في النقل.
+        raw_shifts = tuple(main.check_fidelity(FLAWED_DRAFT, ledger_of(FACTS)))
+        self.assertTrue(raw_shifts, "لا افتراق خام — فلا كائن يشهد عليه الحارس")
+        json.dumps(
+            main._revision_frame(
+                FLAWED_DRAFT, review_outcome=None, fidelity_shifts=raw_shifts
+            ),
+            ensure_ascii=False,
+        )
 
     def test_a_failed_collection_is_announced_and_not_swallowed(self):
         """
