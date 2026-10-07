@@ -1459,6 +1459,7 @@ def _stream_agent(
     authority_register=None,
     deadline_rules=None,
     rule_set=None,
+    redraft=None,
 ):
     """
     يولّد أحداث الوكيل خطوة بخطوة.
@@ -1569,6 +1570,60 @@ def _stream_agent(
         # ⚠️ **ويُفحَص النصّ النظيف** (`clean`) — وهو المستند الذي يقرأه المحامي،
         # لا نصّ النموذج بكتلة أسانيده: فكتلة الأسانيد رموزٌ لا من المذكرة،
         # وإدخالها في المقابلة يرفع التغطية زوراً.
+        raw_shifts = (
+            tuple(check_fidelity(clean, ledger)) if ledger is not None else None
+        )
+        attribution_outcome = verify_attributions(
+            clean, evidence, lambda row: getattr(row, "text", "") or ""
+        )
+        language_outcome = audit_language(clean)
+
+        # ⚠️ **والإعادة **قبل** الإطارات — **لأن الإطارات يجب أن تصف النصّ
+        # النهائي.** ولو أُعيدت بعده، **لَوصفت نصّاً تغيّر بعد فحصه** — وذلك
+        # **أسوأ من عدم الإعادة**: مذكرةٌ تبدّلت وفحوصُها تصف السابق.
+        # ⚠️ **والعدد محدود**: البند ينصّ على «عدد محدود من المحاولات».
+        # ⚠️ **ولا يُعاد الصياغة على خطأ غير قابل للإصلاح بها**: فإن كان العيب
+        # في **الواقعة** لا في **العبارة**، **فإعادة الصياغة تُخفيه ولا تُصلحه.**
+        redraft_attempts = 0
+        if redraft is not None:
+            fixed = revision_loop.collect_errors(
+                clean,
+                review_outcome=review_outcome,
+                fidelity_shifts=raw_shifts,
+                attribution_outcome=attribution_outcome,
+                language_report=language_outcome,
+            )
+            if any(e.fixable_by_redraft for e in fixed):
+                def _recheck(text, _number=None):
+                    return revision_loop.collect_errors(
+                        text,
+                        review_outcome=review_outcome,
+                        fidelity_shifts=(
+                            tuple(check_fidelity(text, ledger))
+                            if ledger is not None else None
+                        ),
+                        attribution_outcome=verify_attributions(
+                            text, evidence, lambda row: getattr(row, "text", "") or ""
+                        ),
+                        language_report=audit_language(text),
+                    )
+
+                clean, redraft_attempts = revision_loop.run_loop(
+                    clean,
+                    redraft,
+                    _recheck,
+                    max_attempts=2,
+                    checked_sources=revision_loop.sources_checked(
+                        review_outcome=review_outcome,
+                        fidelity_shifts=raw_shifts,
+                        attribution_outcome=attribution_outcome,
+                        language_report=language_outcome,
+                    ),
+                )
+                # ⚠️ **والإعادة لا تُدّعى إصلاحاً**: يُعاد الفحص على النصّ الجديد،
+                # **فإن زال الخطأ فذلك، وإلا فهو باقٍ** — **يُفحَص، لا يُفترَض.**
+                yield ("stage", StageEvent("redraft", STAGE_REVISING))
+
         facts_frame = _facts_frame(clean, ledger)
         yield ("facts", facts_frame)
         yield (
@@ -1605,13 +1660,6 @@ def _stream_agent(
         # وُجد سجلّ؛ وبغيابه تُمرَّر ``None`` = «لم يُشغَّل» — **فلا يُدرَج
         # المصدر في ``checked_sources``**. ولو مُرّرت ``()`` لَقيل «شُغّل ولم
         # يجد شيئاً»، **ولَشهد النظام بفحص لم يقع**.
-        raw_shifts = (
-            tuple(check_fidelity(clean, ledger)) if ledger is not None else None
-        )
-        attribution_outcome = verify_attributions(
-            clean, evidence, lambda row: getattr(row, "text", "") or ""
-        )
-        language_outcome = audit_language(clean)
         yield (
             "revision",
             _revision_frame(
@@ -1796,7 +1844,7 @@ def _run_agent_collect(messages: list) -> tuple[str, dict, dict]:
     final_text = ""
     report: dict = {}
     language: dict = {}
-    for kind, payload in _stream_agent(messages, None, None, None):
+    for kind, payload in _stream_agent(messages, None, None, None, None):
         if kind == "citations":
             report = payload
         elif kind == "language":
@@ -1865,7 +1913,7 @@ async def _sse_generator(
             if case_frame is not None:
                 emit({"type": "case", "report": case_frame})
 
-            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None, None, None):
+            for kind, payload in _stream_agent(messages, case_frame, ledger, None, None, None, None, None):
                 if kind == "stage":
                     # مفتاح المرحلة مع النصّ: الواجهة تقرّر بالمفتاح وتعرض النصّ
                     emit(
