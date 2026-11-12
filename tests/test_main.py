@@ -436,6 +436,8 @@ class TestRoutes(MainTestBase):
                 ("GET", "/"),
                 ("GET", "/health"),
                 ("POST", "/generate"),
+                ("GET", "/skills"),
+                ("POST", "/skills/resolve"),
                 ("POST", "/chat"),
                 ("POST", "/revisions"),
                 ("GET", "/revisions/stats"),

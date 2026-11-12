@@ -62,6 +62,10 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from skills import JurisdictionContext, SkillError
+from skills import integration as legal_skills
+from skills.router import resolve as resolve_skill
+
 import case_file as case_file_module
 from case_file import CaseFile, CaseStage, DisputeType, Party
 from citations import (
@@ -366,6 +370,9 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="الوقائع والمعطيات")
     doc_type: str = Field("مستند قانوني", description="نوع المستند المطلوب")
     session_id: Optional[str] = None
+    skill_id: Optional[str] = None
+    skill_jurisdiction: Optional[dict] = None
+    skill_risk: Optional[dict] = None
     #: ملف القضية — **كل حقوله اختياريّة، والحمل الفارغ يعني «لم يُقل».**
     #: وغيابه الكامل يعني «لم يُنشأ ملف قضية»، وهو ما يُقال صراحةً في الرسالة
     #: وفي إطار `case` — فالغياب معلومة، لا فراغ يُسكت عنه.
@@ -2146,6 +2153,36 @@ async def _sse_generator(
         yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
 
 
+class SkillResolveRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=20000)
+    doc_type: Optional[str] = None
+    skill_id: Optional[str] = None
+    jurisdiction: Optional[dict] = None
+
+
+@app.get("/skills", dependencies=[Depends(require_token)])
+async def list_legal_skills():
+    if not legal_skills.enabled():
+        return {"enabled": False, "skills": []}
+    return {"enabled": True, "skills": [
+        skill.manifest.public_metadata()
+        for skill in legal_skills.bundled_registry().available()
+    ]}
+
+
+@app.post("/skills/resolve", dependencies=[Depends(require_token)])
+async def resolve_legal_skill(req: SkillResolveRequest):
+    if not legal_skills.enabled():
+        raise HTTPException(status_code=404, detail="Legal skills are disabled")
+    try:
+        context = JurisdictionContext.from_mapping(req.jurisdiction)
+        return resolve_skill(legal_skills.bundled_registry(), req.prompt,
+                             document_type=req.doc_type, jurisdiction=context,
+                             skill_id=req.skill_id).to_dict()
+    except SkillError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/generate", dependencies=[Depends(require_token)])
 async def generate(req: GenerateRequest):
     """
@@ -2196,6 +2233,22 @@ async def generate(req: GenerateRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     messages = _build_messages(req.prompt, req.doc_type, case_input)
+    try:
+        skill_result, skill_suffix = legal_skills.activate(
+            req.prompt, document_type=req.doc_type, skill_id=req.skill_id,
+            jurisdiction=req.skill_jurisdiction, case=case_input.case or req.case,
+            risk_data=req.skill_risk,
+        )
+    except SkillError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if skill_suffix:
+        messages[0] = SystemMessage(content=messages[0].content + skill_suffix)
+    skill_headers = {}
+    if legal_skills.enabled():
+        skill_headers["X-Legal-Skill-Status"] = skill_result.status
+        if skill_result.selected_skill:
+            skill_headers["X-Legal-Skill"] = skill_result.selected_skill
+            skill_headers["X-Legal-Skill-Version"] = skill_result.candidates[0].version
     return StreamingResponse(
         _sse_generator(
             messages,
@@ -2209,6 +2262,7 @@ async def generate(req: GenerateRequest):
         ),
         media_type="text/event-stream",
         headers={
+            **skill_headers,
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             # يمنع الوسيط العكسي (nginx / Codespaces) من تجميع البثّ وحجبه

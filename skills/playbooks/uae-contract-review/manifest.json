@@ -1,0 +1,76 @@
+{
+  "skill_id": "uae-contract-review",
+  "name": "UAE Contract Review",
+  "version": "1.0.0",
+  "description": "UAE Contract Review methodology with evidence gaps, jurisdiction checks and mandatory human review.",
+  "jurisdiction": [
+    "uae_federal",
+    "abu_dhabi",
+    "dubai",
+    "sharjah",
+    "other_uae_emirates",
+    "adgm",
+    "difc"
+  ],
+  "supported_languages": [
+    "ar",
+    "en"
+  ],
+  "category": "contracts",
+  "document_types": [
+    "agreement",
+    "contract",
+    "عقد",
+    "اتفاقية"
+  ],
+  "trigger_terms": [
+    "contract review",
+    "review agreement",
+    "راجع العقد",
+    "مراجعة عقد"
+  ],
+  "required_inputs": [
+    "document_text",
+    "client_side"
+  ],
+  "optional_inputs": [
+    "approved_positions",
+    "attachments",
+    "commercial_objectives"
+  ],
+  "output_contract": {
+    "sections": [
+      "scope_and_gaps",
+      "jurisdiction",
+      "clause_findings",
+      "priority_actions",
+      "human_review"
+    ],
+    "item_fields": [
+      "clause_reference",
+      "original_clause_text",
+      "issue",
+      "risk_explanation",
+      "severity",
+      "recommended_action",
+      "proposed_alternative_wording",
+      "supporting_authority_if_verified",
+      "verification_status",
+      "finding_basis"
+    ]
+  },
+  "dependencies": [],
+  "review_requirements": [
+    "qualified_lawyer_before_reliance",
+    "existing_legal_verification"
+  ],
+  "risk_level": "high",
+  "source_attribution": {
+    "urls": [
+      "https://github.com/w95/awesome-claude-corporate-skills/blob/78dbc7c719920610d5b1c60bd13d9bb52d711c7a/06-legal-compliance/contract-review/SKILL.md"
+    ],
+    "adaptation": "Independent UAE methodology; no foreign legal rules adopted. See docs/skills-provenance.md."
+  },
+  "legal_authority_policy": "workflow_only_verified_authority_required",
+  "enabled": true
+}

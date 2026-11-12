@@ -748,3 +748,10 @@ pip list | grep -ci '^nvidia-'                        # يجب أن يكون ص�
 ## الترخيص
 
 مشروع خاص — جميع الحقوق محفوظة.
+
+## Optional Legal Skills Framework (Phase 1)
+
+The five local UAE legal playbooks are disabled by default
+(`ENABLE_LEGAL_SKILLS=false`). See [architecture, API, activation and developer
+guide](docs/legal-skills.md), [license/provenance review](docs/skills-provenance.md),
+and [compatibility and validation report](docs/skills-phase1-report.md).

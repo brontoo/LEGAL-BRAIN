@@ -1,0 +1,77 @@
+{
+  "skill_id": "uae-corporate-due-diligence",
+  "name": "UAE Corporate Due Diligence",
+  "version": "1.0.0",
+  "description": "UAE Corporate Due Diligence methodology with evidence gaps, jurisdiction checks and mandatory human review.",
+  "jurisdiction": [
+    "uae_federal",
+    "abu_dhabi",
+    "dubai",
+    "sharjah",
+    "other_uae_emirates",
+    "adgm",
+    "difc"
+  ],
+  "supported_languages": [
+    "ar",
+    "en"
+  ],
+  "category": "corporate",
+  "document_types": [
+    "corporate_records",
+    "due_diligence",
+    "company_records"
+  ],
+  "trigger_terms": [
+    "due diligence",
+    "before acquisition",
+    "corporate documents",
+    "العناية الواجبة",
+    "قبل الاستحواذ"
+  ],
+  "required_inputs": [
+    "target_identity",
+    "transaction_scope",
+    "provided_documents"
+  ],
+  "optional_inputs": [
+    "data_room_index",
+    "materiality_criteria",
+    "transaction_timeline"
+  ],
+  "output_contract": {
+    "sections": [
+      "scope_and_gaps",
+      "jurisdiction",
+      "legal_checklist",
+      "transaction_risks",
+      "evidence_gap_report",
+      "human_review"
+    ],
+    "item_fields": [
+      "workstream",
+      "document_requested",
+      "document_provided",
+      "evidence_reference",
+      "verification_status",
+      "finding",
+      "transaction_impact",
+      "follow_up"
+    ]
+  },
+  "dependencies": [],
+  "review_requirements": [
+    "qualified_lawyer_before_reliance",
+    "existing_legal_verification"
+  ],
+  "risk_level": "high",
+  "source_attribution": {
+    "urls": [
+      "https://github.com/w95/awesome-claude-corporate-skills/blob/78dbc7c719920610d5b1c60bd13d9bb52d711c7a/01-executive-leadership/ma-due-diligence/SKILL.md",
+      "https://github.com/w95/awesome-claude-corporate-skills/blob/78dbc7c719920610d5b1c60bd13d9bb52d711c7a/02-finance-accounting/dd-checklist/SKILL.md"
+    ],
+    "adaptation": "Independent UAE methodology; no foreign legal rules adopted. See docs/skills-provenance.md."
+  },
+  "legal_authority_policy": "workflow_only_verified_authority_required",
+  "enabled": true
+}

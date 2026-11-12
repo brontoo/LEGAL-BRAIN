@@ -1,0 +1,73 @@
+{
+  "skill_id": "uae-nda-review",
+  "name": "UAE NDA Review",
+  "version": "1.0.0",
+  "description": "UAE NDA Review methodology with evidence gaps, jurisdiction checks and mandatory human review.",
+  "jurisdiction": [
+    "uae_federal",
+    "abu_dhabi",
+    "dubai",
+    "sharjah",
+    "other_uae_emirates",
+    "adgm",
+    "difc"
+  ],
+  "supported_languages": [
+    "ar",
+    "en"
+  ],
+  "category": "contracts",
+  "document_types": [
+    "nda",
+    "confidentiality_agreement",
+    "اتفاقية سرية"
+  ],
+  "trigger_terms": [
+    "nda",
+    "confidentiality agreement",
+    "non-disclosure",
+    "عدم الافصاح",
+    "مراجعة السرية"
+  ],
+  "required_inputs": [
+    "document_text",
+    "disclosure_direction"
+  ],
+  "optional_inputs": [
+    "approved_criteria",
+    "business_purpose",
+    "recipient_categories"
+  ],
+  "output_contract": {
+    "sections": [
+      "scope_and_gaps",
+      "jurisdiction",
+      "nda_findings",
+      "workflow_classification",
+      "human_review"
+    ],
+    "item_fields": [
+      "clause_reference",
+      "original_clause_text",
+      "criterion",
+      "issue",
+      "classification",
+      "recommendation",
+      "verification_status"
+    ]
+  },
+  "dependencies": [],
+  "review_requirements": [
+    "qualified_lawyer_before_reliance",
+    "existing_legal_verification"
+  ],
+  "risk_level": "high",
+  "source_attribution": {
+    "urls": [
+      "https://github.com/w95/awesome-claude-corporate-skills/blob/78dbc7c719920610d5b1c60bd13d9bb52d711c7a/06-legal-compliance/nda-triage/SKILL.md"
+    ],
+    "adaptation": "Independent UAE methodology; no foreign legal rules adopted. See docs/skills-provenance.md."
+  },
+  "legal_authority_policy": "workflow_only_verified_authority_required",
+  "enabled": true
+}

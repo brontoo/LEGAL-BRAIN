@@ -1,0 +1,75 @@
+{
+  "skill_id": "uae-contract-negotiation",
+  "name": "UAE Contract Negotiation",
+  "version": "1.0.0",
+  "description": "UAE Contract Negotiation methodology with evidence gaps, jurisdiction checks and mandatory human review.",
+  "jurisdiction": [
+    "uae_federal",
+    "abu_dhabi",
+    "dubai",
+    "sharjah",
+    "other_uae_emirates",
+    "adgm",
+    "difc"
+  ],
+  "supported_languages": [
+    "ar",
+    "en"
+  ],
+  "category": "contracts",
+  "document_types": [
+    "negotiation_brief",
+    "clause_comparison"
+  ],
+  "trigger_terms": [
+    "negotiation positions",
+    "prepare negotiation",
+    "negotiate",
+    "counterproposal",
+    "تفاوض",
+    "التفاوض"
+  ],
+  "required_inputs": [
+    "document_text",
+    "client_objectives"
+  ],
+  "optional_inputs": [
+    "approved_positions",
+    "counterparty_proposals",
+    "approval_limits",
+    "alternatives"
+  ],
+  "output_contract": {
+    "sections": [
+      "negotiation_brief",
+      "clause_comparison",
+      "proposed_amendments",
+      "counterproposal_notes",
+      "human_review"
+    ],
+    "item_fields": [
+      "clause_reference",
+      "current_wording",
+      "legal_requirement_status",
+      "preferred_wording",
+      "fallback_wording",
+      "priority",
+      "concession",
+      "approval_needed"
+    ]
+  },
+  "dependencies": [],
+  "review_requirements": [
+    "qualified_lawyer_before_reliance",
+    "existing_legal_verification"
+  ],
+  "risk_level": "high",
+  "source_attribution": {
+    "urls": [
+      "https://github.com/w95/awesome-claude-corporate-skills/blob/78dbc7c719920610d5b1c60bd13d9bb52d711c7a/12-procurement-supply-chain/contract-negotiation/SKILL.md"
+    ],
+    "adaptation": "Independent UAE methodology; no foreign legal rules adopted. See docs/skills-provenance.md."
+  },
+  "legal_authority_policy": "workflow_only_verified_authority_required",
+  "enabled": true
+}
