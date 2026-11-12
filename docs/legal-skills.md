@@ -189,3 +189,26 @@ Do not run this test harness as a production server. Live Gemini/Supabase behavi
 requires separately configured credentials and legal review of actual outputs.
 
 See [provenance](skills-provenance.md) and [validation report](skills-phase1-report.md).
+
+## Phase 1.5 stabilization
+
+See the [Phase 1.5 report](skills-phase1-5-report.md),
+[acceptance matrix](skills-acceptance-matrix.md),
+[fictional scenarios and lawyer template](skills-legal-test-scenarios.md), and
+[production configuration/live procedure](skills-production-readiness.md).
+
+Production backends now require `API_TOKEN` when marked with `APP_ENV=production`
+(or another documented production marker); the Docker image sets that marker.
+The Next.js production proxy refuses requests when its server token is missing.
+Success transport shapes remain compatible. Raw operational exception messages
+are intentionally sanitized, including when the skills flag is off.
+
+Selected skills now add advisory `skill_diagnostics` to the existing `done` frame;
+flag-off frames are unchanged. Checks observe bilingual section labels only.
+Missing sections or diagnostic failures never reject/edit a generated document.
+Risk matrix labels must be bounded machine identifiers, matching
+`[a-z][a-z0-9_]{0,31}`; arbitrary prompt text is no longer accepted as a band label.
+
+Automatic revisions that change text now refresh citation/language reports using
+the existing verifiers and event types. Clients use the latest report of each type;
+no additional paid review call is introduced by this correction.

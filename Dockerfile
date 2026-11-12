@@ -36,9 +36,10 @@ COPY . .
 # وبلا قرصٍ مُوصَّل على `/data`، **يُعاد تنزيل ~٢ ج.ب في كل إعادة تشغيل**.
 ENV HF_HOME=/data/hf
 ENV PYTHONUNBUFFERED=1
+ENV APP_ENV=production
 
 EXPOSE 8000
 
 # ⚠️ **و`PORT` يُقرأ من البيئة كما يقرأه `main.py` نفسه** — فالمضيف يفرضه
 # ولا يجوز تثبيته.
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]

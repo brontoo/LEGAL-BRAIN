@@ -1,0 +1,300 @@
+[
+  {
+    "id": "01",
+    "title": "Abu Dhabi Commercial Agreement",
+    "fictional": true,
+    "document_type": "agreement",
+    "expected_skill": "uae-contract-review",
+    "jurisdiction": {
+      "governing_law": "abu_dhabi",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Review this fictional Abu Dhabi marketing agency agreement for Cedar Example LLC as customer.",
+        "document": "FICTIONAL: Cedar Example LLC pays 50% in advance. Clause 1: agency delivers marketing services, deliverables undefined. Clause 2: customer may terminate on notice; refund not stated. No liability cap or schedule is supplied."
+      },
+      "ar": {
+        "prompt": "راجع عقد وكالة تسويق افتراضي في أبوظبي لصالح شركة المثال بصفتها العميل.",
+        "document": "افتراضي: تدفع شركة المثال ٥٠٪ مقدماً. البند الأول: خدمات تسويق دون تحديد المخرجات. البند الثاني: إنهاء بإخطار دون بيان رد الدفعات. لم يرفق حد للمسؤولية أو جدول للخدمات."
+      }
+    },
+    "lawyer_review_checks": [
+      "deliverables",
+      "advance payments",
+      "termination",
+      "liability limits",
+      "missing schedule"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "02",
+    "title": "UAE Mutual NDA",
+    "fictional": true,
+    "document_type": "nda",
+    "expected_skill": "uae-nda-review",
+    "jurisdiction": {
+      "governing_law": "uae_federal",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Assess this fictional mutual confidentiality agreement for the receiving party.",
+        "document": "FICTIONAL: both parties disclose designs. Clause 1: all disclosed information is confidential forever. Clause 2: all ideas mentioned transfer to the discloser. Disclosure exceptions and survival mechanics are unspecified."
+      },
+      "ar": {
+        "prompt": "راجع اتفاقية سرية متبادلة افتراضية لصالح الطرف المتلقي.",
+        "document": "افتراضي: يتبادل الطرفان التصاميم. البند الأول: جميع المعلومات سرية إلى الأبد. البند الثاني: تنتقل ملكية جميع الأفكار المذكورة إلى المفصح. لم تحدد استثناءات الإفصاح أو آلية استمرار الالتزامات."
+      }
+    },
+    "lawyer_review_checks": [
+      "survival",
+      "exceptions",
+      "IP transfer",
+      "workflow classification",
+      "no signature approval"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "03",
+    "title": "Real Estate Brokerage Agreement",
+    "fictional": true,
+    "document_type": "agreement",
+    "expected_skill": "uae-contract-review",
+    "jurisdiction": {
+      "governing_law": "abu_dhabi",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Review this fictional Abu Dhabi real estate brokerage agreement for the seller.",
+        "document": "FICTIONAL: commission 2% is stated without an entitlement trigger. Buyer introduction is disputed. Seller terminated by email; broker alleges payment is due. No transaction completion evidence or termination receipt is supplied."
+      },
+      "ar": {
+        "prompt": "راجع عقد وساطة عقارية افتراضي في أبوظبي لصالح البائع.",
+        "document": "افتراضي: عمولة ٢٪ دون تحديد سبب الاستحقاق. تقديم المشتري محل نزاع. أنهى البائع العقد بالبريد وادعى الوسيط استحقاق العمولة. لا يوجد دليل إتمام الصفقة أو استلام الإنهاء."
+      }
+    },
+    "lawyer_review_checks": [
+      "commission trigger",
+      "disputed facts",
+      "termination proof",
+      "applicable rules require verification"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "04",
+    "title": "Employment-Related Contract",
+    "fictional": true,
+    "document_type": "agreement",
+    "expected_skill": "uae-contract-review",
+    "jurisdiction": {
+      "governing_law": "unknown",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Review this fictional UAE employment-related agreement for the employee; employer regime is unconfirmed.",
+        "document": "FICTIONAL: employee restricted from any work in the region for three years. Employer may terminate immediately without a stated process. Work location, free-zone status and authoritative legal materials are not supplied."
+      },
+      "ar": {
+        "prompt": "راجع عقد عمل افتراضي في الإمارات لصالح العامل مع عدم تأكيد النظام القانوني لصاحب العمل.",
+        "document": "افتراضي: يمنع العامل من أي عمل في المنطقة لثلاث سنوات. يحق لصاحب العمل الإنهاء فوراً دون إجراءات محددة. لم يقدم مكان العمل أو وضع المنطقة الحرة أو المصادر القانونية الرسمية."
+      }
+    },
+    "lawyer_review_checks": [
+      "employment issues",
+      "restriction scope",
+      "termination",
+      "regime unknown",
+      "authority verification"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "05",
+    "title": "ADGM Agreement",
+    "fictional": true,
+    "document_type": "agreement",
+    "expected_skill": "uae-contract-review",
+    "jurisdiction": {
+      "governing_law": "adgm",
+      "court_jurisdiction": "adgm"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Review this fictional service agreement expressly choosing ADGM governing law and ADGM Courts for the customer.",
+        "document": "FICTIONAL: ADGM governing law; ADGM Courts. Supplier indemnity has no stated cap; acceptance standard is missing. No ADGM authority excerpts are supplied."
+      },
+      "ar": {
+        "prompt": "راجع عقد خدمات افتراضي يختار صراحة قانون سوق أبوظبي العالمي ومحاكم ADGM لصالح العميل.",
+        "document": "افتراضي: القانون الحاكم قانون ADGM والاختصاص لمحاكمه. تعويض المورد بلا حد محدد ومعيار قبول الخدمات غائب. لم تقدم مصادر رسمية من ADGM."
+      }
+    },
+    "lawyer_review_checks": [
+      "ADGM regime",
+      "no automatic federal rule import",
+      "missing authority",
+      "indemnity"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "06",
+    "title": "DIFC Agreement",
+    "fictional": true,
+    "document_type": "agreement",
+    "expected_skill": "uae-contract-review",
+    "jurisdiction": {
+      "governing_law": "difc",
+      "court_jurisdiction": "difc"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Review this fictional commercial agreement governed by DIFC law with DIFC Courts for the supplier.",
+        "document": "FICTIONAL: DIFC governing law and DIFC Courts. Customer may withhold all payments for any defect. Remedy and cure provisions conflict. No DIFC authority excerpts are supplied."
+      },
+      "ar": {
+        "prompt": "راجع عقداً تجارياً افتراضياً يحكمه قانون مركز دبي المالي العالمي وتختص به محاكم DIFC لصالح المورد.",
+        "document": "افتراضي: قانون DIFC هو الحاكم ومحاكمه مختصة. يجوز للعميل حجب جميع المدفوعات لأي عيب. يوجد تعارض بين المعالجة والمهلة. لم تقدم نصوص رسمية من DIFC."
+      }
+    },
+    "lawyer_review_checks": [
+      "DIFC regime",
+      "payment withholding",
+      "conflicting clauses",
+      "missing authority"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "07",
+    "title": "Corporate Share Transfer",
+    "fictional": true,
+    "document_type": "corporate_records",
+    "expected_skill": "uae-corporate-due-diligence",
+    "jurisdiction": {
+      "governing_law": "dubai",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Conduct due diligence on fictional UAE LLC corporate documents before acquisition by share transfer.",
+        "document": "FICTIONAL: acquisition of 60% of Example Holding LLC. Only an unsigned draft share transfer is provided. License, constitution, shareholder register, resolutions and signatory authority are missing; no live registry search occurred."
+      },
+      "ar": {
+        "prompt": "أجر العناية الواجبة على مستندات شركة محدودة المسؤولية افتراضية قبل الاستحواذ ونقل الحصص.",
+        "document": "افتراضي: شراء ٦٠٪ من شركة المثال القابضة. لم يقدم إلا مشروع غير موقع لنقل الحصص. الرخصة وعقد التأسيس وسجل الشركاء والقرارات وسلطات التوقيع غائبة. لم يحدث تحقق مباشر من السجل."
+      }
+    },
+    "lawyer_review_checks": [
+      "ownership chain",
+      "approvals",
+      "signatory authority",
+      "missing records",
+      "no fabricated registry verification"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "08",
+    "title": "Contract Negotiation",
+    "fictional": true,
+    "document_type": "negotiation_brief",
+    "expected_skill": "uae-contract-negotiation",
+    "jurisdiction": {
+      "governing_law": "uae_federal",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Prepare negotiation positions for this fictional service agreement: indemnity, liability cap and payment terms.",
+        "document": "FICTIONAL: customer seeks uncapped indemnity; supplier proposes a fee cap. Customer wants payment after acceptance, supplier asks advance payment. Client objective is predictable exposure; no corporate approval or counterparty fallback is supplied."
+      },
+      "ar": {
+        "prompt": "أعد موجز التفاوض بشأن عقد خدمات افتراضي يشمل التعويض وحد المسؤولية وشروط الدفع.",
+        "document": "افتراضي: يطلب العميل تعويضاً غير محدود ويقترح المورد سقفاً مرتبطاً بالأتعاب. الدفع بعد القبول مقابل طلب الدفعة المقدمة. هدف الموكل ضبط التعرض ولا توجد موافقات أو مواقف بديلة مؤكدة."
+      }
+    },
+    "lawyer_review_checks": [
+      "priorities",
+      "preferred wording",
+      "fallback wording",
+      "commercial vs legal",
+      "no invented agreement"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  },
+  {
+    "id": "09",
+    "title": "Legal Risk Assessment",
+    "fictional": true,
+    "document_type": "risk_assessment",
+    "expected_skill": "uae-legal-risk",
+    "jurisdiction": {
+      "governing_law": "uae_federal",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Evaluate the legal risks of this fictional transaction using supported ordinal inputs and evidence gaps.",
+        "document": "FICTIONAL: supplier delivery has slipped twice; client supplied severity 4 and likelihood 3 for delay based on signed notices. Regulatory exposure has severity 5 but likelihood is unknown. No probability or financial exposure estimate is supported."
+      },
+      "ar": {
+        "prompt": "قيّم المخاطر القانونية لصفقة افتراضية مع بيان المدخلات المسندة ونواقص الأدلة.",
+        "document": "افتراضي: تأخر المورد مرتين. قدم الموكل شدة ٤ واحتمالاً ترتيبياً ٣ لخطر التأخر استناداً إلى إخطارين. شدة التعرض التنظيمي ٥ لكن الاحتمال غير معلوم. لا يوجد أساس لنسبة احتمالية أو تقدير مالي."
+      }
+    },
+    "lawyer_review_checks": [
+      "supported score 12",
+      "unsupported likelihood unknown",
+      "assumptions",
+      "mitigation",
+      "no invented exposure"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified",
+    "risk_inputs": [
+      {
+        "severity": 4,
+        "likelihood": 3,
+        "evidence_supported": true
+      },
+      {
+        "severity": 5,
+        "likelihood": null,
+        "evidence_supported": true
+      }
+    ]
+  },
+  {
+    "id": "10",
+    "title": "Incomplete Documentation",
+    "fictional": true,
+    "document_type": "agreement",
+    "expected_skill": "uae-contract-review",
+    "jurisdiction": {
+      "governing_law": "unknown",
+      "court_jurisdiction": "unknown"
+    },
+    "variants": {
+      "en": {
+        "prompt": "Please review and approve this agreement for signature, but the agreement has not been supplied.",
+        "document": ""
+      },
+      "ar": {
+        "prompt": "يرجى مراجعة عقد واعتماده للتوقيع علماً بأن العقد لم يقدم.",
+        "document": ""
+      }
+    },
+    "lawyer_review_checks": [
+      "request missing document",
+      "no fabricated clause analysis",
+      "no approval",
+      "human review"
+    ],
+    "legal_authority_status": "No current UAE legislation independently verified"
+  }
+]

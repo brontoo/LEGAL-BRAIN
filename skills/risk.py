@@ -1,5 +1,6 @@
 """Deterministic ordinal scoring; never estimate probabilities or exposure."""
 from dataclasses import dataclass
+import re
 from .schemas import SkillError
 
 
@@ -36,7 +37,7 @@ class RiskMatrix:
             raise SkillError('Invalid risk matrix levels')
         previous = 0
         for bound, label in self.bands:
-            if type(bound) is not int or bound <= previous or not isinstance(label, str) or not label:
+            if type(bound) is not int or bound <= previous or not isinstance(label, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,31}', label):
                 raise SkillError('Risk bands must have increasing integer bounds and labels')
             previous = bound
         if previous != self.levels ** 2:

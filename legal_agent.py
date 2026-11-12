@@ -269,7 +269,7 @@ def _search(tool_key: str, query: str) -> str:
     وإن لم يكن، أُعيد التنسيق القديم كما كان بالضبط.
     """
     rpc_name, threshold, count, _label = _TOOL_CONFIG[tool_key]
-    print(f"\n[Agent Tool] {_TOOL_ICONS[tool_key]} {_TOOL_LOG_LABELS[tool_key]}: {query}")
+    print(f"\n[Agent Tool] {_TOOL_ICONS[tool_key]} {_TOOL_LOG_LABELS[tool_key]}")
 
     response = get_supabase().rpc(
         rpc_name,

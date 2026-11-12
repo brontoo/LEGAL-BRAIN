@@ -301,7 +301,6 @@ function Desk({ worker, phase }: { worker: Worker; phase: Phase }) {
            * و`<img>` لا `next/image` عن قصد: الصور تُضاف بعد البناء، و
            * `next/image` يطلب أبعاداً معروفة وقت البناء.
            */
-          // eslint-disable-next-line @next/next/no-img-element
           <motion.img
             // المفتاح يُجبر React على إعادة تركيب العنصر عند تغيّر الامتداد،
             // فيُطلَق طلب جديد بدل إعادة استخدام الصورة الفاشلة.

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Amiri, Noto_Kufi_Arabic } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { SiteNav } from "@/components/site-nav";
 import { Letterhead } from "@/components/letterhead";
@@ -32,17 +32,18 @@ import { MotionPreference } from "@/components/motion-preference";
  */
 
 // خطّ الوثيقة — مطبعة بولاق
-const amiri = Amiri({
-  subsets: ["arabic"],
-  weight: ["400", "700"],
+const amiri = localFont({
+  src: [
+    { path: "./fonts/amiri/Amiri-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/amiri/Amiri-Bold.ttf", weight: "700", style: "normal" },
+  ],
   variable: "--font-amiri",
   display: "swap",
 });
 
 // خطّ الواجهة — كوفي هندسي
-const kufi = Noto_Kufi_Arabic({
-  subsets: ["arabic"],
-  weight: ["300", "400", "500", "700"],
+const kufi = localFont({
+  src: [{ path: "./fonts/noto-kufi-arabic/NotoKufiArabic-Variable.ttf", weight: "100 900", style: "normal" }],
   variable: "--font-kufi",
   display: "swap",
 });

@@ -3874,7 +3874,7 @@ export default function Workspace() {
   // معرّف الجلسة يُولَّد **عند الإرسال** لا عند العرض.
   // السبب: `crypto.randomUUID()` لا يعمل على الخادم، وتوليده أثناء العرض يُنتج
   // قيمة مختلفة على الخادم والعميل فيكسر الترطيب (hydration mismatch).
-  const sessionIdRef = useRef("");
+  const [sessionId, setSessionId] = useState("");
 
   // المستند بعد التنظيف — يُستخدم للعرض والنسخ معاً حتى لا يختلف ما تراه عمّا تنسخه
   const cleanDocument = stripMarkdownArtifacts(finalDocument);
@@ -3924,11 +3924,12 @@ export default function Workspace() {
     setStartedAt(Date.now());
 
     // معرّف الجلسة: يُثبَّت مرة واحدة ليُربط التصحيح بمسودّته
-    if (!sessionIdRef.current) {
-      sessionIdRef.current =
+    if (!sessionId) {
+      setSessionId(
         typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
-          : `s-${Date.now()}`;
+          : `s-${Date.now()}`
+      );
     }
 
     const controller = new AbortController();
@@ -4332,7 +4333,7 @@ export default function Workspace() {
                 <RevisionBar
                   generatedText={cleanDocument}
                   docType={docType}
-                  sessionId={sessionIdRef.current}
+                  sessionId={sessionId}
                 />
               </motion.div>
             )}

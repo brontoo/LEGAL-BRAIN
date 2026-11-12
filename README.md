@@ -755,3 +755,8 @@ The five local UAE legal playbooks are disabled by default
 (`ENABLE_LEGAL_SKILLS=false`). See [architecture, API, activation and developer
 guide](docs/legal-skills.md), [license/provenance review](docs/skills-provenance.md),
 and [compatibility and validation report](docs/skills-phase1-report.md).
+
+Phase 1.5 adds production authentication guards, licensed local fonts, frontend
+validation fixes and bilingual acceptance tests. See the
+[stabilization report](docs/skills-phase1-5-report.md) and
+[production configuration requirements](docs/skills-production-readiness.md).

@@ -30,6 +30,8 @@ DOCUMENT_CLASSES = {
 def resolve(registry, request: str, *, document_type: str | None = None,
             jurisdiction: JurisdictionContext | None = None, skill_id: str | None = None,
             case=None) -> RoutingResult:
+    # Validate explicit selection even when intake itself is incompatible.
+    eligible = (registry.get(skill_id),) if skill_id is not None else registry.available()
     context = jurisdiction or JurisdictionContext()
     warnings = []
     if not context.known():
@@ -51,9 +53,6 @@ def resolve(registry, request: str, *, document_type: str | None = None,
             if context.court_jurisdiction != 'unknown' and context.court_jurisdiction != case_forum:
                 return RoutingResult('incompatible', warnings=tuple(warnings),
                                      reason='Jurisdiction context conflicts with existing case forum')
-    eligible = registry.available()
-    if skill_id is not None:
-        eligible = (registry.get(skill_id),)
     text = normalize(request)
     classified = {key for key, aliases in DOCUMENT_CLASSES.items()
                   if any(matches(alias, text) for alias in aliases)}

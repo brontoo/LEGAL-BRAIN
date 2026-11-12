@@ -41,3 +41,9 @@ come through the existing verified knowledge base/official-source research.
 Playbooks contain process safeguards, not statements of current law. Support for
 ADGM/DIFC means the workflow can identify questions and gaps in those regimes;
 it does not assert complete substantive coverage or equivalence with onshore law.
+
+Phase 1.5 also bundles unchanged Amiri and Noto Kufi Arabic font assets under SIL
+OFL 1.1. Pinned official source URLs, digests and sizes are recorded in
+`frontend/app/fonts/provenance.json`; licenses are retained alongside the fonts
+and served through the Credits links. See the
+[production/readiness notes](skills-production-readiness.md#fonts-and-frontend).

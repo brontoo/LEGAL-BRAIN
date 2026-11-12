@@ -61,10 +61,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
+from runtime_security import validate_backend_auth
 
 from skills import JurisdictionContext, SkillError
 from skills import integration as legal_skills
 from skills.router import resolve as resolve_skill
+from skills.diagnostics import diagnose_output
 
 import case_file as case_file_module
 from case_file import CaseFile, CaseStage, DisputeType, Party
@@ -136,6 +138,7 @@ AGENT_RECURSION_LIMIT = 12
 #    جافاسكربت المتصفح فيصبح الرمز علنياً وتصبح المصادقة بلا معنى. الواجهة
 #    ترسله من خادم Next.js عبر الوسيط frontend/app/api/[...path]/route.ts.
 API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+validate_backend_auth(API_TOKEN)
 
 
 async def require_token(authorization: Optional[str] = Header(default=None)) -> None:
@@ -437,7 +440,7 @@ def _revision_storage_error(exc: Exception) -> str:
             f"جدول {REVISIONS_TABLE} غير موجود في قاعدة البيانات. "
             "نفّذ القسم ١٠ من schema.sql في Supabase SQL Editor مرة واحدة."
         )
-    return f"تعذّر حفظ التصحيح: {message}"
+    return "تعذّر حفظ التصحيح. تحقّق من اتصال الخدمة وإعداداتها."
 
 
 # ------------------------------------------------------------------------------
@@ -530,7 +533,7 @@ def _archive_storage_error(exc: Exception) -> str:
             f"دوالّ الأرشيف غير موجودة في قاعدة البيانات. "
             f"نفّذ القسم {section} من schema.sql في Supabase SQL Editor مرة واحدة."
         )
-    return f"تعذّر قراءة الأرشيف: {message}"
+    return "تعذّر قراءة الأرشيف. تحقّق من اتصال الخدمة وإعداداتها."
 
 
 # ==============================================================================
@@ -1486,7 +1489,7 @@ def _revision_frame(
             language_report=language_report,
         )
     except Exception as exc:  # noqa: BLE001 — الفشل يُعلَن ولا يُسقط التوليد
-        print(f"\n[Revision] ⚠️ تعذّر جمع قائمة الأخطاء: {type(exc).__name__}: {exc}")
+        print(f"\n[Revision] ⚠️ تعذّر جمع قائمة الأخطاء: {type(exc).__name__}")
         return {
             "errors": [],
             "checked_sources": [],
@@ -1727,10 +1730,21 @@ def _stream_agent(
                 )
                 # ⚠️ **والمسلَّم هو آخر مسودّة **فُحصت** (`final_draft`)، لا ما
                 # أنتجه النموذج قبل فحصه** — فلا يُسلَّم نصٌّ لم يُفحص.
+                previous_clean = clean
                 clean = redraft_result.final_draft
                 # ⚠️ **والإعادة لا تُدّعى إصلاحاً**: يُعاد الفحص على النصّ الجديد،
                 # **فإن زال الخطأ فذلك، وإلا فهو باقٍ** — **يُفحَص، لا يُفترَض.**
                 yield ("stage", StageEvent(KEY_REDRAFT, STAGE_REVISING))
+                # The latest reports must describe the delivered revision. A rewrite
+                # can add unsupported articles or alter quotations. Reuse the same
+                # verifier; never carry initial quote approval into a new draft.
+                if clean != previous_clean:
+                    verified_clean, citation_report = _verify_round(clean, evidence)
+                    if citation_report["has_citation_block"]:
+                        clean = verified_clean
+                    language_report = summarize_language_audit(audit_language(clean))
+                    yield ("citations", citation_report)
+                    yield ("language", language_report)
 
         facts_frame = _facts_frame(clean, ledger)
         yield ("facts", facts_frame)
@@ -1921,7 +1935,7 @@ def _review_round(
         raw = _message_text(llm.invoke(build_review_prompt(brief, draft, evidence_text)))
         outcome = parse_review(raw, draft, brief, evidence_text)
     except Exception as exc:  # noqa: BLE001
-        print(f"\n[Review] ⚠️ تعذّرت المراجعة الثانية: {type(exc).__name__}: {exc}")
+        print(f"\n[Review] ⚠️ تعذّرت المراجعة الثانية: {type(exc).__name__}")
         return {
             "summary": f"تعذّرت المراجعة الثانية: {type(exc).__name__}",
             "clean": True,
@@ -2036,6 +2050,7 @@ async def _sse_generator(
     authority_register: Optional[object] = None,
     deadline_rules: Optional[object] = None,
     rule_set: Optional[object] = None,
+    workflow_skill=None,
 ) -> AsyncIterator[str]:
     """
     يحوّل مُولِّد الوكيل المتزامن (blocking) إلى بثّ غير متزامن.
@@ -2127,7 +2142,17 @@ async def _sse_generator(
                     )
                 elif kind == "final":
                     if payload:
-                        emit({"type": "done", "document": payload})
+                        done = {"type": "done", "document": payload}
+                        if workflow_skill is not None:
+                            try:
+                                done["skill_diagnostics"] = diagnose_output(payload, workflow_skill.manifest)
+                            except Exception:
+                                # Advisory checks must never discard a verified draft.
+                                done["skill_diagnostics"] = {
+                                    "status": "unavailable", "advisory_only": True,
+                                    "legal_quality": "not_assessed", "human_review_required": True,
+                                }
+                        emit(done)
                     else:
                         emit(
                             {
@@ -2139,7 +2164,7 @@ async def _sse_generator(
                             }
                         )
         except Exception as exc:  # noqa: BLE001 — نُبلّغ العميل بأي فشل
-            emit({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+            emit({"type": "error", "message": f"{type(exc).__name__}: تعذّر إكمال العملية. راجع إعدادات الخدمة."})
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
@@ -2244,6 +2269,9 @@ async def generate(req: GenerateRequest):
     if skill_suffix:
         messages[0] = SystemMessage(content=messages[0].content + skill_suffix)
     skill_headers = {}
+    workflow_options = {}
+    if skill_result.selected_skill:
+        workflow_options["workflow_skill"] = legal_skills.bundled_registry().get(skill_result.selected_skill)
     if legal_skills.enabled():
         skill_headers["X-Legal-Skill-Status"] = skill_result.status
         if skill_result.selected_skill:
@@ -2259,6 +2287,7 @@ async def generate(req: GenerateRequest):
             authority_register,
             deadline_rules,
             rule_set,
+            **workflow_options,
         ),
         media_type="text/event-stream",
         headers={
@@ -2283,7 +2312,7 @@ async def chat_endpoint(req: ChatRequest):
             _run_agent_collect, _trim_history(history)
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: تعذّر إكمال العملية. راجع إعدادات الخدمة.")
 
     if not answer:
         answer = (
@@ -2818,7 +2847,7 @@ def _claims_frame(
             suggestions=suggestions,
         )
     except Exception as exc:  # noqa: BLE001 — الفشل يُعلَن ولا يُبتلع
-        print(f"\n[Claims] ⚠️ تعذّر بناء المصفوفة: {type(exc).__name__}: {exc}")
+        print(f"\n[Claims] ⚠️ تعذّر بناء المصفوفة: {type(exc).__name__}")
         return {
             "built": False,
             "message": (
@@ -3191,10 +3220,10 @@ def _authority_frame(draft, register, case_frame=None):
         }
     except Exception as exc:  # noqa: BLE001
         # ⚠️ **ولا يُبتلع الفشل**: يُعلَن بنصّه، فلا يبدو الفحص ناجحاً وهو لم يجرِ.
-        print(f"[Authority] ⚠️ تعذّر بناء إطار الأسانيد: {type(exc).__name__}: {exc}")
+        print(f"[Authority] ⚠️ تعذّر بناء إطار الأسانيد: {type(exc).__name__}")
         return {
             "built": False,
-            "message": f"تعذّر بناء إطار الأسانيد: {type(exc).__name__}: {exc}",
+            "message": f"تعذّر بناء إطار الأسانيد: {type(exc).__name__}",
             "summary": {},
             "checks": [],
             "errors": [],
@@ -3353,10 +3382,10 @@ def _deadlines_frame(draft, rules, case_frame=None):
             "errors": errors, "notices": notices, "checked_sources": checked,
         }
     except Exception as exc:  # noqa: BLE001
-        print(f"[Deadlines] ⚠️ تعذّر حساب المواعيد: {type(exc).__name__}: {exc}")
+        print(f"[Deadlines] ⚠️ تعذّر حساب المواعيد: {type(exc).__name__}")
         return {
             "built": False,
-            "message": f"تعذّر حساب المواعيد: {type(exc).__name__}: {exc}",
+            "message": f"تعذّر حساب المواعيد: {type(exc).__name__}",
             "items": [], "errors": [], "notices": [], "checked_sources": checked,
         }
 
@@ -3513,10 +3542,10 @@ def _rules_frame(draft, rule_set):
             "errors": errors, "notices": notices, "checked_sources": checked,
         }
     except Exception as exc:  # noqa: BLE001
-        print(f"[Rules] ⚠️ تعذّر بناء إطار القواعد: {type(exc).__name__}: {exc}")
+        print(f"[Rules] ⚠️ تعذّر بناء إطار القواعد: {type(exc).__name__}")
         return {
             "built": False,
-            "message": f"تعذّر بناء إطار القواعد: {type(exc).__name__}: {exc}",
+            "message": f"تعذّر بناء إطار القواعد: {type(exc).__name__}",
             "rules": [], "conflicts": [], "must_review": [], "findings": [],
             "errors": [], "notices": [], "checked_sources": checked,
         }

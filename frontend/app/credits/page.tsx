@@ -62,11 +62,11 @@ export default function Credits() {
         <h2 className="font-heading text-xl text-slate-100">الخطوط</h2>
         <ul className="mt-3 space-y-2 text-sm text-slate-400">
           <li>
-            <span className="text-slate-200">Amiri</span> — إحياء خطّ مطبعة بولاق.
+            <a href="/fonts/Amiri-OFL.txt" className="text-slate-200 underline underline-offset-2">Amiri</a> — إحياء خطّ مطبعة بولاق.
             برخصة <span dir="ltr">SIL Open Font License 1.1</span>.
           </li>
           <li>
-            <span className="text-slate-200">Noto Kufi Arabic</span> — من مشروع Noto.
+            <a href="/fonts/NotoKufiArabic-OFL.txt" className="text-slate-200 underline underline-offset-2">Noto Kufi Arabic</a> — من مشروع Noto.
             برخصة <span dir="ltr">SIL Open Font License 1.1</span>.
           </li>
         </ul>

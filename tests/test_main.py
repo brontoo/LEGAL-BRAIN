@@ -1373,7 +1373,8 @@ class TestSSE(MainTestBase):
 
         errors = [e for e in events if e["type"] == "error"]
         self.assertEqual(len(errors), 1)
-        self.assertIn("انقطاع الشبكة", errors[0]["message"])
+        self.assertIn("RuntimeError", errors[0]["message"])
+        self.assertNotIn("انقطاع الشبكة", errors[0]["message"])
 
     def test_empty_final_yields_error_not_empty_done(self):
         """بلا نصّ: خطأ صريح بدل مستند فارغ يُعرض كأنه نجاح."""
@@ -1545,10 +1546,11 @@ class TestSaveRevision(MainTestBase):
         self.assertIn("schema.sql", ctx.exception.detail)
         self.assertIn("١٠", ctx.exception.detail)
 
-    def test_other_storage_errors_are_reported_plainly(self):
-        """خطأ آخر يُعاد نصّه — لا يُخفى وراء رسالة الجدول الناقص."""
+    def test_other_storage_errors_do_not_disclose_provider_payload(self):
+        """Provider error text is not exposed; schema guidance is still specific."""
         message = main._revision_storage_error(RuntimeError("انتهت المهلة"))
-        self.assertIn("انتهت المهلة", message)
+        self.assertNotIn("انتهت المهلة", message)
+        self.assertIn("تعذّر حفظ التصحيح", message)
         self.assertNotIn("schema.sql", message)
 
 
