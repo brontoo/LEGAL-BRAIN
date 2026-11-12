@@ -40,7 +40,7 @@ def evaluate(fixture_path=None):
                                                      for i, claim in enumerate(document['unsupported_conclusions'])] + attacks})
         started = time.perf_counter()
         with patch.dict(os.environ, {'ENABLE_LEGAL_SKILLS': 'false', 'ENABLE_HYBRID_LEGAL_RETRIEVAL': 'false',
-                                    'ENABLE_CLAUSE_MODEL_ASSISTANCE': 'false'}):
+                                    'ENABLE_CLAUSE_MODEL_ASSISTANCE': 'false', 'ENABLE_CLAUSE_ROLE_V2': 'false'}):
             report = analyze(req)
         duration = (time.perf_counter()-started)*1000
         elapsed.append(duration)

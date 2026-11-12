@@ -21,13 +21,16 @@ def serializable(value):
 
 def analyze(request: AnalysisRequest, *, model_invoke=None, external_search=None):
     started = time.perf_counter()
+    role_v2 = config.role_v2_enabled()
+    if role_v2:
+        from . import roles_v2, conditions_v2, consistency_v2, reasoning_v2, alignment, terms_v2
     clauses = classification.classify(parser.parse(request.document))
-    parties = entities.extract(clauses)
+    parties = roles_v2.parties(clauses) if role_v2 else entities.extract(clauses)
     definitions = entities.defined_terms(clauses)
-    relationships = conditions.extract(clauses, parties)
+    relationships = conditions_v2.extract(clauses, parties) if role_v2 else conditions.extract(clauses, parties)
     money = terms.financial(clauses)
-    dates = terms.dates(clauses, relationships)
-    duties = obligations.extract(clauses, parties, relationships, dates)
+    dates = terms_v2.dates(clauses, relationships) if role_v2 else terms.dates(clauses, relationships)
+    duties = roles_v2.extract(clauses, parties, relationships, dates, money) if role_v2 else obligations.extract(clauses, parties, relationships, dates)
     refs, cycles, duplicate_labels = references.resolve(clauses)
     relationships = tuple(replace(c, target_clauses=tuple(dict.fromkeys(
         target for ref in refs if ref.source_clause == c.source_clause
@@ -35,14 +38,20 @@ def analyze(request: AnalysisRequest, *, model_invoke=None, external_search=None
         for c in relationships)
     if any(len(records) > config.MAX_RECORDS for records in (parties, definitions, relationships, money, dates, duties, refs)):
         raise ClauseError('Extraction exceeds analysis limits')
-    conflicts = consistency.detect(clauses, duties, money, dates, definitions)
+    if role_v2:
+        conflicts, comparison_diagnostics = consistency_v2.detect(clauses, duties, money, dates, definitions)
+        alignments = alignment.compare(clauses, duties, money, dates)
+    else:
+        conflicts = consistency.detect(clauses, duties, money, dates, definitions)
     issues, risk = risks.register(clauses, parties, refs, cycles, duplicate_labels, conflicts, request.language)
     # Narrow observation: the quotation appears. No arbitrary paraphrase is marked supported.
     observations = tuple(Finding(f'OBS-{i+1:04d}', 'source_observation', c.span.quote, 'source_observation', (c.span,),
                                  S.SUPPORTED.value, 'نص تعاقدي حرفي فقط؛ الأثر القانوني والتنفيذ والأصالة غير متحققة.' if request.language == 'ar' else
                                  'Exact contractual text only; legal effect, performance and authenticity unverified.')
                          for i, c in enumerate(clauses))
-    assessments = tuple(reasoning.assess(request.document, clauses, item, i+1) for i, item in enumerate(request.claims))
+    assessments = tuple(reasoning_v2.assess(request.document, clauses, item, i+1, duties, relationships, money)
+                        if role_v2 else reasoning.assess(request.document, clauses, item, i+1)
+                        for i, item in enumerate(request.claims))
     findings = observations + issues + assessments
     bridge = evidence.citation_bridge(request.document, clauses, findings)
     ledger = evidence.fact_ledger(findings)
@@ -67,4 +76,25 @@ def analyze(request: AnalysisRequest, *, model_invoke=None, external_search=None
         'security': {'injection_candidates': len(injection), 'document_stored': False, 'source_instructions_executed': False},
         'diagnostics': diagnostics.summary(clauses, parties, duties, findings, (time.perf_counter()-started)*1000),
     }
+    if role_v2:
+        report['role_analysis'] = {'schema_version': 'phase2c.roles.v1', 'mode': 'hardened_deterministic_candidate',
+                                   'language_alignments': alignments, 'comparison_diagnostics': comparison_diagnostics,
+                                   'legal_approval': 'not_provided'}
+        # Every nested role/alignment/definition span uses the established structural
+        # validator. No second citation/fact/authority verifier is introduced.
+        from .schemas import EvidenceSpan
+        def validate_nested(value):
+            if isinstance(value, EvidenceSpan):
+                if not evidence.validate_span(request.document, clauses, value):
+                    raise ClauseError('Role evidence failed source validation')
+            elif is_dataclass(value):
+                for name in value.__dataclass_fields__:
+                    validate_nested(getattr(value, name))
+            elif isinstance(value, dict):
+                for item in value.values():
+                    validate_nested(item)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    validate_nested(item)
+        validate_nested(report)
     return serializable(report)

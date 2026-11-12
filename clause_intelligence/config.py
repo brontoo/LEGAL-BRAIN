@@ -16,3 +16,7 @@ def enabled():
 
 def model_enabled():
     return os.environ.get('ENABLE_CLAUSE_MODEL_ASSISTANCE', 'false').strip().lower() == 'true'
+
+
+def role_v2_enabled():
+    return os.environ.get('ENABLE_CLAUSE_ROLE_V2', 'false').strip().lower() == 'true'

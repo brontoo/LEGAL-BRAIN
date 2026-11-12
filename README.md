@@ -784,3 +784,18 @@ See [architecture/API](docs/phase2b-architecture.md),
 [measured benchmark](docs/phase2b-benchmark.md),
 [acceptance](docs/phase2b-acceptance.md) and
 [completion report](docs/phase2b-completion-report.md).
+
+## Phase 2C: Optional semantic-role hardening
+
+`ENABLE_CLAUSE_ROLE_V2=false` preserves Phase 2B extraction. Opt-in roles add exact
+field evidence, bilingual negation/condition handling and conservative alignment
+without legal or signature approval. The existing API/schema/proxy remains.
+
+See [architecture](docs/phase2c-architecture.md),
+[role metrics](docs/phase2c-semantic-role-evaluation.md),
+[bilingual benchmark](docs/phase2c-bilingual-benchmark.md),
+[lawyer protocol](docs/phase2c-lawyer-review-protocol.md),
+[live validation blockers](docs/phase2c-live-validation.md),
+[security/performance](docs/phase2c-security-performance.md),
+[acceptance](docs/phase2c-acceptance.md) and
+[completion report](docs/phase2c-completion-report.md).

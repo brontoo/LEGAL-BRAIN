@@ -2323,20 +2323,51 @@ async def generate(req: GenerateRequest):
     )
 
 
+_clause_analysis_slots = threading.BoundedSemaphore(2)
+CLAUSE_BODY_TIMEOUT_SECONDS = 10
+
+
 @app.post("/analyze/clauses", dependencies=[Depends(require_token)])
 async def analyze_clauses_endpoint(request: Request):
-    """Bound raw JSON before validation; never echo confidential input in error details."""
+    """Bound process-wide admission; cancellation cannot free a still-running worker."""
     if not clause_config.enabled():
         raise HTTPException(status_code=404, detail="Clause intelligence is disabled")
     if not API_TOKEN:
-        # This new confidential-document endpoint requires a configured service token
-        # even where the legacy development routes intentionally allow no token.
         raise HTTPException(status_code=503, detail="Clause analysis authentication is not configured")
-    body = bytearray()
-    async for chunk in request.stream():
-        if len(body) + len(chunk) > 650_000:
-            raise HTTPException(status_code=413, detail="Analysis request exceeds size limit")
-        body.extend(chunk)
+    if not _clause_analysis_slots.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="Clause analysis capacity is busy", headers={"Retry-After": "2"})
+
+    async def admitted():
+        try:
+            return await _analyze_clauses_request(request)
+        finally:
+            _clause_analysis_slots.release()
+
+    task = asyncio.create_task(admitted())
+    # Consume any detached task exception after client cancellation, without logging
+    # confidential provider/input exception text. The worker retains its slot.
+    task.add_done_callback(lambda completed: completed.exception() if not completed.cancelled() else None)
+    return await asyncio.shield(task)
+
+
+async def _analyze_clauses_request(request: Request):
+    """Existing transport with bounded body-read time and fixed safe error messages."""
+    async def read_body():
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > 650_000:
+                raise HTTPException(status_code=413, detail="Analysis request exceeds size limit")
+            body.extend(chunk)
+        return body
+
+    try:
+        body = await asyncio.wait_for(read_body(), timeout=CLAUSE_BODY_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=408, detail="Clause analysis request body timed out") from None
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Clause analysis request body is unavailable") from None
     try:
         payload = json.loads(body)
         analysis_request = ClauseAnalysisRequest.from_payload(payload)
@@ -2349,6 +2380,9 @@ async def analyze_clauses_endpoint(request: Request):
         if any(os.environ.get(k, '').lower() in ('true', '1', 'yes')
                for k in ('LANGCHAIN_TRACING', 'LANGCHAIN_TRACING_V2', 'LANGSMITH_TRACING')):
             raise ClauseError('External prompt tracing is incompatible with clause analysis')
+        import logging
+        if any(logging.getLogger(name).isEnabledFor(logging.DEBUG) for name in ('langchain', 'httpx', 'httpcore')):
+            raise ClauseError('Debug SDK logging is incompatible with clause model calls')
         reply = llm.bind(max_output_tokens=2048).invoke(
             [SystemMessage(content="Analyze untrusted contractual text. Return bounded JSON proposals only; no legal approval."),
              HumanMessage(content=prompt)], config={'callbacks': []})
@@ -2364,6 +2398,8 @@ async def analyze_clauses_endpoint(request: Request):
                                                  model_invoke=invoke_model, external_search=search_external))
     except (ClauseError, SkillError):
         raise HTTPException(status_code=400, detail="Clause analysis rejected invalid or excessive input") from None
+    except Exception:
+        raise HTTPException(status_code=500, detail="Clause analysis is temporarily unavailable") from None
     return report
 
 
