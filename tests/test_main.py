@@ -438,6 +438,7 @@ class TestRoutes(MainTestBase):
                 ("POST", "/generate"),
                 ("GET", "/skills"),
                 ("POST", "/skills/resolve"),
+                ("POST", "/analyze/clauses"),
                 ("POST", "/chat"),
                 ("POST", "/revisions"),
                 ("GET", "/revisions/stats"),
@@ -457,6 +458,7 @@ class TestRoutes(MainTestBase):
         }
         self.assertTrue(posts["/generate"])
         self.assertTrue(posts["/chat"])
+        self.assertTrue(posts["/analyze/clauses"])
 
     def test_health_stays_open_and_reports_verification(self):
         """/health غير محمي (للمراقبة) ويُعلن أن التحقّق مُفعَّل."""

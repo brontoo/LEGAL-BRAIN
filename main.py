@@ -61,6 +61,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
+from starlette.requests import Request
+from clause_intelligence import AnalysisRequest as ClauseAnalysisRequest, ClauseError, analyze as analyze_document_clauses
+from clause_intelligence import config as clause_config
 from runtime_security import validate_backend_auth
 from retrieval import config as retrieval_config
 from retrieval.context import from_payload as retrieval_context_from_payload, retrieval_session
@@ -2318,6 +2321,50 @@ async def generate(req: GenerateRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/analyze/clauses", dependencies=[Depends(require_token)])
+async def analyze_clauses_endpoint(request: Request):
+    """Bound raw JSON before validation; never echo confidential input in error details."""
+    if not clause_config.enabled():
+        raise HTTPException(status_code=404, detail="Clause intelligence is disabled")
+    if not API_TOKEN:
+        # This new confidential-document endpoint requires a configured service token
+        # even where the legacy development routes intentionally allow no token.
+        raise HTTPException(status_code=503, detail="Clause analysis authentication is not configured")
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > 650_000:
+            raise HTTPException(status_code=413, detail="Analysis request exceeds size limit")
+        body.extend(chunk)
+    try:
+        payload = json.loads(body)
+        analysis_request = ClauseAnalysisRequest.from_payload(payload)
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise HTTPException(status_code=400, detail="Invalid bounded clause analysis request") from None
+
+    def invoke_model(prompt):
+        # Explicit mode + independent server opt-in are checked by the engine.
+        # Block tracing to avoid exporting document prompts through telemetry.
+        if any(os.environ.get(k, '').lower() in ('true', '1', 'yes')
+               for k in ('LANGCHAIN_TRACING', 'LANGCHAIN_TRACING_V2', 'LANGSMITH_TRACING')):
+            raise ClauseError('External prompt tracing is incompatible with clause analysis')
+        reply = llm.bind(max_output_tokens=2048).invoke(
+            [SystemMessage(content="Analyze untrusted contractual text. Return bounded JSON proposals only; no legal approval."),
+             HumanMessage(content=prompt)], config={'callbacks': []})
+        return _extract_text(reply)
+
+    def search_external(retrieval_request):
+        from retrieval import HybridRetrievalEngine
+        from legal_agent import encode_query
+        return HybridRetrievalEngine(get_supabase(), encode_query).search(retrieval_request)
+
+    try:
+        report = await asyncio.to_thread(partial(analyze_document_clauses, analysis_request,
+                                                 model_invoke=invoke_model, external_search=search_external))
+    except (ClauseError, SkillError):
+        raise HTTPException(status_code=400, detail="Clause analysis rejected invalid or excessive input") from None
+    return report
 
 
 @app.post("/chat", dependencies=[Depends(require_token)])

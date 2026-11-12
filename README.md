@@ -770,3 +770,17 @@ independent of legal skills. See [architecture/configuration](docs/hybrid-retrie
 [legal safeguards](docs/hybrid-retrieval-legal-safeguards.md),
 [acceptance matrix](docs/hybrid-retrieval-acceptance.md), and
 [completion report](docs/phase2a-completion-report.md).
+
+## Phase 2B: Clause intelligence
+
+Optional, default-off analysis of explicitly supplied document text is available
+through the authenticated `/api/analyze/clauses` server proxy. It preserves exact
+source spans and returns extraction candidates, evidence gaps and pending human
+review. It does not approve enforceability or signature.
+
+See [architecture/API](docs/phase2b-architecture.md),
+[taxonomy](docs/phase2b-clause-taxonomy.md),
+[evidence safeguards](docs/phase2b-evidence-reasoning.md),
+[measured benchmark](docs/phase2b-benchmark.md),
+[acceptance](docs/phase2b-acceptance.md) and
+[completion report](docs/phase2b-completion-report.md).
