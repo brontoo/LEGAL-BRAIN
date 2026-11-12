@@ -2,8 +2,9 @@
 
 Implemented 12 November 2026 on `feature/skill-registry-uae-playbooks`, continuing
 Phase 1 commit `89e5f7fa26cb6f85f1291d7b2b72611b918d9a2e` after a clean status check,
-remote fetch and ancestry verification. The delivery commit is identified in Git
-history and the completion message. No merge, deployment, production write or
+remote fetch and ancestry verification. Implementation commit:
+`94d71072c3d0d8e027be163d4db093de44a0b120`. The final delivery commit is identified
+in Git history and the completion message. No merge, deployment, production write or
 configuration publication occurred.
 
 ## Audit and fixes
@@ -57,7 +58,7 @@ Resolved defects:
 | `cd frontend && npx tsc --noEmit` | PASSED |
 | `cd frontend && npm run build` | PASSED: production compile, type check, prerender and routes complete |
 | Bundled font/license digests | PASSED: all five download artifacts match recorded SHA-256 values |
-| `git diff --check` | PASSED |
+| `git diff 89e5f7f HEAD --check` | Application files PASSED; preserved upstream OFL notices have whitespace warnings |
 | Real Gemini/Supabase/embedding integration | BLOCKED: credentials and integration dependencies absent; no live test executed |
 | Subjective lawyer quality/current-law acceptance | NOT RUN |
 | Exploratory 390px workspace generation | FAILED: existing fixed-width layout puts submit action outside viewport; unresolved |
@@ -68,6 +69,12 @@ failure. Browser coverage also includes home/chat/credits/library navigation,
 Arabic/RTL/dark shell, no remote Google font requests, stored-grid hydration,
 open/close/switch document panels, mobile library controls, SSE rendering and
 revision session submission. No browser exception occurred during that smoke run.
+
+The complete staged whitespace check reported trailing spaces/blank EOF lines
+in the four verbatim upstream OFL notice copies. Those notices are intentionally
+preserved byte-for-byte with their recorded source digests. A check excluding only
+those four third-party notice paths passes; application source has no whitespace
+errors. No license text or expected digest was changed to silence the warnings.
 
 ## Comparison and legal verification findings
 

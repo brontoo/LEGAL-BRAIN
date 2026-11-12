@@ -81,6 +81,8 @@ Amiri regular/bold and variable Noto Kufi Arabic are bundled unchanged from
 Both families permit redistribution under SIL OFL 1.1, reviewed before inclusion.
 Family notices are beside assets and publicly linked from Credits. Source URLs,
 SHA-256 digests and sizes are in `frontend/app/fonts/provenance.json`.
+The original license notices retain their upstream whitespace (the full Git
+whitespace check warns on those notices only); their source digests remain intact.
 `next/font/local` preserves the two-family visual design. No Google font network
 request is needed during build or runtime. No font package/dependency was added.
 
