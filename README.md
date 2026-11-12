@@ -760,3 +760,13 @@ Phase 1.5 adds production authentication guards, licensed local fonts, frontend
 validation fixes and bilingual acceptance tests. See the
 [stabilization report](docs/skills-phase1-5-report.md) and
 [production configuration requirements](docs/skills-production-readiness.md).
+
+## Optional hybrid legal retrieval (Phase 2A)
+
+`ENABLE_HYBRID_LEGAL_RETRIEVAL=false` preserves legacy vector retrieval and remains
+independent of legal skills. See [architecture/configuration](docs/hybrid-retrieval-architecture.md),
+[manual migration/rollback](docs/hybrid-retrieval-migration.md),
+[measured synthetic benchmark](docs/hybrid-retrieval-benchmark.md),
+[legal safeguards](docs/hybrid-retrieval-legal-safeguards.md),
+[acceptance matrix](docs/hybrid-retrieval-acceptance.md), and
+[completion report](docs/phase2a-completion-report.md).

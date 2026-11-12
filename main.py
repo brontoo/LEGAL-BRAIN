@@ -62,6 +62,9 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 from runtime_security import validate_backend_auth
+from retrieval import config as retrieval_config
+from retrieval.context import from_payload as retrieval_context_from_payload, retrieval_session
+from retrieval.schemas import RetrievalError
 
 from skills import JurisdictionContext, SkillError
 from skills import integration as legal_skills
@@ -376,6 +379,7 @@ class GenerateRequest(BaseModel):
     skill_id: Optional[str] = None
     skill_jurisdiction: Optional[dict] = None
     skill_risk: Optional[dict] = None
+    retrieval_context: Optional[dict] = None
     #: ملف القضية — **كل حقوله اختياريّة، والحمل الفارغ يعني «لم يُقل».**
     #: وغيابه الكامل يعني «لم يُنشأ ملف قضية»، وهو ما يُقال صراحةً في الرسالة
     #: وفي إطار `case` — فالغياب معلومة، لا فراغ يُسكت عنه.
@@ -2051,6 +2055,7 @@ async def _sse_generator(
     deadline_rules: Optional[object] = None,
     rule_set: Optional[object] = None,
     workflow_skill=None,
+    retrieval_context=None,
 ) -> AsyncIterator[str]:
     """
     يحوّل مُولِّد الوكيل المتزامن (blocking) إلى بثّ غير متزامن.
@@ -2168,7 +2173,14 @@ async def _sse_generator(
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
-    threading.Thread(target=worker, daemon=True).start()
+    def scoped_worker():
+        if retrieval_context is None:
+            worker()
+        else:
+            with retrieval_session(retrieval_context):
+                worker()
+
+    threading.Thread(target=scoped_worker, daemon=True).start()
 
     while True:
         item = await queue.get()
@@ -2270,6 +2282,14 @@ async def generate(req: GenerateRequest):
         messages[0] = SystemMessage(content=messages[0].content + skill_suffix)
     skill_headers = {}
     workflow_options = {}
+    if retrieval_config.enabled():
+        try:
+            workflow_options["retrieval_context"] = retrieval_context_from_payload(
+                req.retrieval_context, jurisdiction=req.skill_jurisdiction,
+                case=case_input.case or req.case,
+            )
+        except RetrievalError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if skill_result.selected_skill:
         workflow_options["workflow_skill"] = legal_skills.bundled_registry().get(skill_result.selected_skill)
     if legal_skills.enabled():
