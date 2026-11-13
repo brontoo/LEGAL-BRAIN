@@ -20,3 +20,7 @@ def model_enabled():
 
 def role_v2_enabled():
     return os.environ.get('ENABLE_CLAUSE_ROLE_V2', 'false').strip().lower() == 'true'
+
+
+def precision_enabled():
+    return os.environ.get('ENABLE_CLAUSE_PRECISION_V3', 'false').strip().lower() == 'true'

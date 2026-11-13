@@ -1,0 +1,17 @@
+{
+  "scope": "actual local FastAPI HTTP with fictional source and external-service fakes",
+  "feature_cases": 32,
+  "sequential_samples": 100,
+  "http_p50_ms": 9.129021003900561,
+  "http_p95_ms": 11.603095997998025,
+  "http_p99_ms": 14.606004995584954,
+  "bounded_four_thread_requests": 40,
+  "statuses": {
+    "200": 32,
+    "429": 8
+  },
+  "local_http_requests_per_second": 148.35106218046292,
+  "local_slow_child_terminated_seconds": 0.05079216200101655,
+  "real_provider_timeout_test": "BLOCKED",
+  "actual_model_or_database_calls": 0
+}

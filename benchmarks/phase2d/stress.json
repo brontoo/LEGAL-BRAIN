@@ -1,0 +1,278 @@
+{
+  "scope": "local disposable Python processes, fictional input, not production stress testing",
+  "limits": {
+    "address_space_bytes": 536870912,
+    "cpu_seconds": 20,
+    "wall_seconds_per_case": 30
+  },
+  "results": [
+    {
+      "case": "near_limit",
+      "mode": "legacy",
+      "characters": 99499,
+      "status": "accepted",
+      "counts": {
+        "clauses": 500,
+        "obligations": 500
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 3843.8153189999866,
+      "peak_python_bytes": 4971966,
+      "process_peak_rss_kib": 30232
+    },
+    {
+      "case": "nested",
+      "mode": "legacy",
+      "characters": 25799,
+      "status": "accepted",
+      "counts": {
+        "clauses": 150,
+        "obligations": 0
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 3641.2436500031617,
+      "peak_python_bytes": 898723,
+      "process_peak_rss_kib": 21884
+    },
+    {
+      "case": "mixed_unicode",
+      "mode": "legacy",
+      "characters": 17291,
+      "status": "accepted",
+      "counts": {
+        "clauses": 300,
+        "obligations": 300
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 3816.0569770043367,
+      "peak_python_bytes": 2128380,
+      "process_peak_rss_kib": 24316
+    },
+    {
+      "case": "duplicates",
+      "mode": "legacy",
+      "characters": 11699,
+      "status": "accepted",
+      "counts": {
+        "clauses": 300,
+        "obligations": 300
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 2409.019149999949,
+      "peak_python_bytes": 6684228,
+      "process_peak_rss_kib": 31052
+    },
+    {
+      "case": "repeated_definitions",
+      "mode": "legacy",
+      "characters": 15783,
+      "status": "accepted",
+      "counts": {
+        "clauses": 500,
+        "obligations": 0
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 11102.410774998134,
+      "peak_python_bytes": 16874259,
+      "process_peak_rss_kib": 61968
+    },
+    {
+      "case": "repeated_references",
+      "mode": "legacy",
+      "characters": 22991,
+      "status": "accepted",
+      "counts": {
+        "clauses": 300,
+        "obligations": 300
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 2338.8068429994746,
+      "peak_python_bytes": 3694453,
+      "process_peak_rss_kib": 27952
+    },
+    {
+      "case": "unpunctuated_allowed",
+      "mode": "legacy",
+      "characters": 19002,
+      "status": "accepted",
+      "counts": {
+        "clauses": 1,
+        "obligations": 0
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 206.11514300253475,
+      "peak_python_bytes": 341204,
+      "process_peak_rss_kib": 21368
+    },
+    {
+      "case": "oversized_paragraph",
+      "mode": "legacy",
+      "characters": 20003,
+      "status": "rejected_safely",
+      "counts": {},
+      "expected": "rejected_safely",
+      "elapsed_ms_with_tracemalloc": 2.443438999762293,
+      "peak_python_bytes": 26563,
+      "process_peak_rss_kib": 20984
+    },
+    {
+      "case": "oversized_document",
+      "mode": "legacy",
+      "characters": 100001,
+      "status": "rejected_safely",
+      "counts": {},
+      "expected": "rejected_safely",
+      "elapsed_ms_with_tracemalloc": 1.7803890004870482,
+      "peak_python_bytes": 26475,
+      "process_peak_rss_kib": 20984
+    },
+    {
+      "case": "dense_modals",
+      "mode": "legacy",
+      "characters": 2882,
+      "status": "accepted",
+      "counts": {
+        "clauses": 1,
+        "obligations": 1
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 100.12816000380553,
+      "peak_python_bytes": 267070,
+      "process_peak_rss_kib": 21244
+    },
+    {
+      "case": "near_limit",
+      "mode": "role_v2",
+      "characters": 99499,
+      "status": "accepted",
+      "counts": {
+        "clauses": 500,
+        "obligations": 500
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 12921.757602998696,
+      "peak_python_bytes": 9205967,
+      "process_peak_rss_kib": 39988
+    },
+    {
+      "case": "nested",
+      "mode": "role_v2",
+      "characters": 25799,
+      "status": "accepted",
+      "counts": {
+        "clauses": 150,
+        "obligations": 0
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 4918.627414001094,
+      "peak_python_bytes": 1261341,
+      "process_peak_rss_kib": 22644
+    },
+    {
+      "case": "mixed_unicode",
+      "mode": "role_v2",
+      "characters": 17291,
+      "status": "accepted",
+      "counts": {
+        "clauses": 300,
+        "obligations": 600
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 5766.180496997549,
+      "peak_python_bytes": 7574251,
+      "process_peak_rss_kib": 36616
+    },
+    {
+      "case": "duplicates",
+      "mode": "role_v2",
+      "characters": 11699,
+      "status": "accepted",
+      "counts": {
+        "clauses": 300,
+        "obligations": 300
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 3690.068252995843,
+      "peak_python_bytes": 9343665,
+      "process_peak_rss_kib": 37616
+    },
+    {
+      "case": "repeated_definitions",
+      "mode": "role_v2",
+      "characters": 15783,
+      "status": "accepted",
+      "counts": {
+        "clauses": 500,
+        "obligations": 0
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 5475.623565995193,
+      "peak_python_bytes": 3387673,
+      "process_peak_rss_kib": 27412
+    },
+    {
+      "case": "repeated_references",
+      "mode": "role_v2",
+      "characters": 22991,
+      "status": "accepted",
+      "counts": {
+        "clauses": 300,
+        "obligations": 300
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 4075.0543999965885,
+      "peak_python_bytes": 6460991,
+      "process_peak_rss_kib": 34612
+    },
+    {
+      "case": "unpunctuated_allowed",
+      "mode": "role_v2",
+      "characters": 19002,
+      "status": "accepted",
+      "counts": {
+        "clauses": 1,
+        "obligations": 0
+      },
+      "expected": "accepted",
+      "elapsed_ms_with_tracemalloc": 1593.4167520026676,
+      "peak_python_bytes": 1497529,
+      "process_peak_rss_kib": 24316
+    },
+    {
+      "case": "oversized_paragraph",
+      "mode": "role_v2",
+      "characters": 20003,
+      "status": "rejected_safely",
+      "counts": {},
+      "expected": "rejected_safely",
+      "elapsed_ms_with_tracemalloc": 40.25885600276524,
+      "peak_python_bytes": 382056,
+      "process_peak_rss_kib": 21240
+    },
+    {
+      "case": "oversized_document",
+      "mode": "role_v2",
+      "characters": 100001,
+      "status": "rejected_safely",
+      "counts": {},
+      "expected": "rejected_safely",
+      "elapsed_ms_with_tracemalloc": 1.1744090006686747,
+      "peak_python_bytes": 26474,
+      "process_peak_rss_kib": 20984
+    },
+    {
+      "case": "dense_modals",
+      "mode": "role_v2",
+      "characters": 2882,
+      "status": "rejected_safely",
+      "counts": {},
+      "expected": "rejected_safely",
+      "elapsed_ms_with_tracemalloc": 268.77477299422026,
+      "peak_python_bytes": 627639,
+      "process_peak_rss_kib": 21500
+    }
+  ],
+  "all_expected": true,
+  "precision_v3_requested": true,
+  "effective_mode_note": "legacy rows ignore precision; role_v2 rows include Phase 2D precision corrections."
+}

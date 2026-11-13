@@ -106,6 +106,7 @@ def evaluate(*, measure_memory=False, corpus_path=None):
         mode_errors = {}
         for mode in ('legacy', 'role_v2'):
             env = {'ENABLE_CLAUSE_ROLE_V2': str(mode == 'role_v2').lower(), 'ENABLE_CLAUSE_MODEL_ASSISTANCE': 'false',
+                   'ENABLE_CLAUSE_PRECISION_V3': 'false',
                    'ENABLE_LEGAL_SKILLS': 'false', 'ENABLE_HYBRID_LEGAL_RETRIEVAL': 'false'}
             with patch.dict(os.environ, env):
                 start = time.perf_counter()

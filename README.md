@@ -799,3 +799,16 @@ See [architecture](docs/phase2c-architecture.md),
 [security/performance](docs/phase2c-security-performance.md),
 [acceptance](docs/phase2c-acceptance.md) and
 [completion report](docs/phase2c-completion-report.md).
+
+## Phase 2D: Validation integrity and targeted corrections
+
+The Phase 2C A/B packet is retired for blinded review because its key was committed;
+history was not purged. New reviewer material and keys must stay outside Git.
+`ENABLE_CLAUSE_PRECISION_V3=false` preserves current extraction defaults and requires
+role_v2 for opt-in identity/action/object corrections.
+
+See [architecture](docs/phase2d-architecture.md), [blinding security](docs/phase2d-blinded-evaluation-security.md),
+[accuracy](docs/phase2d-beneficiary-and-arabic-accuracy.md), [held-out evaluation](docs/phase2d-held-out-evaluation.md),
+[lawyer assessment](docs/phase2d-lawyer-assessment.md), [live harnesses](docs/phase2d-live-integration.md),
+[privacy/auth audit](docs/phase2d-privacy-authentication.md), [performance](docs/phase2d-performance.md),
+[acceptance](docs/phase2d-acceptance.md) and [completion](docs/phase2d-completion-report.md).

@@ -43,3 +43,21 @@ env/
 .idea/
 .vscode/
 frontend/node_modules
+
+# Phase 2D: private keys, reviewer submissions and real review packets are never Git artifacts.
+**/blinding-map*.json
+**/coordinator-only/
+**/reviewer-*-submission*.json
+**/review-responses/
+**/source-first.json
+**/candidates.json
+**/empty-submission.json
+**/study.json
+**/assignment.json
+**/adjudication.json
+**/origin-confirmation-*.json
+**/unblinding-audit.json
+**/legal-review-private*/
+**/review-packets-private*/
+benchmarks/roles/review-packet/*
+!benchmarks/roles/review-packet/RETIREMENT.json

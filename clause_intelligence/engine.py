@@ -31,6 +31,9 @@ def analyze(request: AnalysisRequest, *, model_invoke=None, external_search=None
     money = terms.financial(clauses)
     dates = terms_v2.dates(clauses, relationships) if role_v2 else terms.dates(clauses, relationships)
     duties = roles_v2.extract(clauses, parties, relationships, dates, money) if role_v2 else obligations.extract(clauses, parties, relationships, dates)
+    if role_v2 and config.precision_enabled():
+        from .precision import refine
+        duties=refine(request.document,clauses,parties,duties)
     refs, cycles, duplicate_labels = references.resolve(clauses)
     relationships = tuple(replace(c, target_clauses=tuple(dict.fromkeys(
         target for ref in refs if ref.source_clause == c.source_clause
@@ -80,6 +83,8 @@ def analyze(request: AnalysisRequest, *, model_invoke=None, external_search=None
         report['role_analysis'] = {'schema_version': 'phase2c.roles.v1', 'mode': 'hardened_deterministic_candidate',
                                    'language_alignments': alignments, 'comparison_diagnostics': comparison_diagnostics,
                                    'legal_approval': 'not_provided'}
+        if config.precision_enabled():
+            report['role_analysis']['precision_policy']='phase2d.source_identity.v1'
         # Every nested role/alignment/definition span uses the established structural
         # validator. No second citation/fact/authority verifier is introduced.
         from .schemas import EvidenceSpan

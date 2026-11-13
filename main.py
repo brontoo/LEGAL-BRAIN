@@ -2383,7 +2383,9 @@ async def _analyze_clauses_request(request: Request):
         import logging
         if any(logging.getLogger(name).isEnabledFor(logging.DEBUG) for name in ('langchain', 'httpx', 'httpcore')):
             raise ClauseError('Debug SDK logging is incompatible with clause model calls')
-        reply = llm.bind(max_output_tokens=2048).invoke(
+        from validation.provider_bounds import bounded_model
+        safe_model=bounded_model(llm,timeout=30,output_tokens=2048)
+        reply = safe_model.invoke(
             [SystemMessage(content="Analyze untrusted contractual text. Return bounded JSON proposals only; no legal approval."),
              HumanMessage(content=prompt)], config={'callbacks': []})
         return _extract_text(reply)
