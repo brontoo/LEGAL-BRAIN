@@ -1,11 +1,17 @@
-step "deploy-a-release" {
-    name = "Deploy a Release"
+step "run-a-script" {
+    name = "Run a Script"
+    properties = {
+        Octopus.Action.TargetRoles = "legal-brain"
+    }
 
     action {
-        action_type = "Octopus.DeployRelease"
+        action_type = "Octopus.Script"
         properties = {
-            Octopus.Action.DeployRelease.DeploymentCondition = "Always"
-            Octopus.Action.DeployRelease.ProjectId = "legal-brain"
+            Octopus.Action.RunOnServer = "false"
+            Octopus.Action.Script.ScriptBody = "Write-Host \"Hello, World!\""
+            Octopus.Action.Script.ScriptSource = "Inline"
+            Octopus.Action.Script.Syntax = "PowerShell"
         }
+        worker_pool_variable = ""
     }
 }
