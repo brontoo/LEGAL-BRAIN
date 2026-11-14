@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import "./preview.css";
 import { SiteNav } from "@/components/site-nav";
 import { Letterhead } from "@/components/letterhead";
 // ⚠️ غلاف تفضيل الحركة — مكوّن عميل لأن `MotionConfig` سياقٌ في React،
 // و`layout.tsx` مكوّن خادم. وهو يلفّ الشجرة كما هي بلا تغيير في بنيتها.
 import { MotionPreference } from "@/components/motion-preference";
+import { DemoNotice } from "@/components/demo-notice";
+import { DEMO_MODE } from "@/lib/preview";
 
 /**
  * الترويسة والإطار العام — هوية «المحفوظات».
@@ -65,6 +68,7 @@ export default function RootLayout({
       className={`dark ${amiri.variable} ${kufi.variable}`}
     >
       <body
+        data-demo={DEMO_MODE ? "true" : undefined}
         className={`${kufi.className} bg-slate-950 text-slate-50 antialiased flex h-screen overflow-hidden`}
       >
         {/*
@@ -93,6 +97,7 @@ export default function RootLayout({
 
         {/* المساحة الرئيسية */}
         <main className="flex h-screen flex-1 flex-col overflow-hidden">
+          <DemoNotice />
           <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950 ps-8 pe-8">
             <div className="font-heading text-sm text-slate-500">
               مرحباً بك، أستاذ أحمد

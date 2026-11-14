@@ -1,5 +1,8 @@
 "use client";
 
+import { previewFetch } from "@/lib/preview-fetch";
+import { DEMO_MODE, DEMO_PROMPT } from "@/lib/preview";
+
 import { useId, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -1309,8 +1312,9 @@ function BriefingPanel({ frame }: { frame: BriefingFrame | null }) {
             <Button
               variant="outline"
               size="sm"
+              disabled={DEMO_MODE}
               onClick={() =>
-                navigator.clipboard.writeText(
+                !DEMO_MODE && navigator.clipboard.writeText(
                   `${report?.headline ? report.headline + "\n\n" : ""}${frame.markdown}`
                 )
               }
@@ -1840,6 +1844,7 @@ function RevisionBar({
   const [error, setError] = useState("");
 
   const startEditing = () => {
+    if (DEMO_MODE) return;
     setEditedText(generatedText);
     setEditing(true);
     setState("idle");
@@ -1853,10 +1858,11 @@ function RevisionBar({
   };
 
   const save = async () => {
+    if (DEMO_MODE) return;
     setState("saving");
     setError("");
     try {
-      const response = await fetch(`${API_URL}/revisions`, {
+      const response = await previewFetch(`${API_URL}/revisions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1878,6 +1884,8 @@ function RevisionBar({
       setState("error");
     }
   };
+
+  if (DEMO_MODE) return <p className="border-t border-slate-800 p-4 text-xs text-slate-500">الحفظ والتعديل معطلان في Demo Preview.</p>;
 
   return (
     <div className="border-t border-slate-200 bg-white p-6 space-y-3">
@@ -3805,7 +3813,7 @@ function GenerateInputsSection({
 }
 
 export default function Workspace() {
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(DEMO_MODE ? DEMO_PROMPT : "");
   const [docType, setDocType] = useState("لائحة دعوى تجارية");
   /*
    * معرّفا الحقلين الأعلى في النموذج — لأن تسميتيهما كانتا `<label>` مجرّدة
@@ -3893,7 +3901,7 @@ export default function Workspace() {
     }
 
     setStatus("processing");
-    setLiveMessage("جاري إيقاظ فريق العقل القانوني...");
+    setLiveMessage(DEMO_MODE ? "عرض مثال خيالي ثابت — لا توليد فعلي" : "جاري إيقاظ فريق العقل القانوني...");
     setFinalDocument("");
     setErrorMessage("");
     setCitationReport(null);
@@ -3936,10 +3944,10 @@ export default function Workspace() {
     const timeoutId = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${API_URL}/generate`, {
+      const response = await previewFetch(`${API_URL}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(DEMO_MODE ? {} : {
           prompt,
           doc_type: docType,
           // ⚠️ وحملُ الفحوص الأربعة يُضمّ إلى الطلب من موضعٍ واحد معلوم
@@ -4124,6 +4132,7 @@ export default function Workspace() {
                 <label htmlFor={promptId} className="text-sm font-medium text-slate-300">الوقائع والمعطيات</label>
                 <Textarea 
                   id={promptId}
+                  readOnly={DEMO_MODE}
                   placeholder="مثال: مطالبة مالية بقيمة 20,000 درهم عن فواتير غير مسددة..." 
                   className="min-h-[200px] bg-slate-950 border-slate-800 focus-visible:ring-amber-500 text-white resize-none"
                   value={prompt}
@@ -4186,7 +4195,7 @@ export default function Workspace() {
                   {status === "processing" ? (
                     <><Loader2 className="ms-2 h-5 w-5 animate-spin" aria-hidden="true" /> جاري الصياغة...</>
                   ) : (
-                    <><Send className="ms-2 h-5 w-5" aria-hidden="true" /> ابدأ الصياغة</>
+                    <><Send className="ms-2 h-5 w-5" aria-hidden="true" /> {DEMO_MODE ? "عرض مسودّة خيالية" : "ابدأ الصياغة"}</>
                   )}
                 </span>
               </Button>
@@ -4292,9 +4301,9 @@ export default function Workspace() {
                 <div className="bg-slate-100 p-4 border-b flex justify-between items-center">
                   <div className="flex items-center gap-2 text-green-600 font-semibold">
                     <CheckCircle className="w-5 h-5" />
-                    تمت الصياغة والاعتماد
+                    {DEMO_MODE ? "مثال خيالي ثابت — غير معتمد قانونياً" : "تمت الصياغة والاعتماد"}
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(cleanDocument)}>
+                  <Button variant="outline" size="sm" disabled={DEMO_MODE} onClick={() => { if (!DEMO_MODE) void navigator.clipboard.writeText(cleanDocument); }}>
                     نسخ المستند
                   </Button>
                 </div>

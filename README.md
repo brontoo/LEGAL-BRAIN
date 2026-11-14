@@ -1,5 +1,9 @@
 # ⚖️ LEGAL-BRAIN — العقل القانوني الإماراتي
 
+Visual preview: [isolated demo and private-preview access status](docs/platform-live-preview.md).
+Demo mode is explicitly enabled with `NEXT_PUBLIC_LEGAL_BRAIN_DEMO=true` at build/run
+time and is disabled by default. It never connects to a legal backend.
+
 منصة عربية أولاً (Arabic-first) لتوليد المستندات القانونية الإماراتية **بأسلوب المحامي نفسه**.
 
 الفكرة ليست الإجابة عن أسئلة قانونية عامة، بل استرجاع **سوابق المستخدم الشخصية** — عقوده،

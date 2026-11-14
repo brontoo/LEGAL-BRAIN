@@ -1,0 +1,42 @@
+/* Scoped to the explicit visual preview; ordinary deployments are unchanged. */
+@media (max-width: 767px) {
+  body[data-demo="true"] {
+    flex-direction: column;
+    height: 100svh;
+  }
+  body[data-demo="true"] > aside {
+    width: 100%;
+    flex-shrink: 0;
+  }
+  body[data-demo="true"] > aside > div,
+  body[data-demo="true"] > aside nav > div {
+    display: none;
+  }
+  body[data-demo="true"] > aside nav ul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body[data-demo="true"] > aside nav a {
+    padding: 12px;
+    gap: 8px;
+  }
+  body[data-demo="true"] > aside nav a span:last-child {
+    font-size: 13px;
+  }
+  body[data-demo="true"] > main {
+    width: 100%;
+    min-height: 0;
+    min-width: 0;
+    flex: 1;
+  }
+  body[data-demo="true"] > main > header {
+    display: none;
+  }
+  body[data-demo="true"] > main > div:last-child {
+    padding: 16px;
+    min-width: 0;
+  }
+  body[data-demo="true"] > main > div:last-child > div.min-h-screen {
+    padding: 0;
+  }
+}

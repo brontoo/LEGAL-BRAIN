@@ -1,4 +1,6 @@
 import type { NextRequest } from "next/server";
+import { DEMO_MODE } from "@/lib/preview";
+import { demoResponse } from "@/lib/demo-api";
 
 /**
  * وسيط من الواجهة إلى خادم FastAPI.
@@ -35,6 +37,8 @@ export const runtime = "nodejs";
 type Context = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, context: Context): Promise<Response> {
+  // This build cannot forward any API route in demo mode, even with credentials.
+  if (DEMO_MODE) return demoResponse(request, (await context.params).path);
   if (process.env.NODE_ENV === "production" && !API_TOKEN) {
     return new Response("خدمة الواجهة غير مهيأة للمصادقة.", { status: 503 });
   }

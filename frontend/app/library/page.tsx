@@ -1,5 +1,8 @@
 "use client";
 
+import { previewFetch } from "@/lib/preview-fetch";
+import { DEMO_MODE } from "@/lib/preview";
+
 /**
  * الأرشيف والمكتبة — فهرسُ ملفٍّ، لا لوحةَ قياس.
  * ============================================================================
@@ -720,7 +723,7 @@ export default function Library() {
   /* العائلات تُجلب مرة واحدة لبناء شرائح التصفية — فلا تُكتب في الواجهة. */
   useEffect(() => {
     let alive = true;
-    fetch(`${API_URL}/archive/overview`)
+    previewFetch(`${API_URL}/archive/overview`)
       .then((response) => (response.ok ? response.json() : Promise.reject(response)))
       .then((data: { families?: Family[] }) => {
         if (!alive) return;
@@ -786,7 +789,7 @@ export default function Library() {
       }
 
       try {
-        const response = await fetch(`${API_URL}/${endpoint}?${params}`, {
+        const response = await previewFetch(`${API_URL}/${endpoint}?${params}`, {
           signal: controller.signal,
           cache: "no-store",
         });
@@ -841,7 +844,7 @@ export default function Library() {
          أنه طُبّق. */
     });
 
-    fetch(`${API_URL}/archive/chunks?${params}`, {
+    previewFetch(`${API_URL}/archive/chunks?${params}`, {
       signal: controller.signal,
       cache: "no-store",
     })
@@ -1006,6 +1009,7 @@ export default function Library() {
    *    وهو أسوأ من رسالة. ولذلك يُفحص وجود الواجهة أولاً، ويُقال الخطأ نصّاً.
    */
   const copyDocument = useCallback(() => {
+    if (DEMO_MODE) return;
     if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
 
     const done = (message: string) => {
@@ -1453,7 +1457,7 @@ export default function Library() {
               <button
                 type="button"
                 onClick={copyDocument}
-                disabled={panelLoading || !plainText}
+                disabled={DEMO_MODE || panelLoading || !plainText}
                 title={plainText ? "انسخ نصّ المستند كاملاً" : "لا نصّ بعد لينسخ"}
                 className="mt-3 flex items-center gap-2 border border-slate-800 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-amber-500/40 hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 disabled:cursor-not-allowed disabled:border-slate-800/60 disabled:text-slate-600 disabled:hover:border-slate-800/60 disabled:hover:text-slate-600"
               >

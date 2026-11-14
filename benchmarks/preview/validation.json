@@ -1,0 +1,130 @@
+{
+  "date": "2026-11-14",
+  "timezone": "Asia/Dubai",
+  "branch": "feature/platform-live-preview",
+  "phase2d_base": "058f5a5988ae2b4109ccd39e05cc08866c6abf4e",
+  "deployment_status": "BLOCKED_NO_PRIVATE_HTTPS_FORWARDING_TOOL",
+  "external_https_url": null,
+  "requested_access": "private session forwarding",
+  "private_access_verification": "NOT_RUN",
+  "mode": "DEMO",
+  "scope": "LOCAL_ONLY",
+  "prerequisites": {
+    "vercel_auth": "ABSENT",
+    "vercel_project_link": "ABSENT",
+    "vercel_team_permissions_git_integration": "UNVERIFIED",
+    "vercel_api_network": "DENIED_PROXY_CONNECT_403",
+    "nonproduction_backend_configuration": "ABSENT",
+    "open_cloud_preview_tool": "UNAVAILABLE"
+  },
+  "quality_checks": {
+    "npm_ci": "PASS",
+    "eslint": "PASS",
+    "typescript": "PASS",
+    "demo_production_build": "PASS",
+    "ordinary_production_build": "PASS",
+    "existing_generation_input_checks": "45/45 PASS"
+  },
+  "demo_browser": {
+    "url": "http://127.0.0.1:4010",
+    "scope": "LOCAL_ONLY",
+    "mode": "DEMO",
+    "routes": [
+      {
+        "viewport": "desktop",
+        "route": "/",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/workspace",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/library",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/chat",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/credits",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/workspace",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/library",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/chat",
+        "status": "PASS",
+        "refresh": "PASS"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/credits",
+        "status": "PASS",
+        "refresh": "PASS"
+      }
+    ],
+    "interactions": [
+      "desktop: fixed draft, no approval, copy disabled",
+      "desktop: library, document panel, chunks, copy disabled",
+      "desktop: fixed chat, no verified citations",
+      "mobile: fixed draft, no approval, copy disabled",
+      "mobile: library, document panel, chunks, copy disabled",
+      "mobile: fixed chat, no verified citations"
+    ],
+    "failures": [],
+    "console_errors": [],
+    "failed_assets": [],
+    "browser_api_requests": [],
+    "cancelled_navigation_prefetches": 31,
+    "api_boundary": {
+      "denied_operations": 30,
+      "fixed_sample_operations": 2,
+      "filters": "PASS"
+    },
+    "local_upstream_canary_requests": 0,
+    "status": "PASS"
+  },
+  "ordinary_mode": {
+    "status": "PASS",
+    "scope": "LOCAL_ONLY",
+    "demo_default": "OFF",
+    "ordinary_build": "PASS",
+    "no_demo_indicator": true,
+    "editable_empty_prompt": true,
+    "proxy_methods_bodies_queries_auth": "5/5 PASS",
+    "missing_token_status": 503,
+    "real_backend_requests": 0
+  },
+  "connected_api": "BLOCKED",
+  "production_mutations": false,
+  "merge": false,
+  "deployment_performed": false
+}
