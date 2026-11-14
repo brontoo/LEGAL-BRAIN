@@ -1,0 +1,31 @@
+{
+  "scope": "small fictional deterministic core; HTTP admission/provider/stress reported separately",
+  "results": {
+    "role_v2": {
+      "samples": 100,
+      "p50_ms": 4.358244503237074,
+      "p95_ms": 5.158830994332675,
+      "p99_ms": 5.4770679998910055,
+      "mean_ms": 4.461478129887837,
+      "cpu_seconds": 1.838805182,
+      "peak_python_bytes": 166248,
+      "retained_python_growth_bytes_over_30_requests": 74649,
+      "process_peak_rss_kib": 22264,
+      "two_thread_core_requests_per_second": 209.17783436492044,
+      "memory_scope": "Python trace excludes pre-existing allocations; RSS is process lifetime high-water mark"
+    },
+    "precision_v3": {
+      "samples": 100,
+      "p50_ms": 4.435790498973802,
+      "p95_ms": 5.578412004979327,
+      "p99_ms": 5.8454059981158935,
+      "mean_ms": 4.599013349870802,
+      "cpu_seconds": 1.9004614800000001,
+      "peak_python_bytes": 139561,
+      "retained_python_growth_bytes_over_30_requests": 74908,
+      "process_peak_rss_kib": 22648,
+      "two_thread_core_requests_per_second": 187.77618002699828,
+      "memory_scope": "Python trace excludes pre-existing allocations; RSS is process lifetime high-water mark"
+    }
+  }
+}

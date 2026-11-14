@@ -1,5 +1,8 @@
 "use client";
 
+import { previewFetch } from "@/lib/preview-fetch";
+import { DEMO_MODE } from "@/lib/preview";
+
 /**
  * الأرشيف والمكتبة — فهرسُ ملفٍّ، لا لوحةَ قياس.
  * ============================================================================
@@ -26,7 +29,7 @@
  *    فهذه كلها صحيحة، وتغييرُها تغييرٌ لا إصلاح.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Search,
   X,
@@ -79,7 +82,7 @@ const DEBOUNCE_MS = 350;
  * فيصير تبديل ترتيب في صفحةٍ مبدّلاً لها هنا. والتفضيل يبقى بعد إغلاق التبويب
  * لأن اختيار «قائمة/شبكة» ليس حالة جلسة، بل طريقةَ عمل.
  */
-const VIEW_KEY = "library.view";
+import { changeView, readView, serverView, subscribeView } from "./view-preference";
 
 type Mode = "documents" | "chunks";
 
@@ -486,13 +489,7 @@ function ChunkCard({
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  /* ⚠️ إعادة ضبط الطيّ عند تغيّر المقطع: بطاقة طُوّيت في بحث سابق كانت تفتح
-     على نصّ آخر مطويّ — وهو إرباك بلا سبب. والمفتاح المركّب `family-id` هو
-     الذي يجعل React يعرف أنه مقطع آخر لا المقطع نفسه. */
-  useEffect(() => {
-    setExpanded(false);
-  }, [chunk.family, chunk.id]);
-
+  // Both callers key this card by family/id; React resets expansion on replacement.
   const long = chunk.content.length > CLAMP_HINT_CHARS;
 
   return (
@@ -682,7 +679,7 @@ export default function Library() {
   const [mode, setMode] = useState<Mode>("documents");
   /** ⚠️ «قائمة/شبكة» تفضيلُ عملٍ لا حالة جلسة: من رتّب مكتبه على الشبكة
    *  يريدها شبكةً في كل زيارة. ولهذا تُخزَّن، وتُقرأ بعد التركيب لا قبله. */
-  const [view, setView] = useState<"list" | "grid">("list");
+  const view = useSyncExternalStore(subscribeView, readView, serverView);
   const [search, setSearch] = useState("");
   const [family, setFamily] = useState("");
   /** المستند المفتوح في اللوحة — `""` يعني لا لوحة. */
@@ -726,7 +723,7 @@ export default function Library() {
   /* العائلات تُجلب مرة واحدة لبناء شرائح التصفية — فلا تُكتب في الواجهة. */
   useEffect(() => {
     let alive = true;
-    fetch(`${API_URL}/archive/overview`)
+    previewFetch(`${API_URL}/archive/overview`)
       .then((response) => (response.ok ? response.json() : Promise.reject(response)))
       .then((data: { families?: Family[] }) => {
         if (!alive) return;
@@ -753,32 +750,6 @@ export default function Library() {
       setCopyState("");
     };
   }, [documentName]);
-
-  /**
-   * قراءة تفضيل العرض — **بعد التركيب**.
-   *
-   * ⚠️ ولو قُرئ في `useState` الأولي لنشأ اختلافٌ بين ما رسمه الخادم
-   *    («قائمة») وما يرسمه المتصفّح («شبكة») — وهو خطأ الترطيب (hydration)
-   *    الذي يُسقط الشجرة كلها. فالقراءة في مؤثّر، والوميض ثمنٌ أرخص بكثير.
-   */
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(VIEW_KEY);
-      if (stored === "grid" || stored === "list") setView(stored);
-    } catch {
-      /* التخزين قد يكون معطّلاً (وضع خاص/سياسة) — الافتراضي «قائمة» يكفي */
-    }
-  }, []);
-
-  const changeView = useCallback((next: "list" | "grid") => {
-    setView(next);
-    try {
-      window.localStorage.setItem(VIEW_KEY, next);
-    } catch {
-      /* ⚠️ الفشل في الحفظ **لا يُترجم** إلى فشل في التبديل: العرض تبدّل فعلاً
-         في هذه الجلسة، وإظهار خطأ هنا يقول للمستخدم إن شيئاً لم يحدث. */
-    }
-  }, []);
 
   /**
    * جلب القائمة المعروضة (مستندات أو مقاطع).
@@ -818,7 +789,7 @@ export default function Library() {
       }
 
       try {
-        const response = await fetch(`${API_URL}/${endpoint}?${params}`, {
+        const response = await previewFetch(`${API_URL}/${endpoint}?${params}`, {
           signal: controller.signal,
           cache: "no-store",
         });
@@ -861,16 +832,9 @@ export default function Library() {
    *    من تمرير حالةٍ عبر وضعين.
    */
   useEffect(() => {
-    if (!documentName) {
-      setPanelResult(null);
-      setPanelError("");
-      setPanelLoading(false);
-      return;
-    }
+    if (!documentName) return;
 
     const controller = new AbortController();
-    setPanelLoading(true);
-    setPanelError("");
 
     const params = new URLSearchParams({
       limit: String(PAGE_SIZE),
@@ -880,7 +844,7 @@ export default function Library() {
          أنه طُبّق. */
     });
 
-    fetch(`${API_URL}/archive/chunks?${params}`, {
+    previewFetch(`${API_URL}/archive/chunks?${params}`, {
       signal: controller.signal,
       cache: "no-store",
     })
@@ -929,14 +893,26 @@ export default function Library() {
    *    نفسه فليكتبه ثانية.
    */
   const openDocument = useCallback((name: string) => {
+    if (name === documentName) {
+      setPanelTab("text");
+      return;
+    }
     setDocumentName(name);
+    setPanelResult(null);
+    setPanelError("");
+    setPanelLoading(true);
     setSearch("");
     setAppliedSearch("");
     setPanelTab("text");
-  }, []);
+  }, [documentName]);
 
   /** إغلاق اللوحة — والنتيجة تبقى مكانها، فالإغلاق ليس تصفيراً للبحث. */
-  const closePanel = useCallback(() => setDocumentName(""), []);
+  const closePanel = useCallback(() => {
+    setDocumentName("");
+    setPanelResult(null);
+    setPanelError("");
+    setPanelLoading(false);
+  }, []);
 
   /** رمي تصفية المستند وحدها — زرُّ الرقاقة في آثار التنقّل. */
   const clearDocumentScope = useCallback(() => {
@@ -988,8 +964,10 @@ export default function Library() {
     : undefined;
 
   /** مقاطع اللوحة بترتيب فقراتها — نسخة واحدة تخدم الورقة والمقاطع والنسخ. */
-  const panelChunks = panelResult?.key === "chunks" ? panelResult.chunks : [];
-  const orderedChunks = useMemo(() => orderChunks(panelChunks), [panelChunks]);
+  const orderedChunks = useMemo(
+    () => orderChunks(panelResult?.key === "chunks" ? panelResult.chunks : []),
+    [panelResult]
+  );
 
   /** النصّ المجموع للنسخ: فقرة، سطر خالٍ، فقرة. */
   const plainText = useMemo(
@@ -1031,6 +1009,7 @@ export default function Library() {
    *    وهو أسوأ من رسالة. ولذلك يُفحص وجود الواجهة أولاً، ويُقال الخطأ نصّاً.
    */
   const copyDocument = useCallback(() => {
+    if (DEMO_MODE) return;
     if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
 
     const done = (message: string) => {
@@ -1218,10 +1197,10 @@ export default function Library() {
                   value={sort.key}
                   onChange={(event) => {
                     const next = event.target.value as SortKey;
-                    setSort((current) => ({
+                    setSort({
                       key: next,
                       dir: next === "recent" ? "desc" : "asc",
-                    }));
+                    });
                   }}
                   className="h-9 appearance-none border border-slate-800 bg-slate-900 px-3 text-xs text-slate-300 transition-colors hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
                 >
@@ -1478,7 +1457,7 @@ export default function Library() {
               <button
                 type="button"
                 onClick={copyDocument}
-                disabled={panelLoading || !plainText}
+                disabled={DEMO_MODE || panelLoading || !plainText}
                 title={plainText ? "انسخ نصّ المستند كاملاً" : "لا نصّ بعد لينسخ"}
                 className="mt-3 flex items-center gap-2 border border-slate-800 px-3 py-2 text-xs text-slate-300 transition-colors hover:border-amber-500/40 hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 disabled:cursor-not-allowed disabled:border-slate-800/60 disabled:text-slate-600 disabled:hover:border-slate-800/60 disabled:hover:text-slate-600"
               >

@@ -1,5 +1,8 @@
 "use client";
 
+import { previewFetch } from "@/lib/preview-fetch";
+import { DEMO_MODE, DEMO_QUESTION } from "@/lib/preview";
+
 /**
  * المحادثة القانونية — سؤالٌ يُسأل، وجوابٌ يُعرَض **بما له من سند**.
  * ============================================================================
@@ -59,7 +62,7 @@ const CHAT_TIMEOUT_MS = 600_000;
  *    الخادم ليصل الجواب بالسياق. ولو كان سرّاً لكان موضعه `.env.local` بلا
  *    بادئة `NEXT_PUBLIC_` — ولا يُخزَّن سرٌّ في `localStorage` أصلاً.
  */
-const SESSION_KEY = "chat.session_id";
+const SESSION_KEY = DEMO_MODE ? "demo.chat.session_id" : "chat.session_id";
 
 type Turn = {
   id: string;
@@ -114,7 +117,7 @@ async function readError(response: Response): Promise<string> {
 
 export default function Chat() {
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(DEMO_MODE ? DEMO_QUESTION : "");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   /** الحال المعروضة أثناء الانتظار — تُبنى من مراحل النداء لا من مؤقّت وهمي. */
@@ -176,10 +179,10 @@ export default function Chat() {
 
     const turnId = newTurnId();
     setTurns((current) => [...current, { id: turnId, question, answer: null }]);
-    setDraft("");
+    setDraft(DEMO_MODE ? DEMO_QUESTION : "");
     setError("");
     setSending(true);
-    setNotice("أبحث في المكتبة وصياغة الجواب...");
+    setNotice(DEMO_MODE ? "عرض إجابة خيالية ثابتة" : "أبحث في المكتبة وصياغة الجواب...");
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -190,10 +193,10 @@ export default function Chat() {
     }, CHAT_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${API_URL}/chat`, {
+      const response = await previewFetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(DEMO_MODE ? {} : {
           prompt: question,
           /**
            * ⚠️ والفراغ يعني «جلسة جديدة»: الخادم يفهم `None` فيولّد `"default"`
@@ -374,6 +377,7 @@ export default function Chat() {
         */}
         <Textarea
           value={draft}
+          readOnly={DEMO_MODE}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
           disabled={sending}

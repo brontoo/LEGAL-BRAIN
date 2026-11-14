@@ -1,4 +1,6 @@
 import type { NextRequest } from "next/server";
+import { DEMO_MODE } from "@/lib/preview";
+import { demoResponse } from "@/lib/demo-api";
 
 /**
  * وسيط من الواجهة إلى خادم FastAPI.
@@ -24,7 +26,7 @@ const BACKEND_URL = (process.env.BACKEND_URL ?? "http://127.0.0.1:8000").replace
   ""
 );
 
-const API_TOKEN = process.env.API_TOKEN ?? "";
+const API_TOKEN = (process.env.API_TOKEN ?? "").trim();
 
 // بلا تخزين مؤقت: كل نداء يجب أن يصل إلى الخادم فعلاً
 export const dynamic = "force-dynamic";
@@ -35,6 +37,11 @@ export const runtime = "nodejs";
 type Context = { params: Promise<{ path: string[] }> };
 
 async function proxy(request: NextRequest, context: Context): Promise<Response> {
+  // This build cannot forward any API route in demo mode, even with credentials.
+  if (DEMO_MODE) return demoResponse(request, (await context.params).path);
+  if (process.env.NODE_ENV === "production" && !API_TOKEN) {
+    return new Response("خدمة الواجهة غير مهيأة للمصادقة.", { status: 503 });
+  }
   const { path } = await context.params;
 
   /*
@@ -78,13 +85,11 @@ async function proxy(request: NextRequest, context: Context): Promise<Response> 
       cache: "no-store",
       redirect: "manual",
     });
-  } catch (error) {
+  } catch {
     // الخادم متوقف أو العنوان خاطئ. نرجع نصاً عربياً واضحاً بدل أن يرى
     // المستخدم "Failed to fetch" الغامضة من المتصفح.
-    const detail = error instanceof Error ? error.message : "خطأ غير معروف";
     return new Response(
-      `تعذّر الوصول إلى خادم FastAPI على ${BACKEND_URL}\n` +
-        `تأكد من أنه يعمل (./dev.sh يشغّل الاثنين معاً).\n\n${detail}`,
+      "تعذّر الوصول إلى الخدمة الخلفية. تحقّق من تشغيل الخدمة وإعدادات الاتصال.",
       { status: 502, headers: { "content-type": "text/plain; charset=utf-8" } }
     );
   }

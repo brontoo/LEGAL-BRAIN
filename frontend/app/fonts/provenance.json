@@ -1,0 +1,38 @@
+{
+  "repository": "google/fonts",
+  "commit": "c30b221beb0c1da59d563feb91ec8656a1fa972a",
+  "license": "SIL Open Font License 1.1; see each family OFL.txt",
+  "modifications": "None; original font bytes",
+  "assets": [
+    {
+      "path": "amiri/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/amiri/OFL.txt",
+      "sha256": "72de68e5954f4fdd24702292ef5a32f003ca960ec9330dc86e5eefb5dffb9b22",
+      "bytes": 4389
+    },
+    {
+      "path": "amiri/Amiri-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/amiri/Amiri-Regular.ttf",
+      "sha256": "ab391c4147d054c48976e98322ad0eefe1427aa0e0502a12a4c75d80a70cfcd7",
+      "bytes": 431116
+    },
+    {
+      "path": "amiri/Amiri-Bold.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/amiri/Amiri-Bold.ttf",
+      "sha256": "cfccb794268e7d573d857e6d6a67f89cf8a053e8ffd85dfa0c8ec1bb36fc4827",
+      "bytes": 413480
+    },
+    {
+      "path": "noto-kufi-arabic/OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/notokufiarabic/OFL.txt",
+      "sha256": "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96",
+      "bytes": 4382
+    },
+    {
+      "path": "noto-kufi-arabic/NotoKufiArabic-Variable.ttf",
+      "source": "https://raw.githubusercontent.com/google/fonts/c30b221beb0c1da59d563feb91ec8656a1fa972a/ofl/notokufiarabic/NotoKufiArabic%5Bwght%5D.ttf",
+      "sha256": "494f6b61469d7a02a2d63f0fc4930bb007388d8cfe551de5eb98354e100889f3",
+      "bytes": 434204
+    }
+  ]
+}

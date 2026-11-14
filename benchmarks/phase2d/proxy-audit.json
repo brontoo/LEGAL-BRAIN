@@ -1,0 +1,11 @@
+{
+  "scope": "local production Next.js with no external ingress user authentication, real FastAPI/core; external SDKs faked",
+  "anonymous_proxy_analysis_status": 200,
+  "anonymous_direct_backend_status": 401,
+  "anonymous_proxy_archive_status": 200,
+  "oversized_proxy_request_status": 413,
+  "service_token_returned_to_browser": false,
+  "user_identity_established": false,
+  "public_deployment_readiness": "BLOCKED",
+  "source_text_in_result_artifact": false
+}

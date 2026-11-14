@@ -1,0 +1,13 @@
+{
+  "state": "PREPARED",
+  "cases": 30,
+  "test_only": true,
+  "human_review": "NOT_RUN",
+  "legal_approval": "not_provided",
+  "new_key_outside_git": true,
+  "owner_only_permissions_checked": true,
+  "reviewer_outputs_separate": true,
+  "published_packet_retired": true,
+  "assignment_key_in_artifact": false,
+  "actual_reviewer_records": 0
+}

@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
-import { Amiri, Noto_Kufi_Arabic } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
+import "./preview.css";
 import { SiteNav } from "@/components/site-nav";
 import { Letterhead } from "@/components/letterhead";
 // ⚠️ غلاف تفضيل الحركة — مكوّن عميل لأن `MotionConfig` سياقٌ في React،
 // و`layout.tsx` مكوّن خادم. وهو يلفّ الشجرة كما هي بلا تغيير في بنيتها.
 import { MotionPreference } from "@/components/motion-preference";
+import { DemoNotice } from "@/components/demo-notice";
+import { DEMO_MODE } from "@/lib/preview";
 
 /**
  * الترويسة والإطار العام — هوية «المحفوظات».
@@ -32,17 +35,18 @@ import { MotionPreference } from "@/components/motion-preference";
  */
 
 // خطّ الوثيقة — مطبعة بولاق
-const amiri = Amiri({
-  subsets: ["arabic"],
-  weight: ["400", "700"],
+const amiri = localFont({
+  src: [
+    { path: "./fonts/amiri/Amiri-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/amiri/Amiri-Bold.ttf", weight: "700", style: "normal" },
+  ],
   variable: "--font-amiri",
   display: "swap",
 });
 
 // خطّ الواجهة — كوفي هندسي
-const kufi = Noto_Kufi_Arabic({
-  subsets: ["arabic"],
-  weight: ["300", "400", "500", "700"],
+const kufi = localFont({
+  src: [{ path: "./fonts/noto-kufi-arabic/NotoKufiArabic-Variable.ttf", weight: "100 900", style: "normal" }],
   variable: "--font-kufi",
   display: "swap",
 });
@@ -64,6 +68,7 @@ export default function RootLayout({
       className={`dark ${amiri.variable} ${kufi.variable}`}
     >
       <body
+        data-demo={DEMO_MODE ? "true" : undefined}
         className={`${kufi.className} bg-slate-950 text-slate-50 antialiased flex h-screen overflow-hidden`}
       >
         {/*
@@ -92,6 +97,7 @@ export default function RootLayout({
 
         {/* المساحة الرئيسية */}
         <main className="flex h-screen flex-1 flex-col overflow-hidden">
+          <DemoNotice />
           <header className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950 ps-8 pe-8">
             <div className="font-heading text-sm text-slate-500">
               مرحباً بك، أستاذ أحمد

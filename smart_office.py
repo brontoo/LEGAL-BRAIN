@@ -58,7 +58,7 @@ def custom_gemini_backend(messages, temperature=0.7, max_tokens=8192):
         )
         return response.text
     except Exception as e:
-        print(f"⚠️ خطأ أثناء الاتصال بـ Gemini: {e}")
+        print("⚠️ تعذّر الاتصال بـ Gemini. تحقّق من إعدادات الخدمة.")
         raise e # السماح للخطأ بالظهور ليقوم Swarmmy بإعادة المحاولة
 
 # ==========================================

@@ -1,5 +1,9 @@
 # ⚖️ LEGAL-BRAIN — العقل القانوني الإماراتي
 
+Visual preview: [isolated demo and private-preview access status](docs/platform-live-preview.md).
+Demo mode is explicitly enabled with `NEXT_PUBLIC_LEGAL_BRAIN_DEMO=true` at build/run
+time and is disabled by default. It never connects to a legal backend.
+
 منصة عربية أولاً (Arabic-first) لتوليد المستندات القانونية الإماراتية **بأسلوب المحامي نفسه**.
 
 الفكرة ليست الإجابة عن أسئلة قانونية عامة، بل استرجاع **سوابق المستخدم الشخصية** — عقوده،
@@ -748,3 +752,67 @@ pip list | grep -ci '^nvidia-'                        # يجب أن يكون ص�
 ## الترخيص
 
 مشروع خاص — جميع الحقوق محفوظة.
+
+## Optional Legal Skills Framework (Phase 1)
+
+The five local UAE legal playbooks are disabled by default
+(`ENABLE_LEGAL_SKILLS=false`). See [architecture, API, activation and developer
+guide](docs/legal-skills.md), [license/provenance review](docs/skills-provenance.md),
+and [compatibility and validation report](docs/skills-phase1-report.md).
+
+Phase 1.5 adds production authentication guards, licensed local fonts, frontend
+validation fixes and bilingual acceptance tests. See the
+[stabilization report](docs/skills-phase1-5-report.md) and
+[production configuration requirements](docs/skills-production-readiness.md).
+
+## Optional hybrid legal retrieval (Phase 2A)
+
+`ENABLE_HYBRID_LEGAL_RETRIEVAL=false` preserves legacy vector retrieval and remains
+independent of legal skills. See [architecture/configuration](docs/hybrid-retrieval-architecture.md),
+[manual migration/rollback](docs/hybrid-retrieval-migration.md),
+[measured synthetic benchmark](docs/hybrid-retrieval-benchmark.md),
+[legal safeguards](docs/hybrid-retrieval-legal-safeguards.md),
+[acceptance matrix](docs/hybrid-retrieval-acceptance.md), and
+[completion report](docs/phase2a-completion-report.md).
+
+## Phase 2B: Clause intelligence
+
+Optional, default-off analysis of explicitly supplied document text is available
+through the authenticated `/api/analyze/clauses` server proxy. It preserves exact
+source spans and returns extraction candidates, evidence gaps and pending human
+review. It does not approve enforceability or signature.
+
+See [architecture/API](docs/phase2b-architecture.md),
+[taxonomy](docs/phase2b-clause-taxonomy.md),
+[evidence safeguards](docs/phase2b-evidence-reasoning.md),
+[measured benchmark](docs/phase2b-benchmark.md),
+[acceptance](docs/phase2b-acceptance.md) and
+[completion report](docs/phase2b-completion-report.md).
+
+## Phase 2C: Optional semantic-role hardening
+
+`ENABLE_CLAUSE_ROLE_V2=false` preserves Phase 2B extraction. Opt-in roles add exact
+field evidence, bilingual negation/condition handling and conservative alignment
+without legal or signature approval. The existing API/schema/proxy remains.
+
+See [architecture](docs/phase2c-architecture.md),
+[role metrics](docs/phase2c-semantic-role-evaluation.md),
+[bilingual benchmark](docs/phase2c-bilingual-benchmark.md),
+[lawyer protocol](docs/phase2c-lawyer-review-protocol.md),
+[live validation blockers](docs/phase2c-live-validation.md),
+[security/performance](docs/phase2c-security-performance.md),
+[acceptance](docs/phase2c-acceptance.md) and
+[completion report](docs/phase2c-completion-report.md).
+
+## Phase 2D: Validation integrity and targeted corrections
+
+The Phase 2C A/B packet is retired for blinded review because its key was committed;
+history was not purged. New reviewer material and keys must stay outside Git.
+`ENABLE_CLAUSE_PRECISION_V3=false` preserves current extraction defaults and requires
+role_v2 for opt-in identity/action/object corrections.
+
+See [architecture](docs/phase2d-architecture.md), [blinding security](docs/phase2d-blinded-evaluation-security.md),
+[accuracy](docs/phase2d-beneficiary-and-arabic-accuracy.md), [held-out evaluation](docs/phase2d-held-out-evaluation.md),
+[lawyer assessment](docs/phase2d-lawyer-assessment.md), [live harnesses](docs/phase2d-live-integration.md),
+[privacy/auth audit](docs/phase2d-privacy-authentication.md), [performance](docs/phase2d-performance.md),
+[acceptance](docs/phase2d-acceptance.md) and [completion](docs/phase2d-completion-report.md).

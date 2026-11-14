@@ -48,4 +48,4 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   يُحزَّم داخل جافاسكربت المتصفح ويقرأه أي زائر من مصدر الصفحة. ولذلك
   `API_TOKEN` و`BACKEND_URL` في `frontend/.env.local` **بلا** بادئة.
 
-- **الخطوط:** Tajawal عبر `next/font/google` في `app/layout.tsx`.
+- **الخطوط:** Amiri وNoto Kufi Arabic محلياً عبر `next/font/local` في `app/layout.tsx`، مع رخص SIL OFL. لا تضف طلبات خطوط خارجية وقت البناء أو التشغيل.

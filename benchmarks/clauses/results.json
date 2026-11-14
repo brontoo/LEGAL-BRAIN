@@ -1,0 +1,1031 @@
+{
+  "fixture_sha256": "dbdeb162e1fe5ff2c97f81b0d76496c093af5ad0d0512ce398c35f9ac3fb0e13",
+  "documents": 20,
+  "annotated_provisions": 120,
+  "annotated_segments_including_titles": 140,
+  "adversarial_or_incomplete_documents": 12,
+  "mode": "offline_deterministic_no_live_model",
+  "metrics": {
+    "all": {
+      "segmentation": {
+        "tp": 140,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "classification": {
+        "tp": 160,
+        "fp": 8,
+        "fn": 6,
+        "precision": 0.9523809523809523,
+        "recall": 0.963855421686747,
+        "f1": 0.9580838323353293,
+        "false_discovery_rate": 0.047619047619047616,
+        "false_negative_rate": 0.03614457831325301
+      },
+      "entities": {
+        "tp": 21,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.9545454545454546,
+        "recall": 1.0,
+        "f1": 0.9767441860465116,
+        "false_discovery_rate": 0.045454545454545456,
+        "false_negative_rate": 0.0
+      },
+      "obligations": {
+        "tp": 56,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.9824561403508771,
+        "recall": 0.9824561403508771,
+        "f1": 0.9824561403508771,
+        "false_discovery_rate": 0.017543859649122806,
+        "false_negative_rate": 0.017543859649122806
+      },
+      "references": {
+        "tp": 12,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "potential_conflicts": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "classification_exact_accuracy": 0.9214285714285714,
+      "exact_evidence_span_validity": 1.0,
+      "cross_reference_resolution_accuracy": 1.0,
+      "classification_false_positive_rate": 0.002213613724405091
+    },
+    "en": {
+      "segmentation": {
+        "tp": 70,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "classification": {
+        "tp": 79,
+        "fp": 5,
+        "fn": 4,
+        "precision": 0.9404761904761905,
+        "recall": 0.9518072289156626,
+        "f1": 0.9461077844311377,
+        "false_discovery_rate": 0.05952380952380952,
+        "false_negative_rate": 0.04819277108433735
+      },
+      "entities": {
+        "tp": 10,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.9090909090909091,
+        "recall": 1.0,
+        "f1": 0.9523809523809523,
+        "false_discovery_rate": 0.09090909090909091,
+        "false_negative_rate": 0.0
+      },
+      "obligations": {
+        "tp": 31,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "references": {
+        "tp": 6,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "potential_conflicts": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "classification_exact_accuracy": 0.9,
+      "exact_evidence_span_validity": 1.0,
+      "cross_reference_resolution_accuracy": 1.0,
+      "classification_false_positive_rate": 0.002767017155506364
+    },
+    "ar": {
+      "segmentation": {
+        "tp": 63,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "classification": {
+        "tp": 72,
+        "fp": 3,
+        "fn": 2,
+        "precision": 0.96,
+        "recall": 0.972972972972973,
+        "f1": 0.9664429530201343,
+        "false_discovery_rate": 0.04,
+        "false_negative_rate": 0.02702702702702703
+      },
+      "entities": {
+        "tp": 10,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "obligations": {
+        "tp": 23,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "references": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "potential_conflicts": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": null,
+        "recall": null,
+        "f1": null,
+        "false_discovery_rate": null,
+        "false_negative_rate": null
+      },
+      "classification_exact_accuracy": 0.9365079365079365,
+      "exact_evidence_span_validity": 1.0,
+      "cross_reference_resolution_accuracy": 1.0,
+      "classification_false_positive_rate": 0.0018438844499078057
+    },
+    "bilingual": {
+      "segmentation": {
+        "tp": 7,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "classification": {
+        "tp": 9,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "entities": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "obligations": {
+        "tp": 2,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.6666666666666666,
+        "recall": 0.6666666666666666,
+        "f1": 0.6666666666666666,
+        "false_discovery_rate": 0.3333333333333333,
+        "false_negative_rate": 0.3333333333333333
+      },
+      "references": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "potential_conflicts": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "false_discovery_rate": 0.0,
+        "false_negative_rate": 0.0
+      },
+      "classification_exact_accuracy": 1.0,
+      "exact_evidence_span_validity": 1.0,
+      "cross_reference_resolution_accuracy": 1.0,
+      "classification_false_positive_rate": 0.0
+    }
+  },
+  "unsupported_claim_rejection": {
+    "rejected": 140,
+    "total": 140,
+    "rate": 1.0
+  },
+  "evidence_span_checks": {
+    "valid": 673,
+    "total": 673
+  },
+  "latency_ms": {
+    "mean": 18.070291750245815,
+    "max": 32.08015400014119,
+    "p95": 28.523684000901994
+  },
+  "per_document": [
+    {
+      "document_id": "fictional-01",
+      "language": "en",
+      "scenario": "Abu Dhabi marketing agency",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 32.08015400014119
+    },
+    {
+      "document_id": "fictional-02",
+      "language": "en",
+      "scenario": "Brokerage commission condition",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [
+            [
+              86,
+              150,
+              "assignment_transfer"
+            ]
+          ],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 18.387711999821477
+    },
+    {
+      "document_id": "fictional-03",
+      "language": "en",
+      "scenario": "Property MOU buyer default",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": [
+            [
+              83,
+              137,
+              "corporate_authority"
+            ]
+          ]
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 18.23016500020458
+    },
+    {
+      "document_id": "fictional-04",
+      "language": "en",
+      "scenario": "Conditional property maintenance",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [
+            [
+              50,
+              87,
+              "maintenance_repair"
+            ]
+          ],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 18.108210000718827
+    },
+    {
+      "document_id": "fictional-05",
+      "language": "en",
+      "scenario": "Mutual NDA with IP assignment",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [
+            [
+              331,
+              359,
+              "other"
+            ]
+          ],
+          "false_negatives": [
+            [
+              331,
+              359,
+              "non_compete"
+            ]
+          ]
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 13.968465000289143
+    },
+    {
+      "document_id": "fictional-06",
+      "language": "en",
+      "scenario": "Recruitment outsourcing",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 14.389191999725881
+    },
+    {
+      "document_id": "fictional-07",
+      "language": "en",
+      "scenario": "Corporate share transfer",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": [
+            [
+              228,
+              272,
+              "representations_warranties"
+            ]
+          ]
+        },
+        "entities": {
+          "false_positives": [
+            "Fictional Nora"
+          ],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 13.974695999422693
+    },
+    {
+      "document_id": "fictional-08",
+      "language": "en",
+      "scenario": "Conflicting payment periods",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [
+            [
+              50,
+              86,
+              "payment"
+            ],
+            [
+              255,
+              292,
+              "other"
+            ]
+          ],
+          "false_negatives": [
+            [
+              255,
+              292,
+              "corporate_authority"
+            ]
+          ]
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 17.053409001164255
+    },
+    {
+      "document_id": "fictional-09",
+      "language": "en",
+      "scenario": "ADGM services and liability caps",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 16.519935001269914
+    },
+    {
+      "document_id": "fictional-10",
+      "language": "en",
+      "scenario": "DIFC and adversarial instructions",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 13.4795199992368
+    },
+    {
+      "document_id": "fictional-11",
+      "language": "ar",
+      "scenario": "عقد تسويق أبوظبي",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [
+            [
+              276,
+              299,
+              "other"
+            ]
+          ],
+          "false_negatives": [
+            [
+              276,
+              299,
+              "notices"
+            ]
+          ]
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 16.437274000054458
+    },
+    {
+      "document_id": "fictional-12",
+      "language": "ar",
+      "scenario": "عمولة وساطة مشروطة",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": [
+            [
+              98,
+              146,
+              "conditions_precedent"
+            ]
+          ]
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 15.528354999332805
+    },
+    {
+      "document_id": "fictional-13",
+      "language": "ar",
+      "scenario": "صيانة إيجار تجاري",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 17.15434400102822
+    },
+    {
+      "document_id": "fictional-14",
+      "language": "ar",
+      "scenario": "اتفاقية استشارات ودفعة مقدمة",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 19.021022999368142
+    },
+    {
+      "document_id": "fictional-15",
+      "language": "ar",
+      "scenario": "وكالة محدودة الصلاحيات",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 16.078319000371266
+    },
+    {
+      "document_id": "fictional-16",
+      "language": "ar",
+      "scenario": "تجديد ملتبس وملحق مفقود",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [
+            [
+              50,
+              97,
+              "renewal"
+            ]
+          ],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 17.34720800050127
+    },
+    {
+      "document_id": "fictional-17",
+      "language": "ar",
+      "scenario": "أطراف وأسماء معرفة ملتبسة",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [
+            [
+              197,
+              249,
+              "default_breach"
+            ]
+          ],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 28.523684000901994
+    },
+    {
+      "document_id": "fictional-18",
+      "language": "ar",
+      "scenario": "نص ناقص وتعليمات مضللة",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 17.424511999706738
+    },
+    {
+      "document_id": "fictional-19",
+      "language": "ar",
+      "scenario": "اتفاقية سرية وملكية فكرية",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 16.42719300070894
+    },
+    {
+      "document_id": "fictional-20",
+      "language": "bilingual",
+      "scenario": "Mixed versions and unresolved precedence",
+      "errors": {
+        "segmentation": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "classification": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "entities": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "obligations": {
+          "false_positives": [
+            [
+              6,
+              "statement_of_fact"
+            ]
+          ],
+          "false_negatives": [
+            [
+              6,
+              "conditional_obligation"
+            ]
+          ]
+        },
+        "references": {
+          "false_positives": [],
+          "false_negatives": []
+        },
+        "potential_conflicts": {
+          "false_positives": [],
+          "false_negatives": []
+        }
+      },
+      "elapsed_ms": 21.272465000947705
+    }
+  ],
+  "limitations": [
+    "Engineering-authored diagnostic fixture, not lawyer-adjudicated or statistically representative.",
+    "Extraction sets score clause-level obligation kind, not full semantic role accuracy.",
+    "References use exact clause/status/ordinal matches; accuracy is intersection/union.",
+    "No held-out corpus, model training, NLI validation or legal-quality claim."
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "backend_test": "READY_FOR_TEST",
+  "local_dependencies": "BLOCKED_MISSING_DEPENDENCY",
+  "gemini": "BLOCKED_MISSING_CONFIGURATION",
+  "supabase": "BLOCKED_MISSING_CONFIGURATION",
+  "e5_model": "BLOCKED_MISSING_DEPENDENCY",
+  "test_database": "BLOCKED_MISSING_CONFIGURATION",
+  "nonproduction_confirmation": "BLOCKED_ENVIRONMENT_UNVERIFIED",
+  "presence": {
+    "GOOGLE_API_KEY": false,
+    "SUPABASE_URL": false,
+    "SUPABASE_KEY": false,
+    "LEGAL_BRAIN_TEST_PROJECT_REF": false,
+    "LEGAL_BRAIN_TEST_DATABASE_DSN": false
+  },
+  "packages": {
+    "fastapi": true,
+    "pydantic": true,
+    "supabase": false,
+    "sentence_transformers": false,
+    "langchain_google_genai": false,
+    "langchain_core": false,
+    "langgraph": false
+  },
+  "model_loaded": false,
+  "network_access_performed": false,
+  "credential_authorization": "operator_confirmation_only_not_inferred_from_presence"
+}

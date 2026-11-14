@@ -27,6 +27,10 @@ from citations import (
 # قاعدةً في الجدول عدّلها في الموجّه بلا أن يتذكّر. وهذا هو أصل العيب الذي جاء
 # `labour_rules` لمنعه — قاعدة تعيش في مكان ولا تصل إلى النموذج.
 from labour_rules import rules_block
+from retrieval import HybridRetrievalEngine, RetrievalRequest
+from retrieval import config as retrieval_config
+from retrieval.context import current_session, retrieval_session
+from retrieval.evidence import build as build_hybrid_evidence
 
 load_dotenv()
 
@@ -131,6 +135,8 @@ class EvidenceCollector:
     def __init__(self) -> None:
         self.allocator = RefAllocator()
         self._evidence: list[Evidence] = []
+        self._hybrid_evidence: dict = {}
+        self._hybrid_lock = threading.RLock()
 
     def add(self, items: list[Evidence]) -> None:
         """يُضيف مقاطع أداة واحدة إلى سجلّ الجولة."""
@@ -165,7 +171,10 @@ def collect_evidence() -> Iterator[EvidenceCollector]:
     collector = EvidenceCollector()
     token = _current_collector.set(collector)
     try:
-        yield collector
+        scope = (retrieval_session() if retrieval_config.enabled() and current_session() is None
+                 else contextlib.nullcontext())
+        with scope:
+            yield collector
     finally:
         _current_collector.reset(token)
 
@@ -268,8 +277,26 @@ def _search(tool_key: str, query: str) -> str:
     قصيرة وأُعيد نصّ مرقَّم يستطيع النموذج الاقتباس منه — وعندها يمكن التحقّق.
     وإن لم يكن، أُعيد التنسيق القديم كما كان بالضبط.
     """
+    if retrieval_config.enabled():
+        session = current_session()
+        if session is None:
+            # Direct tool use gets an isolated scope too. No global evidence/cache.
+            with retrieval_session():
+                return _search(tool_key, query)
+        request = RetrievalRequest(query, tool_key, session.context)
+        result = HybridRetrievalEngine(get_supabase(), encode_query).search(request, session)
+        if not result.candidates:
+            return ("لم تتوفر مصادر مؤهلة؛ تحقق من نطاق البحث والمصادر المتاحة."
+                    if result.status in ("no_eligible_sources", "empty_query", "unsupported_jurisdiction")
+                    else "تعذر استرجاع مصادر مؤهلة حالياً. لم يُتحقق من أي سند.")
+        collector = current_collector()
+        if collector is None:
+            # Non-verified interfaces still receive fenced, explicitly classified context.
+            collector = EvidenceCollector()
+        return build_hybrid_evidence(result, collector, tool_key, MAX_CHARS_PER_CHUNK)
+
     rpc_name, threshold, count, _label = _TOOL_CONFIG[tool_key]
-    print(f"\n[Agent Tool] {_TOOL_ICONS[tool_key]} {_TOOL_LOG_LABELS[tool_key]}: {query}")
+    print(f"\n[Agent Tool] {_TOOL_ICONS[tool_key]} {_TOOL_LOG_LABELS[tool_key]}")
 
     response = get_supabase().rpc(
         rpc_name,

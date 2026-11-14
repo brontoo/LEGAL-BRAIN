@@ -1,0 +1,76 @@
+{
+  "skill_id": "uae-legal-risk",
+  "name": "UAE Legal Risk Assessment",
+  "version": "1.0.0",
+  "description": "UAE Legal Risk Assessment methodology with evidence gaps, jurisdiction checks and mandatory human review.",
+  "jurisdiction": [
+    "uae_federal",
+    "abu_dhabi",
+    "dubai",
+    "sharjah",
+    "other_uae_emirates",
+    "adgm",
+    "difc"
+  ],
+  "supported_languages": [
+    "ar",
+    "en"
+  ],
+  "category": "risk",
+  "document_types": [
+    "risk_assessment",
+    "transaction"
+  ],
+  "trigger_terms": [
+    "legal risks",
+    "legal risk",
+    "risk assessment",
+    "المخاطر القانونية",
+    "تقييم المخاطر"
+  ],
+  "required_inputs": [
+    "matter_description",
+    "evidence"
+  ],
+  "optional_inputs": [
+    "supported_severity",
+    "supported_likelihood",
+    "risk_matrix",
+    "financial_evidence"
+  ],
+  "output_contract": {
+    "sections": [
+      "scope_and_gaps",
+      "jurisdiction",
+      "risk_register",
+      "mitigation_plan",
+      "human_review"
+    ],
+    "item_fields": [
+      "risk_description",
+      "evidence",
+      "assumptions",
+      "severity",
+      "likelihood",
+      "overall_risk",
+      "mitigation_options",
+      "residual_risk",
+      "escalation_recommendation",
+      "human_review_requirements"
+    ]
+  },
+  "dependencies": [],
+  "review_requirements": [
+    "qualified_lawyer_before_reliance",
+    "existing_legal_verification"
+  ],
+  "risk_level": "high",
+  "source_attribution": {
+    "urls": [
+      "https://github.com/w95/awesome-claude-corporate-skills/blob/78dbc7c719920610d5b1c60bd13d9bb52d711c7a/06-legal-compliance/legal-risk-assessment/SKILL.md"
+    ],
+    "adaptation": "Independent UAE methodology; no foreign legal rules adopted. See docs/skills-provenance.md."
+  },
+  "legal_authority_policy": "workflow_only_verified_authority_required",
+  "enabled": true
+}
