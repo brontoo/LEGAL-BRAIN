@@ -8,7 +8,29 @@ step "run-a-script" {
         action_type = "Octopus.Script"
         properties = {
             Octopus.Action.RunOnServer = "false"
-            Octopus.Action.Script.ScriptBody = "Write-Host \"Hello, World!\""
+            Octopus.Action.Script.ScriptBody = <<-EOT
+                helm install --rollback-on-failure \
+                --create-namespace --namespace octopus-agent-legal-brain \
+                --version "3.*.*" \
+                --set agent.acceptEula="Y" \
+                --set agent.space="Default" \
+                --set agent.serverUrl="https://legalbrain.octopus.app/" \
+                --set agent.serverCommsAddresses="{https://polling.legalbrain.octopus.app/}" \
+                --set agent.bearerToken="eyJhbGciOiJQUzI1NiIsImtpZCI6ImExZjg4ZTM0ZTJlNDQyM2M5ZTAxYjE0ZWViMzUzNGViIiwidHlwIjoidm5kLm9jdG9wdXMuYXBpK2p3dCJ9.eyJhdWQiOiJodHRwczovL2xlZ2FsYnJhaW4ub2N0b3B1cy5hcHAiLCJpc3MiOiJodHRwczovL2xlZ2FsYnJhaW4ub2N0b3B1cy5hcHAiLCJleHAiOjE3OTQ2NTUyMDEsImlhdCI6MTc5NDY1MTYwMSwibmJmIjoxNzk0NjUxNjAxLCJqdGkiOiIyODVmNjZjNWExYWQ0OWYxOWE4MTg2ZDBmYTc2YzA5MSIsInN1YiI6ImI4MzAxNmZlLTQ4ODMtNGVhOS04NzcyLWY0ZDI0MjU0YWNiZiJ9.o_NeLReondUjCJFWAkgCLbGwni7RsOkXd1elJLj56pN87azkHXiRcy2Xiw0_M9BukebcqpoZMozcwJClGAXxlTULkZdlF3QsxLDCy-Z6eF5XjlmU4reT4scmCoiqok7-aNp0roAuHA1AnX6GDIuUEBKggOWPvXoATyat6tPNcQz1qapSb888i-dDbs4OmrCQ3Lkd0Of54tufwDdvwXfLml3kcMMiwkhlH45BPm7YmSO7jd-cADZtfJHz8Ng7MPTrCXbBR2DEpg7214oH1LEpqa_Fedtj4OxLCTH8YZyvsZq3PlO7obf9ZNCFd9ReQWu5smKMtODY0SQad9fvOadB_g" \
+                --set agent.name="legal-brain" \
+                --set agent.deploymentTarget.initial.environments="{development,production}" \
+                --set agent.deploymentTarget.initial.tags="{legal-brain}" \
+                --set agent.deploymentTarget.enabled="true" \
+                --set agent.deploymentTarget.initial.defaultNamespace="AHMED" \
+                --set kubernetesMonitor.enabled="true" \
+                --set kubernetesMonitor.registration.serverApiUrl="https://legalbrain.octopus.app/" \
+                --set kubernetesMonitor.monitor.serverGrpcUrl="grpc://legalbrain.octopus.app:8443" \
+                --set kubernetesMonitor.registration.serverAccessToken="eyJhbGciOiJQUzI1NiIsImtpZCI6ImExZjg4ZTM0ZTJlNDQyM2M5ZTAxYjE0ZWViMzUzNGViIiwidHlwIjoidm5kLm9jdG9wdXMuYXBpK2p3dCJ9.eyJhdWQiOiJodHRwczovL2xlZ2FsYnJhaW4ub2N0b3B1cy5hcHAiLCJpc3MiOiJodHRwczovL2xlZ2FsYnJhaW4ub2N0b3B1cy5hcHAiLCJleHAiOjE3OTQ2NTUyMDEsImlhdCI6MTc5NDY1MTYwMSwibmJmIjoxNzk0NjUxNjAxLCJqdGkiOiIyODVmNjZjNWExYWQ0OWYxOWE4MTg2ZDBmYTc2YzA5MSIsInN1YiI6ImI4MzAxNmZlLTQ4ODMtNGVhOS04NzcyLWY0ZDI0MjU0YWNiZiJ9.o_NeLReondUjCJFWAkgCLbGwni7RsOkXd1elJLj56pN87azkHXiRcy2Xiw0_M9BukebcqpoZMozcwJClGAXxlTULkZdlF3QsxLDCy-Z6eF5XjlmU4reT4scmCoiqok7-aNp0roAuHA1AnX6GDIuUEBKggOWPvXoATyat6tPNcQz1qapSb888i-dDbs4OmrCQ3Lkd0Of54tufwDdvwXfLml3kcMMiwkhlH45BPm7YmSO7jd-cADZtfJHz8Ng7MPTrCXbBR2DEpg7214oH1LEpqa_Fedtj4OxLCTH8YZyvsZq3PlO7obf9ZNCFd9ReQWu5smKMtODY0SQad9fvOadB_g" \
+                --set kubernetesMonitor.registration.spaceId="Spaces-1" \
+                --set kubernetesMonitor.registration.machineName="legal-brain" \
+                legal-brain \
+                oci://registry-1.docker.io/octopusdeploy/kubernetes-agent
+                EOT
             Octopus.Action.Script.ScriptSource = "Inline"
             Octopus.Action.Script.Syntax = "PowerShell"
         }
