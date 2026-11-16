@@ -1,45 +1,64 @@
 # ============================================================================
-# الخلفية: FastAPI + نموذج تضمين محلي
-# ----------------------------------------------------------------------------
-# ⚠️ **ولماذا حاوية لا serverless؟** لأن الحزمة ٥٨٢٦ م.ب والحدّ ٥٠٠ — **ولأن
-# `torch` يحتاج ذاكرةً وقرصاً دائماً، **ولأن `tesseract` و`poppler` **مكتبات
-# نظام** لا تُثبَّت بـ`pip`.** ⇒ فالمضيف **حاوية** لا دالّة.
+# الخلفية: FastAPI + نموذج تضمين محلي + دعم OCR العربي
 # ============================================================================
 
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
-# ⚠️ **و`tesseract-ocr-ara` هو المهمّ**: بدونه **يفشل استخراج النصّ العربي**
-# من المستندات المصوَّرة — وهو **جوهر المنصّة** لا زينة.
-# ⚠️ و`poppler-utils` يلزمه `pdf2image` لتحويل صفحات PDF إلى صور.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      tesseract-ocr \
-      tesseract-ocr-ara \
-      poppler-utils \
+# منع أدوات Debian من محاولة فتح واجهة تفاعلية أثناء البناء
+ENV DEBIAN_FRONTEND=noninteractive
+
+# إعدادات Python والتطبيق
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    APP_ENV=production \
+    HF_HOME=/data/hf \
+    PORT=8080
+
+# git مطلوب لأن requirements.txt يحتوي على:
+# swarmmy @ git+https://github.com/loayabdalslam/Swarmmy.git
+#
+# tesseract-ocr-ara لاستخراج النص العربي
+# poppler-utils لتحويل ومعالجة ملفات PDF
+# ca-certificates لاتصالات HTTPS مع GitHub وPyPI وHugging Face
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+        poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-ara \
+        tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# ⚠️ **و`torch` بطبعة CPU أوّلاً، قبل بقية المتطلبات.**
-# فالطبعة الافتراضية تجرّ حزم CUDA (~٢.٥ ج.ب) **ولا بطاقة رسوميات على المضيف**
-# ⇒ فتُنزَّل بلا فائدة، **وتُبطئ البناء وتُضخّم الصورة**. وتثبيتها هنا
-# **يُشبع** متطلَّب `sentence-transformers` فلا يُعاد تنزيلها بحزم CUDA.
-RUN pip install --no-cache-dir \
-      --extra-index-url https://download.pytorch.org/whl/cpu \
-      torch
+# تحديث أدوات تثبيت وبناء حزم Python
+RUN python -m pip install --upgrade \
+        pip \
+        setuptools \
+        wheel
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# تثبيت نسخة CPU فقط من PyTorch
+# استخدم الرابط النصي العادي، دون أي وسوم HTML
+RUN python -m pip install \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch
 
+# نسخ المتطلبات أولاً للاستفادة من Docker layer cache
+COPY requirements.txt ./
+
+# يمكن الآن تثبيت Swarmmy من GitHub لأن git أصبح مثبتاً
+RUN python -m pip install -r requirements.txt
+
+# نسخ ملفات التطبيق
 COPY . .
 
-# ⚠️ **والنموذج في قرصٍ دائم**: `HF_HOME` تُوجّه مخزن Hugging Face.
-# وبلا قرصٍ مُوصَّل على `/data`، **يُعاد تنزيل ~٢ ج.ب في كل إعادة تشغيل**.
-ENV HF_HOME=/data/hf
-ENV PYTHONUNBUFFERED=1
-ENV APP_ENV=production
+# إنشاء مسار تخزين نماذج Hugging Face
+RUN mkdir -p /data/hf
 
-EXPOSE 8000
+EXPOSE 8080
 
-# ⚠️ **و`PORT` يُقرأ من البيئة كما يقرأه `main.py` نفسه** — فالمضيف يفرضه
-# ولا يجوز تثبيته.
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
+# يجب أن يطابق المنفذ internal_port = 8080 في fly.toml
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080} --no-access-log"]
